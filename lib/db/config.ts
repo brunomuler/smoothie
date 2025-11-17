@@ -2,6 +2,11 @@ import { Pool } from 'pg'
 
 const DATABASE_URL = process.env.DATABASE_URL
 
+console.log('[DB Config] DATABASE_URL exists:', !!DATABASE_URL)
+if (DATABASE_URL) {
+  console.log('[DB Config] DATABASE_URL preview:', DATABASE_URL.substring(0, 30) + '...')
+}
+
 if (!DATABASE_URL) {
   console.warn('DATABASE_URL is not set - database features will be unavailable')
 }
@@ -17,9 +22,11 @@ function getPool(): Pool | null {
 
   // In serverless environments, reuse existing pool if available
   if (cachedPool) {
+    console.log('[DB Config] Reusing cached pool')
     return cachedPool
   }
 
+  console.log('[DB Config] Creating new pool with connection string')
   // Create new pool with serverless-optimized settings
   cachedPool = new Pool({
     connectionString: DATABASE_URL,
@@ -34,6 +41,7 @@ function getPool(): Pool | null {
     allowExitOnIdle: true,
   })
 
+  console.log('[DB Config] Pool created successfully')
   return cachedPool
 }
 

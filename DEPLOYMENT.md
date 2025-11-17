@@ -42,8 +42,10 @@ In the Netlify dashboard:
 
    ```
    Key: DATABASE_URL
-   Value: postgresql://neondb_owner:npg_GusOKF6J0kCL@ep-empty-wave-ahr1wvfq-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+   Value: postgresql://your_user:your_password@your-project-pooler.region.aws.neon.tech/your_database?sslmode=require
    ```
+
+   Replace the placeholder with your actual Neon database connection string from your Neon dashboard.
 
    ⚠️ **Security Note**: Make sure to use Neon's connection pooler URL (contains `-pooler` in hostname) for serverless deployments.
 
