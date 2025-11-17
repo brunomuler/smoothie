@@ -33,7 +33,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import type { BalanceData, ChartDataPoint } from "@/types/wallet-balance"
+import type { BalanceData, ChartDataPoint as WalletChartDataPoint } from "@/types/wallet-balance"
+import type { ChartDataPoint } from "@/types/balance-history"
 import type { BlendReservePosition } from "@/lib/blend/positions"
 import { useLiveBalance } from "@/hooks/use-live-balance"
 import { FormattedBalance } from "@/components/formatted-balance"
@@ -42,7 +43,7 @@ import { BalanceHistoryChart } from "@/components/balance-history-chart"
 
 interface WalletBalanceProps {
   data: BalanceData
-  chartData: ChartDataPoint[]
+  chartData: WalletChartDataPoint[]
   publicKey?: string
   assetAddress?: string
   positions?: BlendReservePosition[] // SDK positions with current b_rate
@@ -94,42 +95,42 @@ export function WalletBalance({ data, chartData, publicKey, assetAddress, positi
     ? Math.max(data.apyPercentage, 0) / 100
     : 0
 
-  // Fetch last 15 days for summary chart view (without $0 baseline)
-  const { chartData: historyChartData } = useBalanceHistory({
-    publicKey: publicKey || '',
-    assetAddress: assetAddress || '',
-    days: 15,
-    enabled: !!publicKey && !!assetAddress,
-    includeBaselineDay: false,
-  })
-
   // Fetch full history (90 days) for accurate earnings stats and initial b_rate
-  const { earningsStats, data: historyData } = useBalanceHistory({
+  const { earningsStats, data: historyData, chartData: fullHistoryChartData } = useBalanceHistory({
     publicKey: publicKey || '',
     assetAddress: assetAddress || '',
     days: 90,
     enabled: !!publicKey && !!assetAddress,
   })
 
+  // Derive 15-day chart data from the full 90-day dataset (eliminates duplicate fetch)
+  const historyChartData = useMemo(() => {
+    if (fullHistoryChartData.length === 0) return []
+    // Get last 15 days from the full dataset
+    return fullHistoryChartData.slice(-15)
+  }, [fullHistoryChartData])
+
   // Use balance history chart data if available, otherwise fallback to prop
   // Transform fallback data to have 'total' field for chart compatibility
-  const displayChartData = historyChartData.length > 0
-    ? historyChartData
-    : chartData.map(point => {
-        const date = new Date(point.date)
-        return {
-          date: point.date,
-          formattedDate: date.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          }),
-          timestamp: date.getTime(),
-          total: Number(point.balance) || 0, // Ensure numeric value
-          deposit: Number(point.deposit) || 0, // Ensure numeric value
-          yield: Number(point.yield) || 0,
-          pools: [],
-        }
-      })
+  const displayChartData = useMemo((): ChartDataPoint[] => {
+    return historyChartData.length > 0
+      ? historyChartData
+      : chartData.map(point => {
+          const date = new Date(point.date)
+          return {
+            date: point.date,
+            formattedDate: date.toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+            }),
+            timestamp: date.getTime(),
+            total: Number(point.balance) || 0, // Ensure numeric value
+            deposit: Number(point.deposit) || 0, // Ensure numeric value
+            yield: Number(point.yield) || 0,
+            pools: [],
+          }
+        })
+  }, [historyChartData, chartData])
 
   const { displayBalance } = useLiveBalance(initialBalance, apyDecimal, null, 0)
 
@@ -171,7 +172,7 @@ export function WalletBalance({ data, chartData, publicKey, assetAddress, positi
   const showLiveGrowthAmount = hasSignificantAmount(liveGrowthAmount)
 
   // Enhanced chart data: last 15 days + today + 12 month projection
-  const enhancedChartData = (() => {
+  const enhancedChartData = useMemo((): ChartDataPoint[] => {
     const today = new Date()
     const todayStr = today.toISOString().split('T')[0]
 
@@ -218,7 +219,7 @@ export function WalletBalance({ data, chartData, publicKey, assetAddress, positi
     }
 
     return baseData
-  })()
+  }, [displayChartData, displayBalance, initialBalance, data.apyPercentage])
 
   const liveBalanceFormatter = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -230,8 +231,8 @@ export function WalletBalance({ data, chartData, publicKey, assetAddress, positi
   const liveDeltaFormatter = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 7,
-    maximumFractionDigits: 7,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
     signDisplay: "always",
   })
 
@@ -265,10 +266,10 @@ export function WalletBalance({ data, chartData, publicKey, assetAddress, positi
           <FormattedBalance value={formattedLiveBalance} />
         </CardTitle>
         <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-          {formattedLiveGrowth} yield earned
+          {formattedLiveGrowth} yield
           {showPercentageGain && (
             <span className="ml-1 text-emerald-500 dark:text-emerald-300">
-              ({formatSignedPercentage(percentageGain)}% gain)
+              ({formatSignedPercentage(percentageGain)}%)
             </span>
           )}
         </p>
@@ -407,7 +408,6 @@ export function WalletBalance({ data, chartData, publicKey, assetAddress, positi
                     strokeWidth={2}
                     fill="var(--color-total)"
                     fillOpacity={0.1}
-                    strokeDasharray={(dataPoint: any) => dataPoint?.isProjected ? "5 5" : "0"}
                   />
                   {/* Mark today's value */}
                   <ReferenceDot

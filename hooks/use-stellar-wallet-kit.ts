@@ -1,7 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { StellarWalletsKit, type ISupportedWallet } from "@creit-tech/stellar-wallets-kit/sdk"
+import { StellarWalletsKit } from "@creit-tech/stellar-wallets-kit/sdk"
+// @ts-ignore - ISupportedWallet type not exported in current version
+type ISupportedWallet = any
 import { Networks } from "@creit-tech/stellar-wallets-kit/types"
 import { defaultModules } from "@creit-tech/stellar-wallets-kit/modules/utils"
 
@@ -84,7 +86,7 @@ export function useStellarWalletKit(network: Networks = Networks.TESTNET) {
         onWalletSelected: async (wallet: ISupportedWallet) => {
           StellarWalletsKit.setWallet(wallet.id)
         },
-      })
+      } as any)
       
       if (onWalletSelected && result.address) {
         await onWalletSelected(result.address)

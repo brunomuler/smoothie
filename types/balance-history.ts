@@ -62,6 +62,10 @@ export interface ChartDataPoint {
   isDeposit?: boolean
   depositChange?: number
 
+  // Enhanced chart markers
+  isToday?: boolean // Marks the current day
+  isProjected?: boolean // Marks projected future data
+
   // For tooltip display
   pools: {
     poolId: string

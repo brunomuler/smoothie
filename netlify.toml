@@ -26,8 +26,10 @@
 # Function settings for API routes
 [functions]
   node_bundler = "esbuild"
-  # Increase timeout for database queries
-  functions_timeout = 10
+
+# Set timeout for all functions (10 seconds)
+[functions."*"]
+  timeout = 10
 
 # Environment variables (set these in Netlify UI)
 # DATABASE_URL = "your-neon-db-url"

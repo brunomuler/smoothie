@@ -52,10 +52,10 @@ function hasNonZeroPercentage(value: number): boolean {
   return Math.abs(value) >= 0.005
 }
 
-export function AssetCard({ data, onAction }: AssetCardProps) {
-  const handleAction = (action: AssetAction) => {
+const AssetCardComponent = ({ data, onAction }: AssetCardProps) => {
+  const handleAction = React.useCallback((action: AssetAction) => {
     onAction?.(action, data.id)
-  }
+  }, [onAction, data.id])
 
   const initialBalance = Number.isFinite(data.rawBalance) ? Math.max(data.rawBalance, 0) : 0
   const apyDecimal = Number.isFinite(data.apyPercentage)
@@ -75,7 +75,7 @@ export function AssetCard({ data, onAction }: AssetCardProps) {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
-    maximumFractionDigits: 7,
+    maximumFractionDigits: 2,
     signDisplay: "always",
   })
 
@@ -87,7 +87,11 @@ export function AssetCard({ data, onAction }: AssetCardProps) {
 
   const formattedYield = yieldFormatter.format(yieldToShow)
   const hasSignificantYield = Math.abs(yieldToShow) >= 0.01
-  const yieldDayCount: number = data.earnedYieldDays ?? 0
+
+  // Calculate percentage increase: (yield / initial balance) * 100
+  const initialBalanceValue = Number.isFinite(data.rawBalance) ? Math.max(data.rawBalance, 0) : 0
+  const yieldPercentage = initialBalanceValue > 0 ? (yieldToShow / initialBalanceValue) * 100 : 0
+  const formattedYieldPercentage = yieldPercentage !== 0 ? ` (${yieldPercentage >= 0 ? '+' : ''}${yieldPercentage.toFixed(2)}%)` : ''
 
   return (
     <Card className="@container/asset-card">
@@ -114,7 +118,7 @@ export function AssetCard({ data, onAction }: AssetCardProps) {
               </span>
               {hasSignificantYield && (
                 <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">
-                  {formattedYield} yield{yieldDayCount > 0 && ` over ${yieldDayCount} days`}
+                  {formattedYield} yield{formattedYieldPercentage}
                 </span>
               )}
             </div>
@@ -191,3 +195,17 @@ export function AssetCard({ data, onAction }: AssetCardProps) {
     </Card>
   )
 }
+
+// Memoize component to prevent unnecessary re-renders when parent updates
+// Only re-render if data properties or onAction callback change
+export const AssetCard = React.memo(AssetCardComponent, (prevProps, nextProps) => {
+  // Custom comparison: only re-render if essential data changed
+  return (
+    prevProps.data.id === nextProps.data.id &&
+    prevProps.data.rawBalance === nextProps.data.rawBalance &&
+    prevProps.data.apyPercentage === nextProps.data.apyPercentage &&
+    prevProps.data.growthPercentage === nextProps.data.growthPercentage &&
+    prevProps.data.earnedYield === nextProps.data.earnedYield &&
+    prevProps.onAction === nextProps.onAction
+  )
+})

@@ -73,12 +73,18 @@ export function BalanceHistoryChart({
   })
 
   // Prepare deposit markers for scatter plot
-  const depositMarkers = chartData.map((point, index) => {
+  const depositMarkers = chartData.map((point) => {
     const hasChange = positionChanges.some(
       (change) => change.date === point.date,
     )
     return hasChange ? point.total : null
   })
+
+  // Create enhanced chart data with marker field
+  const chartDataWithMarkers = chartData.map((point, index) => ({
+    ...point,
+    depositMarker: depositMarkers[index],
+  }))
 
   if (error) {
     return (
@@ -147,7 +153,7 @@ export function BalanceHistoryChart({
       <CardContent>
         <ChartContainer config={chartConfig} className="h-[400px] w-full">
           <AreaChart
-            data={chartData}
+            data={chartDataWithMarkers}
             margin={{ top: 10, right: 10, left: 10, bottom: 0 }}
           >
             <defs>
@@ -254,7 +260,7 @@ export function BalanceHistoryChart({
 
             {/* Deposit/withdrawal markers */}
             <Scatter
-              dataKey={(_, index) => depositMarkers[index]}
+              dataKey="depositMarker"
               fill="var(--color-deposits)"
               shape="star"
               name="deposits"

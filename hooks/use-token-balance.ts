@@ -17,7 +17,6 @@ export function useTokenBalance(
 
         // Simulate the balance query
         const result = await rpc.simulateTransaction(
-          // @ts-expect-error - Stellar SDK types need updating
           contract.call(
             "balance",
             Address.fromString(userAddress).toScVal()

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
+import { useQueries } from "@tanstack/react-query"
 import { WalletSelector } from "@/components/wallet-selector"
 import { WalletBalance } from "@/components/wallet-balance"
 import { AssetCard } from "@/components/asset-card"
@@ -8,7 +9,6 @@ import { BalanceHistoryChart } from "@/components/balance-history-chart"
 import { BalanceEarningsStats } from "@/components/balance-earnings-stats"
 import { BalanceRawDataTable } from "@/components/balance-raw-data-table"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
-import { useBalanceHistory } from "@/hooks/use-balance-history"
 import type { Wallet } from "@/types/wallet"
 import type { ChartDataPoint } from "@/types/wallet-balance"
 import type { AssetCardData } from "@/types/asset-card"
@@ -110,60 +110,51 @@ export default function Home() {
     return Array.from(addresses)
   }, [assetCards])
 
-  // Fetch balance history for up to 5 unique assets (most wallets won't have more)
-  const asset1 = uniqueAssetAddresses[0] || ''
-  const asset2 = uniqueAssetAddresses[1] || ''
-  const asset3 = uniqueAssetAddresses[2] || ''
-  const asset4 = uniqueAssetAddresses[3] || ''
-  const asset5 = uniqueAssetAddresses[4] || ''
+  // Batch fetch balance history for all unique assets using useQueries
+  // This eliminates the N+1 query problem by managing all queries in parallel
+  const balanceHistoryQueries = useQueries({
+    queries: uniqueAssetAddresses.slice(0, 5).map((assetAddress) => ({
+      queryKey: ["balance-history", activeWallet?.publicKey || '', assetAddress, 90],
+      queryFn: async () => {
+        const params = new URLSearchParams({
+          user: activeWallet?.publicKey || '',
+          asset: assetAddress,
+          days: '90',
+        })
 
-  const history1 = useBalanceHistory({
-    publicKey: activeWallet?.publicKey || '',
-    assetAddress: asset1,
-    days: 90,
-    enabled: !!activeWallet?.publicKey && !!asset1,
-  })
+        const response = await fetch(`/api/balance-history?${params.toString()}`)
 
-  const history2 = useBalanceHistory({
-    publicKey: activeWallet?.publicKey || '',
-    assetAddress: asset2,
-    days: 90,
-    enabled: !!activeWallet?.publicKey && !!asset2,
-  })
+        if (!response.ok) {
+          const error = await response.json()
+          throw new Error(error.message || "Failed to fetch balance history")
+        }
 
-  const history3 = useBalanceHistory({
-    publicKey: activeWallet?.publicKey || '',
-    assetAddress: asset3,
-    days: 90,
-    enabled: !!activeWallet?.publicKey && !!asset3,
-  })
-
-  const history4 = useBalanceHistory({
-    publicKey: activeWallet?.publicKey || '',
-    assetAddress: asset4,
-    days: 90,
-    enabled: !!activeWallet?.publicKey && !!asset4,
-  })
-
-  const history5 = useBalanceHistory({
-    publicKey: activeWallet?.publicKey || '',
-    assetAddress: asset5,
-    days: 90,
-    enabled: !!activeWallet?.publicKey && !!asset5,
+        return response.json()
+      },
+      enabled: !!activeWallet?.publicKey && !!assetAddress,
+      staleTime: 5 * 60 * 1000, // 5 minutes (historical data doesn't change frequently)
+      refetchOnWindowFocus: false,
+      retry: 2,
+    })),
   })
 
   // Build a mapping from poolId to earnings data
   const poolEarningsMap = useMemo(() => {
     const map = new Map<string, { totalInterest: number; dayCount: number }>()
-    const histories = [history1, history2, history3, history4, history5]
 
-    uniqueAssetAddresses.forEach((_assetAddress, index) => {
-      if (index >= histories.length) return
+    balanceHistoryQueries.forEach((query, index) => {
+      if (!query.data?.history || query.data.history.length === 0) return
 
-      const { earningsStats } = histories[index]
+      // Calculate earnings stats for this asset
+      const { fillMissingDates, detectPositionChanges, calculateEarningsStats } =
+        require('@/lib/balance-history-utils')
+
+      const chartData = fillMissingDates(query.data.history, true)
+      const positionChanges = detectPositionChanges(query.data.history)
+      const earningsStats = calculateEarningsStats(chartData, positionChanges)
 
       // Add per-pool earnings to the map
-      Object.entries(earningsStats.perPool).forEach(([poolId, stats]) => {
+      Object.entries(earningsStats.perPool).forEach(([poolId, stats]: [string, any]) => {
         map.set(poolId, {
           totalInterest: stats.totalInterest,
           dayCount: earningsStats.dayCount,
@@ -172,7 +163,7 @@ export default function Home() {
     })
 
     return map
-  }, [uniqueAssetAddresses, history1, history2, history3, history4, history5])
+  }, [balanceHistoryQueries])
 
   // Enrich asset cards with actual earnings data
   const enrichedAssetCards = useMemo(() => {
