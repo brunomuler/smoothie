@@ -34,9 +34,9 @@ function getPool(): Pool | null {
       rejectUnauthorized: false, // Required for Neon
     },
     // Serverless-optimized settings
-    max: 1, // Minimize connections per function instance
-    idleTimeoutMillis: 10000, // Close idle connections quickly
-    connectionTimeoutMillis: 10000,
+    max: 5, // Allow multiple concurrent connections
+    idleTimeoutMillis: 30000, // Keep connections alive longer
+    connectionTimeoutMillis: 30000, // Increase timeout for slow connections
     // Allow graceful termination
     allowExitOnIdle: true,
   })
