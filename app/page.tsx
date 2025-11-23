@@ -297,8 +297,8 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Smoothie</h1>
+        <div className="container mx-auto px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
+          <h1 className="text-xl sm:text-2xl font-bold">Smoothie</h1>
           <WalletSelector
             wallets={wallets}
             activeWallet={activeWallet}
@@ -309,13 +309,13 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-4 py-6 sm:py-8">
         {!activeWallet ? (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-            <h2 className="text-3xl font-semibold mb-4">
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+            <h2 className="text-2xl sm:text-3xl font-semibold mb-4">
               Welcome to Smoothie
             </h2>
-            <p className="text-muted-foreground mb-8 max-w-md">
+            <p className="text-muted-foreground mb-8 max-w-md text-sm sm:text-base">
               Connect your wallet or follow an address to view your Blend
               positions and track your earnings.
             </p>

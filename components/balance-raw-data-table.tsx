@@ -104,9 +104,73 @@ export function BalanceRawDataTable({
               No raw data available
             </p>
           ) : (
-            <div className="relative w-full overflow-auto">
-              <div className="max-h-[600px] overflow-y-auto">
-                <Table>
+            <>
+              {/* Mobile Card View */}
+              <div className="md:hidden space-y-3 max-h-[600px] overflow-y-auto">
+                {sortedRecords.map((record, index) => (
+                  <div
+                    key={`${record.snapshot_date}-${record.pool_id}-${record.ledger_sequence}-${index}-mobile`}
+                    className="border rounded-lg p-4 space-y-2 bg-card"
+                  >
+                    <div className="flex justify-between items-start gap-2 pb-2 border-b">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Pool</div>
+                        <div className="font-mono text-sm font-semibold" title={record.pool_id}>
+                          {getPoolName(record.pool_id)}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-muted-foreground">Date</div>
+                        <div className="text-sm">{record.snapshot_date}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <div className="text-muted-foreground">Net Balance</div>
+                        <div className="font-mono font-semibold text-sm">
+                          {formatCurrency(record.net_balance)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Supply Balance</div>
+                        <div className="font-mono text-sm">
+                          {formatCurrency(record.supply_balance)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Collateral</div>
+                        <div className="font-mono text-sm">
+                          {formatCurrency(record.collateral_balance)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Debt</div>
+                        <div className="font-mono text-sm">
+                          {formatCurrency(record.debt_balance)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">Ledger Seq</div>
+                        <div className="font-mono text-sm">
+                          {record.ledger_sequence.toLocaleString()}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-muted-foreground">b_rate</div>
+                        <div className="font-mono text-sm">
+                          {formatNumber(record.b_rate, 7)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block relative w-full overflow-auto">
+                <div className="max-h-[600px] overflow-y-auto">
+                  <Table>
                   <TableHeader className="sticky top-0 bg-background z-10">
                     <TableRow>
                       <TableHead className="min-w-[120px]">Pool ID</TableHead>
@@ -196,6 +260,7 @@ export function BalanceRawDataTable({
                 </Table>
               </div>
             </div>
+            </>
           )}
         </CardContent>
       )}

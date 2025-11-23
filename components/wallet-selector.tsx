@@ -146,15 +146,16 @@ export function WalletSelector({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="gap-2 min-w-[140px]">
-            <Wallet className="h-4 w-4" />
+          <Button variant="outline" className="gap-1 sm:gap-2 min-w-[120px] sm:min-w-[140px] text-xs sm:text-sm">
+            <Wallet className="h-4 w-4 shrink-0" />
             {activeWallet ? (
-              <span className="font-mono text-sm">
+              <span className="font-mono truncate">
                 {shortenAddress(activeWallet.publicKey)}
               </span>
             ) : (
-              <span>Connect Wallet</span>
+              <span className="hidden xs:inline">Connect Wallet</span>
             )}
+            {!activeWallet && <span className="xs:hidden">Connect</span>}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">

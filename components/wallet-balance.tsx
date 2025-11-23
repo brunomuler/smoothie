@@ -391,7 +391,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress }: Wa
                       View Full History
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+                  <DialogContent className="max-w-[95vw] sm:max-w-3xl lg:max-w-5xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                       <DialogTitle>Balance History - Full View</DialogTitle>
                     </DialogHeader>
@@ -409,7 +409,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress }: Wa
 
       <Separator />
 
-      <CardFooter className="flex items-stretch gap-4">
+      <CardFooter className="flex flex-col sm:flex-row items-stretch gap-4">
         <div className="flex flex-1 flex-col gap-1 py-2">
           <div className="text-sm text-muted-foreground">Daily Yield</div>
           <div className="text-xl font-semibold tabular-nums">
@@ -417,7 +417,8 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress }: Wa
           </div>
         </div>
 
-        <Separator orientation="vertical" className="self-stretch" />
+        <Separator orientation="vertical" className="hidden sm:block self-stretch" />
+        <Separator className="sm:hidden" />
 
         <div className="flex flex-1 flex-col gap-1 py-2">
           <div className="text-sm text-muted-foreground">Monthly Yield</div>
@@ -426,7 +427,8 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress }: Wa
           </div>
         </div>
 
-        <Separator orientation="vertical" className="self-stretch" />
+        <Separator orientation="vertical" className="hidden sm:block self-stretch" />
+        <Separator className="sm:hidden" />
 
         <div className="flex flex-1 flex-col gap-1 py-2">
           <div className="text-sm text-muted-foreground">Annual Yield</div>

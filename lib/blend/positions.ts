@@ -154,9 +154,13 @@ async function loadPoolInstance(
     };
     return snapshot;
   } catch (error) {
-    console.warn(
+    console.error(
       `[blend] Failed to load pool ${trackedPool.id}:`,
-      (error as Error)?.message ?? error
+      (error as Error)?.message ?? error,
+      '\nRPC endpoint:',
+      network.rpc,
+      '\nPassphrase:',
+      network.passphrase
     );
     return null;
   }
