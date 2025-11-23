@@ -33,6 +33,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { BalanceData, ChartDataPoint as WalletChartDataPoint } from "@/types/wallet-balance"
 import type { ChartDataPoint, EarningsStats, PositionChange } from "@/types/balance-history"
 import { useLiveBalance } from "@/hooks/use-live-balance"
@@ -49,6 +50,7 @@ interface WalletBalanceProps {
     chartData: ChartDataPoint[]
     positionChanges: PositionChange[]
   }
+  loading?: boolean
 }
 
 function formatPercentage(value: number): string {
@@ -91,7 +93,61 @@ const chartConfig = {
   },
 }
 
-const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress, balanceHistoryData }: WalletBalanceProps) => {
+const WalletBalanceSkeleton = () => {
+  return (
+    <Card className="@container/card">
+      <CardHeader>
+        <CardDescription>
+          <Skeleton className="h-4 w-24" />
+        </CardDescription>
+        <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+          <Skeleton className="h-8 w-48 @[250px]/card:h-9" />
+        </CardTitle>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-6 w-24" />
+          <Skeleton className="h-6 w-24" />
+        </div>
+      </CardHeader>
+
+      <CardContent>
+        <div className="space-y-2">
+          <Skeleton className="aspect-[3/1] w-full" />
+        </div>
+      </CardContent>
+
+      <Separator />
+
+      <CardFooter className="flex flex-row items-stretch gap-2 @[250px]/card:gap-4">
+        <div className="flex flex-1 flex-col gap-0.5 py-2">
+          <Skeleton className="h-3 w-16 @[250px]/card:h-4" />
+          <Skeleton className="h-4 w-20 @[250px]/card:h-5" />
+        </div>
+
+        <Separator orientation="vertical" className="self-stretch" />
+
+        <div className="flex flex-1 flex-col gap-0.5 py-2">
+          <Skeleton className="h-3 w-20 @[250px]/card:h-4" />
+          <Skeleton className="h-4 w-20 @[250px]/card:h-5" />
+        </div>
+
+        <Separator orientation="vertical" className="self-stretch" />
+
+        <div className="flex flex-1 flex-col gap-0.5 py-2">
+          <Skeleton className="h-3 w-20 @[250px]/card:h-4" />
+          <Skeleton className="h-4 w-20 @[250px]/card:h-5" />
+        </div>
+      </CardFooter>
+    </Card>
+  )
+}
+
+const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress, balanceHistoryData, loading }: WalletBalanceProps) => {
+  // Show skeleton while loading
+  if (loading) {
+    return <WalletBalanceSkeleton />
+  }
+
   const initialBalance = Number.isFinite(data.rawBalance) ? Math.max(data.rawBalance, 0) : 0
   const apyDecimal = Number.isFinite(data.apyPercentage)
     ? Math.max(data.apyPercentage, 0) / 100
