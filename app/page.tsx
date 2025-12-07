@@ -8,11 +8,12 @@ import { WalletSelector } from "@/components/wallet-selector"
 import { WalletBalance } from "@/components/wallet-balance"
 import { TransactionHistory } from "@/components/transaction-history"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Card, CardHeader, CardTitle, CardContent, CardAction } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { Wallet as WalletIcon, ArrowDownFromLine, History } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Wallet as WalletIcon, ArrowDownFromLine, History, TrendingUp, TrendingDown, PiggyBank } from "lucide-react"
 import type { Wallet } from "@/types/wallet"
 import type { ChartDataPoint } from "@/types/wallet-balance"
 import type { AssetCardData } from "@/types/asset-card"
@@ -515,23 +516,52 @@ export default function Home() {
                 />
 
                 <Tabs defaultValue="positions" className="w-full">
-                  <TabsList className="w-full h-12 p-1">
-                    <TabsTrigger value="positions" className="flex-1 gap-2 h-10">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="positions" className="gap-2">
                       <WalletIcon className="h-4 w-4" />
                       Positions
                     </TabsTrigger>
-                    <TabsTrigger value="borrows" className="flex-1 gap-2 h-10">
+                    <TabsTrigger value="borrows" className="gap-2">
                       <ArrowDownFromLine className="h-4 w-4" />
                       Borrows
                     </TabsTrigger>
-                    <TabsTrigger value="history" className="flex-1 gap-2 h-10">
+                    <TabsTrigger value="history" className="gap-2">
                       <History className="h-4 w-4" />
                       History
                     </TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="positions" className="space-y-4">
-                    {enrichedAssetCards.length > 0 ? (
+                    {isLoading ? (
+                      <div className="grid gap-4 grid-cols-1">
+                        {[...Array(2)].map((_, i) => (
+                          <Card key={i}>
+                            <CardHeader>
+                              <Skeleton className="h-6 w-32" />
+                            </CardHeader>
+                            <CardContent>
+                              <div className="space-y-3">
+                                {[...Array(3)].map((_, j) => (
+                                  <div key={j} className="flex items-center justify-between py-3">
+                                    <div className="flex items-center gap-3">
+                                      <Skeleton className="h-10 w-10 rounded-full" />
+                                      <div className="space-y-2">
+                                        <Skeleton className="h-4 w-24" />
+                                        <Skeleton className="h-3 w-32" />
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <Skeleton className="h-6 w-20" />
+                                      <Skeleton className="h-6 w-20" />
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    ) : enrichedAssetCards.length > 0 ? (
                       <div className="grid gap-4 grid-cols-1">
                         {Object.entries(
                           enrichedAssetCards.reduce((acc, asset) => {
@@ -552,16 +582,14 @@ export default function Home() {
                           return (
                             <Card key={poolId}>
                               <CardHeader>
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <CardTitle>{poolName}</CardTitle>
-                                  </div>
+                                <CardTitle>{poolName}</CardTitle>
+                                <CardAction>
                                   <Link href={`/pool/${encodeURIComponent(poolId)}`}>
                                     <Button variant="outline" size="sm">
                                       View Details
                                     </Button>
                                   </Link>
-                                </div>
+                                </CardAction>
                               </CardHeader>
                               <CardContent>
                                 <div className="space-y-3">
@@ -621,10 +649,12 @@ export default function Home() {
                                         </div>
                                         <div className="flex gap-2">
                                           <Badge variant="secondary" className="text-xs">
+                                            <TrendingUp className="mr-1 h-3 w-3" />
                                             {asset.apyPercentage.toFixed(2)}% APY
                                           </Badge>
                                           {asset.growthPercentage > 0.005 && (
                                             <Badge variant="secondary" className="text-xs">
+                                              <PiggyBank className="mr-1 h-3 w-3" />
                                               +{asset.growthPercentage.toFixed(2)}% BLND
                                             </Badge>
                                           )}
@@ -673,16 +703,14 @@ export default function Home() {
                           return (
                             <Card key={poolId}>
                               <CardHeader>
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <CardTitle>{poolName}</CardTitle>
-                                  </div>
+                                <CardTitle>{poolName}</CardTitle>
+                                <CardAction>
                                   <Link href={`/pool/${encodeURIComponent(poolId)}`}>
                                     <Button variant="outline" size="sm">
                                       View Details
                                     </Button>
                                   </Link>
-                                </div>
+                                </CardAction>
                               </CardHeader>
                               <CardContent>
                                 <div className="space-y-3">
@@ -751,6 +779,7 @@ export default function Home() {
                                         </div>
                                         <div className="flex gap-2">
                                           <Badge variant="secondary" className="text-xs">
+                                            <TrendingDown className="mr-1 h-3 w-3" />
                                             {position.borrowApy.toFixed(2)}% APY
                                           </Badge>
                                         </div>

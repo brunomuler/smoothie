@@ -99,22 +99,24 @@ const WalletBalanceSkeleton = () => {
 
       <Separator />
 
-      <CardFooter className="flex flex-row items-stretch gap-2 @[250px]/card:gap-4">
-        <div className="flex flex-1 flex-col gap-0.5 py-2">
+      <CardFooter className="flex flex-col @[350px]/card:flex-row items-stretch gap-2 @[350px]/card:gap-4">
+        <div className="flex flex-1 flex-row @[350px]/card:flex-col gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <Skeleton className="h-3 w-16 @[250px]/card:h-4" />
           <Skeleton className="h-4 w-20 @[250px]/card:h-5" />
         </div>
 
-        <Separator orientation="vertical" className="self-stretch" />
+        <Separator orientation="horizontal" className="@[350px]/card:hidden" />
+        <Separator orientation="vertical" className="self-stretch hidden @[350px]/card:block" />
 
-        <div className="flex flex-1 flex-col gap-0.5 py-2">
+        <div className="flex flex-1 flex-row @[350px]/card:flex-col gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <Skeleton className="h-3 w-20 @[250px]/card:h-4" />
           <Skeleton className="h-4 w-20 @[250px]/card:h-5" />
         </div>
 
-        <Separator orientation="vertical" className="self-stretch" />
+        <Separator orientation="horizontal" className="@[350px]/card:hidden" />
+        <Separator orientation="vertical" className="self-stretch hidden @[350px]/card:block" />
 
-        <div className="flex flex-1 flex-col gap-0.5 py-2">
+        <div className="flex flex-1 flex-row @[350px]/card:flex-col gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <Skeleton className="h-3 w-20 @[250px]/card:h-4" />
           <Skeleton className="h-4 w-20 @[250px]/card:h-5" />
         </div>
@@ -271,7 +273,54 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     <Card className="@container/card">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardDescription>Total Positions</CardDescription>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Current APY from SDK (primary) */}
+            {!isDemoMode && hasNonZeroPercentage(activeData.apyPercentage) && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge variant="outline" className="text-sm font-semibold py-1 px-3 whitespace-nowrap">
+                      <TrendingUp className="mr-1.5 h-4 w-4" />
+                      {formatPercentage(activeData.apyPercentage)}% APY
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Current weighted average APY from pool positions</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {isDemoMode && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge variant="outline" className="text-sm font-semibold py-1 px-3 whitespace-nowrap">
+                      <TrendingUp className="mr-1.5 h-4 w-4" />
+                      {formatPercentage(DUMMY_DATA.apyPercentage)}% APY
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Demo APY</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {hasNonZeroPercentage(activeData.blndApy) && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap">
+                      <PiggyBank className="mr-1 h-3 w-3" />
+                      {formatSignedPercentage(activeData.blndApy)}% BLND APY
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>BLND emissions APY across supplied positions</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
           {onToggleDemoMode && (
             <Button
               variant="ghost"
@@ -289,7 +338,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl @[400px]/card:text-4xl">
             <FormattedBalance value={formattedLiveBalance} />
           </CardTitle>
           {!isDemoMode && currentBorrow > 0 && (
@@ -300,75 +349,34 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           )}
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
-          <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-            {formattedLiveGrowth} yield
-            {showPercentageGain && (
-              <span className="ml-1">
-                ({formatSignedPercentage(percentageGain)}%)
-              </span>
-            )}
-          </p>
-          {/* Current APY from SDK (primary) */}
-          {!isDemoMode && hasNonZeroPercentage(activeData.apyPercentage) && (
+          {!isDemoMode && balanceHistoryData?.earningsStats?.currentAPY && balanceHistoryData.earningsStats.currentAPY > 0 ? (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger>
-                  <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap">
-                    <TrendingUp className="mr-1 h-3 w-3" />
-                    {formatPercentage(activeData.apyPercentage)}% APY
-                  </Badge>
+                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                    {formattedLiveGrowth} yield
+                    {showPercentageGain && (
+                      <span className="ml-1">
+                        ({formatSignedPercentage(percentageGain)}%)
+                      </span>
+                    )}
+                  </p>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Current weighted average APY from pool positions</p>
+                  <p>Realized APY: {formatPercentage(balanceHistoryData.earningsStats.currentAPY)}%</p>
+                  <p className="text-xs opacity-75">Over {balanceHistoryData.earningsStats.dayCount} days</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-          )}
-          {/* Realized APY from historical data (secondary, shown in tooltip when available) */}
-          {!isDemoMode && balanceHistoryData?.earningsStats?.currentAPY && balanceHistoryData.earningsStats.currentAPY > 0 && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <Badge variant="secondary" className="text-xs py-0.5 px-2 whitespace-nowrap">
-                    <TrendingUp className="mr-1 h-3 w-3" />
-                    {formatPercentage(balanceHistoryData.earningsStats.currentAPY)}% realized
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Realized APY over {balanceHistoryData.earningsStats.dayCount} days</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-          {isDemoMode && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap">
-                    <TrendingUp className="mr-1 h-3 w-3" />
-                    {formatPercentage(DUMMY_DATA.apyPercentage)}% APY
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Demo APY</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-          {hasNonZeroPercentage(activeData.blndApy) && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap">
-                    <PiggyBank className="mr-1 h-3 w-3" />
-                    {formatSignedPercentage(activeData.blndApy)}% BLND APY
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>BLND emissions APY across supplied positions</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+          ) : (
+            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+              {formattedLiveGrowth} yield
+              {showPercentageGain && (
+                <span className="ml-1">
+                  ({formatSignedPercentage(percentageGain)}%)
+                </span>
+              )}
+            </p>
           )}
           {/* Pending BLND emissions claimable */}
           {(pendingEmissions > 0 || (isDemoMode && DUMMY_DATA.apyPercentage > 0)) && (() => {
@@ -413,26 +421,28 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
 
       <Separator />
 
-      <CardFooter className="flex flex-row items-stretch gap-2 @[250px]/card:gap-4">
-        <div className="flex flex-1 flex-col gap-0.5 py-2">
+      <CardFooter className="flex flex-col @[350px]/card:flex-row items-stretch gap-2 @[350px]/card:gap-4">
+        <div className="flex flex-1 flex-row @[350px]/card:flex-col gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <div className="text-[10px] @[250px]/card:text-xs text-muted-foreground">Daily Yield</div>
           <div className="text-sm @[250px]/card:text-base font-semibold tabular-nums">
             {yieldFormatter.format(dailyYield)}
           </div>
         </div>
 
-        <Separator orientation="vertical" className="self-stretch" />
+        <Separator orientation="horizontal" className="@[350px]/card:hidden" />
+        <Separator orientation="vertical" className="self-stretch hidden @[350px]/card:block" />
 
-        <div className="flex flex-1 flex-col gap-0.5 py-2">
+        <div className="flex flex-1 flex-row @[350px]/card:flex-col gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <div className="text-[10px] @[250px]/card:text-xs text-muted-foreground">Monthly Yield</div>
           <div className="text-sm @[250px]/card:text-base font-semibold tabular-nums">
             {yieldFormatter.format(monthlyYield)}
           </div>
         </div>
 
-        <Separator orientation="vertical" className="self-stretch" />
+        <Separator orientation="horizontal" className="@[350px]/card:hidden" />
+        <Separator orientation="vertical" className="self-stretch hidden @[350px]/card:block" />
 
-        <div className="flex flex-1 flex-col gap-0.5 py-2">
+        <div className="flex flex-1 flex-row @[350px]/card:flex-col gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <div className="text-[10px] @[250px]/card:text-xs text-muted-foreground">Annual Yield</div>
           <div className="text-sm @[250px]/card:text-base font-semibold tabular-nums">
             ${activeData.annualYield}

@@ -254,8 +254,8 @@ function renderEventMarkers(props: any) {
   const bandwidth = xAxis.scale.bandwidth ? xAxis.scale.bandwidth() : 20
   const yBottom = offset?.top + yAxis.height
 
-  // Icon size (will scale from 24x24 viewBox)
-  const iconSize = 20
+  // Calculate number of bars to properly position icons under the first bar
+  const numBars = props.formattedGraphicalItems?.length || 1
 
   return (
     <g className="event-markers">
@@ -265,19 +265,26 @@ function renderEventMarkers(props: any) {
         const x = xAxis.scale(bar.period)
         if (x === undefined) return null
 
-        // Center of the bar
-        const barCenterX = x + bandwidth / 2
-        const markerY = yBottom + 12
+        // Center of the first bar (balance bar), accounting for multiple bars in the same category
+        // For multiple bars, they're positioned side-by-side within the bandwidth
+        const barIndex = 0 // Position under first bar (balance)
+        const barCenterX = x + (bandwidth / numBars) * (barIndex + 0.5)
+        const markerY = yBottom + 10
 
         // Get unique event types for this bar
         const uniqueTypes = [...new Set(bar.events.map((e) => e.type))]
         const displayEvents = uniqueTypes.slice(0, 3)
 
+        // Icon size - smaller when multiple icons (will scale from 24x24 viewBox)
+        const iconSize = displayEvents.length > 1 ? 16 : 20
+
         return (
           <g key={idx}>
             {displayEvents.map((type, eventIdx) => {
               const color = getActionColor(type)
-              const offsetX = (eventIdx - (displayEvents.length - 1) / 2) * (iconSize + 4)
+              // Tighter spacing for icons
+              const iconSpacing = iconSize + 2
+              const offsetX = (eventIdx - (displayEvents.length - 1) / 2) * iconSpacing
               const iconData = EVENT_ICON_PATHS[type]
 
               // Center position for this icon
@@ -345,7 +352,7 @@ function renderEventMarkers(props: any) {
             })}
             {uniqueTypes.length > 3 && (
               <text
-                x={barCenterX + ((displayEvents.length - 1) / 2) * (iconSize + 4) + iconSize / 2 + 4}
+                x={barCenterX + ((displayEvents.length - 1) / 2) * (iconSize + 2) + iconSize / 2 + 4}
                 y={markerY}
                 textAnchor="start"
                 dominantBaseline="central"
@@ -402,7 +409,7 @@ export function BalanceBarChart({
     return (
       <div className="space-y-3">
         <Skeleton className="h-8 w-64" />
-        <Skeleton className="aspect-[3/1] w-full" />
+        <Skeleton className="aspect-[2/1] sm:aspect-[3/1] w-full" />
       </div>
     )
   }
@@ -411,15 +418,17 @@ export function BalanceBarChart({
     <div className="space-y-3">
       {/* Bar chart */}
       {chartData.length === 0 ? (
-        <div className="aspect-[3/1] flex items-center justify-center text-muted-foreground">
+        <div className="aspect-[2/1] sm:aspect-[3/1] flex items-center justify-center text-muted-foreground">
           No data available for this period
         </div>
       ) : (
-        <div className="aspect-[3/1] w-full">
+        <div className="aspect-[2/1] sm:aspect-[3/1] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={chartData}
-              margin={{ top: 5, right: 0, left: 0, bottom: 20 }}
+              margin={{ top: 5, right: 12, left: 12, bottom: 36 }}
+              barCategoryGap="2%"
+              barGap={1}
             >
               <defs>
                 <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
@@ -452,8 +461,8 @@ export function BalanceBarChart({
 
               <Bar
                 dataKey="balance"
-                radius={[4, 4, 0, 0]}
-                maxBarSize={selectedPeriod === "1M" ? 16 : 40}
+                radius={4}
+                maxBarSize={selectedPeriod === "1M" ? 40 : selectedPeriod === "1W" ? 60 : 80}
                 activeBar={{ fill: "#16a34a", stroke: "#15803d", strokeWidth: 2 }}
               >
                 {chartData.map((entry, index) => (
@@ -466,8 +475,8 @@ export function BalanceBarChart({
 
               <Bar
                 dataKey="borrow"
-                radius={[4, 4, 0, 0]}
-                maxBarSize={selectedPeriod === "1M" ? 16 : 40}
+                radius={4}
+                maxBarSize={selectedPeriod === "1M" ? 40 : selectedPeriod === "1W" ? 60 : 80}
                 activeBar={{ fill: "#ea580c", stroke: "#c2410c", strokeWidth: 2 }}
               >
                 {chartData.map((entry, index) => (
@@ -488,14 +497,14 @@ export function BalanceBarChart({
       )}
 
       {/* Time period tabs - centered below chart */}
-      <div className="flex justify-center">
+      <div className="flex justify-center overflow-x-auto">
         <Tabs
           value={selectedPeriod}
           onValueChange={(v) => setSelectedPeriod(v as TimePeriod)}
         >
-          <TabsList>
+          <TabsList className="h-9 sm:h-10">
             {TIME_PERIODS.map((period) => (
-              <TabsTrigger key={period.value} value={period.value}>
+              <TabsTrigger key={period.value} value={period.value} className="text-xs sm:text-sm px-2 sm:px-3">
                 {period.label}
               </TabsTrigger>
             ))}
