@@ -5,6 +5,7 @@ import Image from "next/image"
 import { useQueries } from "@tanstack/react-query"
 import Link from "next/link"
 import { WalletSelector } from "@/components/wallet-selector"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { WalletBalance } from "@/components/wallet-balance"
 import { TransactionHistory } from "@/components/transaction-history"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
@@ -466,13 +467,16 @@ export default function Home() {
       <header className="border-b">
         <div className="container mx-auto px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
           <h1 className="text-xl sm:text-2xl font-bold">Smoothie</h1>
-          <WalletSelector
-            wallets={wallets}
-            activeWallet={activeWallet}
-            onSelectWallet={handleSelectWallet}
-            onConnectWallet={handleConnectWallet}
-            onDisconnect={handleDisconnect}
-          />
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <WalletSelector
+              wallets={wallets}
+              activeWallet={activeWallet}
+              onSelectWallet={handleSelectWallet}
+              onConnectWallet={handleConnectWallet}
+              onDisconnect={handleDisconnect}
+            />
+          </div>
         </div>
       </header>
 
