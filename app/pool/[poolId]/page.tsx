@@ -387,6 +387,52 @@ function PositionBreakdownCard({ poolName, poolId, positions }: { poolName: stri
   )
 }
 
+// Mobile-friendly reserve details card
+function MobileReserveCard({ position }: { position: BlendReservePosition }) {
+  return (
+    <div className="border rounded-lg p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <span className="font-medium text-lg">{position.symbol}</span>
+          <p className="text-xs text-muted-foreground">{position.poolName}</p>
+        </div>
+        <span className="font-mono text-sm">
+          {position.price?.usdPrice ? formatUsd(position.price.usdPrice, 4) : "-"}
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">Utilization</span>
+          <div className="flex items-center gap-2">
+            <Progress value={position.reserveUtilization * 100} className="w-20 h-2" />
+            <span className="text-xs">{formatPercent(position.reserveUtilization * 100)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <p className="text-muted-foreground text-xs">Collateral Factor</p>
+          <p className="font-medium">{formatPercent(position.collateralFactor * 100)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs">Liability Factor</p>
+          <p className="font-medium">{formatPercent(position.liabilityFactor * 100)}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs">Pool Supply</p>
+          <p className="font-medium">{formatNumber(position.reserveTotalSupply, 2)} {position.symbol}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground text-xs">Pool Borrow</p>
+          <p className="font-medium">{formatNumber(position.reserveTotalBorrow, 2)} {position.symbol}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ReserveDetailsTable({ positions }: { positions: BlendReservePosition[] }) {
   return (
     <Card>
@@ -400,66 +446,76 @@ function ReserveDetailsTable({ positions }: { positions: BlendReservePosition[] 
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Asset</TableHead>
-              <TableHead className="text-right">Price</TableHead>
-              <TableHead className="text-right">b_rate</TableHead>
-              <TableHead className="text-right">d_rate</TableHead>
-              <TableHead className="text-right">Collateral Factor</TableHead>
-              <TableHead className="text-right">Liability Factor</TableHead>
-              <TableHead className="text-right">Utilization</TableHead>
-              <TableHead className="text-right">Pool Supply</TableHead>
-              <TableHead className="text-right">Pool Borrow</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {positions.map((position) => (
-              <TableRow key={position.id}>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <span className="font-medium">{position.symbol}</span>
-                    <span className="text-xs text-muted-foreground">{position.poolName}</span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {position.price?.usdPrice ? formatUsd(position.price.usdPrice, 4) : "-"}
-                </TableCell>
-                <TableCell className="text-right font-mono text-xs">
-                  {formatNumber(position.bRate, 9)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-xs">
-                  {formatNumber(position.dRate, 9)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatPercent(position.collateralFactor * 100)}
-                </TableCell>
-                <TableCell className="text-right">
-                  {formatPercent(position.liabilityFactor * 100)}
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <Progress value={position.reserveUtilization * 100} className="w-16 h-2" />
-                    <span className="text-xs">{formatPercent(position.reserveUtilization * 100)}</span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex flex-col items-end">
-                    <span>{formatNumber(position.reserveTotalSupply, 2)}</span>
-                    <span className="text-xs text-muted-foreground">{position.symbol}</span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex flex-col items-end">
-                    <span>{formatNumber(position.reserveTotalBorrow, 2)}</span>
-                    <span className="text-xs text-muted-foreground">{position.symbol}</span>
-                  </div>
-                </TableCell>
+        {/* Mobile card view */}
+        <div className="md:hidden space-y-3">
+          {positions.map((position) => (
+            <MobileReserveCard key={position.id} position={position} />
+          ))}
+        </div>
+
+        {/* Desktop table view */}
+        <div className="hidden md:block overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Asset</TableHead>
+                <TableHead className="text-right">Price</TableHead>
+                <TableHead className="text-right">b_rate</TableHead>
+                <TableHead className="text-right">d_rate</TableHead>
+                <TableHead className="text-right">Collateral Factor</TableHead>
+                <TableHead className="text-right">Liability Factor</TableHead>
+                <TableHead className="text-right">Utilization</TableHead>
+                <TableHead className="text-right">Pool Supply</TableHead>
+                <TableHead className="text-right">Pool Borrow</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {positions.map((position) => (
+                <TableRow key={position.id}>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{position.symbol}</span>
+                      <span className="text-xs text-muted-foreground">{position.poolName}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right font-mono">
+                    {position.price?.usdPrice ? formatUsd(position.price.usdPrice, 4) : "-"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {formatNumber(position.bRate, 9)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {formatNumber(position.dRate, 9)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatPercent(position.collateralFactor * 100)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatPercent(position.liabilityFactor * 100)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Progress value={position.reserveUtilization * 100} className="w-16 h-2" />
+                      <span className="text-xs">{formatPercent(position.reserveUtilization * 100)}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex flex-col items-end">
+                      <span>{formatNumber(position.reserveTotalSupply, 2)}</span>
+                      <span className="text-xs text-muted-foreground">{position.symbol}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex flex-col items-end">
+                      <span>{formatNumber(position.reserveTotalBorrow, 2)}</span>
+                      <span className="text-xs text-muted-foreground">{position.symbol}</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </CardContent>
     </Card>
   )
@@ -635,16 +691,16 @@ export default function PoolDetailsPage() {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-3 sm:py-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             <Link href="/">
-              <Button variant="ghost" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back
+              <Button variant="ghost" size="sm" className="px-2 sm:px-3">
+                <ArrowLeft className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Back</span>
               </Button>
             </Link>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold">{poolData.poolName}</h1>
-              <p className="text-xs text-muted-foreground font-mono truncate max-w-md">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl md:text-2xl font-bold truncate">{poolData.poolName}</h1>
+              <p className="text-xs text-muted-foreground font-mono truncate">
                 {poolId}
               </p>
             </div>
@@ -661,7 +717,7 @@ export default function PoolDetailsPage() {
 
           {/* Position Breakdown */}
           <div className="space-y-4">
-            <h2 className="text-2xl font-semibold">Position Breakdown</h2>
+            <h2 className="text-xl sm:text-2xl font-semibold">Position Breakdown</h2>
             <PositionBreakdownCard
               poolName={poolData.poolName}
               poolId={poolId}
@@ -671,7 +727,7 @@ export default function PoolDetailsPage() {
 
           {/* Reserve Details */}
           <div className="space-y-4">
-            <h2 className="text-2xl font-semibold">Reserve Details</h2>
+            <h2 className="text-xl sm:text-2xl font-semibold">Reserve Details</h2>
             <ReserveDetailsTable positions={poolData.positions} />
           </div>
         </div>
