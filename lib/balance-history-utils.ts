@@ -83,9 +83,13 @@ export function fillMissingDates(
     const pools: ChartDataPoint['pools'] = []
     let total = 0
     let totalDeposit = 0
+    let totalBorrow = 0
 
     dateRecords.forEach((record, poolId) => {
-      const balance = record.net_balance
+      // Use supply + collateral only (don't subtract debt for the chart)
+      // This matches the SDK's totalSupplyUsd which doesn't deduct borrowed amounts
+      const balance = record.supply_balance + record.collateral_balance
+      const borrow = record.debt_balance
 
       // Update tracked bTokens if there's a change (deposit/withdrawal)
       const currentBTokens = record.supply_btokens + record.collateral_btokens
@@ -111,6 +115,7 @@ export function fillMissingDates(
         depositAmount = (poolBTokens.get(poolId) || 0) * initialRate
       }
       totalDeposit += depositAmount
+      totalBorrow += borrow
 
       pools.push({
         poolId,
@@ -118,6 +123,7 @@ export function fillMissingDates(
         balance,
         deposit: depositAmount,
         yield: record.total_yield || 0, // Use Dune's pre-calculated yield
+        borrow,
       })
       total += balance
     })
@@ -143,6 +149,7 @@ export function fillMissingDates(
       total,
       deposit: totalDeposit,
       yield: yield_amount,
+      borrow: totalBorrow,
       pools,
     }
   })

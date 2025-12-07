@@ -3,6 +3,47 @@
  * Types for displaying historical balance data from the backfill backend
  */
 
+import type { ActionType } from '@/lib/db/types'
+
+/**
+ * Time period options for the bar chart
+ */
+export type TimePeriod = '1W' | '1M' | '1Y' | 'All' | 'Projection'
+
+/**
+ * Data point for the bar chart
+ */
+export interface BarChartDataPoint {
+  // Period identification
+  period: string              // Display label: "Dec 5" or "Dec 2025" or "2025"
+  periodStart: string         // Start date ISO string
+  periodEnd: string           // End date ISO string
+
+  // Values
+  balance: number             // Balance at end of period (supply only, not deducting borrows)
+  yieldEarned: number         // Yield earned during this period
+  deposit: number             // Principal/cost basis
+  borrow: number              // Borrowed amount at end of period
+
+  // Events for this period
+  events: BarChartEvent[]
+
+  // Metadata
+  isProjected?: boolean       // True for projection tab data
+  isToday?: boolean           // True if period contains today
+}
+
+/**
+ * Event attached to a bar chart period
+ */
+export interface BarChartEvent {
+  type: ActionType
+  date: string
+  amount: number | null
+  assetSymbol: string | null
+  assetDecimals: number | null
+}
+
 /**
  * Raw balance history record from the database
  * Matches the UserBalance interface from backfill_backend
@@ -60,6 +101,7 @@ export interface ChartDataPoint {
   // Deposit and yield breakdown
   deposit: number // Principal deposited (bTokens * b_rate)
   yield: number // Interest earned (total - deposit)
+  borrow: number // Total borrowed amount (debt_balance)
 
   // Position change markers
   isDeposit?: boolean
@@ -76,6 +118,7 @@ export interface ChartDataPoint {
     balance: number
     deposit: number // Cost basis / principal for this pool
     yield: number // Yield from Dune (total_yield field)
+    borrow: number // Borrowed amount for this pool
   }[]
 }
 

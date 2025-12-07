@@ -1,14 +1,18 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
+import Image from "next/image"
 import { useQueries } from "@tanstack/react-query"
+import Link from "next/link"
 import { WalletSelector } from "@/components/wallet-selector"
 import { WalletBalance } from "@/components/wallet-balance"
-import { AssetCard } from "@/components/asset-card"
-import { BalanceHistoryChart } from "@/components/balance-history-chart"
-import { BalanceEarningsStats } from "@/components/balance-earnings-stats"
-import { BalanceRawDataTable } from "@/components/balance-raw-data-table"
+import { TransactionHistory } from "@/components/transaction-history"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { Wallet as WalletIcon, ArrowDownFromLine, History } from "lucide-react"
 import type { Wallet } from "@/types/wallet"
 import type { ChartDataPoint } from "@/types/wallet-balance"
 import type { AssetCardData } from "@/types/asset-card"
@@ -92,64 +96,14 @@ export default function Home() {
     [wallets, activeWalletId]
   )
 
-  // Fetch balance history to get cost basis from Dune (use first asset for now)
-  // This will give us the total cost basis across all pools
-  const firstAssetQuery = useQueries({
-    queries: [{
-      queryKey: ["balance-history-for-cost-basis", activeWallet?.publicKey || '', 90],
-      queryFn: async () => {
-        // Use USDC asset address for cost basis calculation
-        const usdcAsset = 'CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75'
-        const params = new URLSearchParams({
-          user: activeWallet?.publicKey || '',
-          asset: usdcAsset,
-          days: '90',
-        })
-
-        const response = await fetch(`/api/balance-history?${params.toString()}`)
-
-        if (!response.ok) {
-          return null
-        }
-
-        return response.json()
-      },
-      enabled: !!activeWallet?.publicKey,
-      staleTime: 5 * 60 * 1000,
-    }],
-  })[0]
-
-  // Calculate total cost basis from Dune
-  const totalCostBasis = useMemo(() => {
-    if (!firstAssetQuery.data?.history || firstAssetQuery.data.history.length === 0) {
-      return undefined
-    }
-
-    const latestByPool = new Map<string, number>()
-    firstAssetQuery.data.history.forEach((record: any) => {
-      if (record.total_cost_basis !== null && record.total_cost_basis !== undefined) {
-        if (!latestByPool.has(record.pool_id)) {
-          latestByPool.set(record.pool_id, record.total_cost_basis)
-        }
-      }
-    })
-
-    let total = 0
-    latestByPool.forEach((costBasis) => {
-      total += costBasis
-    })
-
-    return total
-  }, [firstAssetQuery.data])
-
-  const { balanceData, assetCards, isLoading, error, data: blendSnapshot, totalEmissions, blndPrice } = useBlendPositions(
+  const { balanceData: initialBalanceData, assetCards, isLoading, error, data: blendSnapshot, totalEmissions, blndPrice } = useBlendPositions(
     activeWallet?.publicKey,
-    totalCostBasis
+    undefined // We'll calculate totalCostBasis separately
   )
 
   const chartData = useMemo(
-    () => generateChartData(balanceData.rawBalance),
-    [balanceData.rawBalance]
+    () => generateChartData(initialBalanceData.rawBalance),
+    [initialBalanceData.rawBalance]
   )
 
   // Get unique asset addresses from asset cards
@@ -166,12 +120,12 @@ export default function Home() {
   // This eliminates the N+1 query problem by managing all queries in parallel
   const balanceHistoryQueries = useQueries({
     queries: uniqueAssetAddresses.slice(0, 5).map((assetAddress) => ({
-      queryKey: ["balance-history", activeWallet?.publicKey || '', assetAddress, 90],
+      queryKey: ["balance-history", activeWallet?.publicKey || '', assetAddress, 365],
       queryFn: async () => {
         const params = new URLSearchParams({
           user: activeWallet?.publicKey || '',
           asset: assetAddress,
-          days: '90',
+          days: '365',
         })
 
         const response = await fetch(`/api/balance-history?${params.toString()}`)
@@ -190,12 +144,14 @@ export default function Home() {
     })),
   })
 
-  // Build a mapping from poolId to cost basis (from Dune)
-  const poolCostBasisMap = useMemo(() => {
+  // Build a mapping from composite key (poolId-assetAddress) to cost basis (from database)
+  const poolAssetCostBasisMap = useMemo(() => {
     const map = new Map<string, number>()
 
-    balanceHistoryQueries.forEach((query) => {
+    balanceHistoryQueries.forEach((query, index) => {
       if (!query.data?.history || query.data.history.length === 0) return
+
+      const assetAddress = uniqueAssetAddresses[index]
 
       // Get latest cost_basis for each pool from this asset's history
       const latestByPool = new Map<string, number>()
@@ -208,14 +164,45 @@ export default function Home() {
         }
       })
 
-      // Add to the overall map
+      // Add to the overall map using composite key: poolId-assetAddress
       latestByPool.forEach((costBasis, poolId) => {
-        map.set(poolId, costBasis)
+        const compositeKey = `${poolId}-${assetAddress}`
+        map.set(compositeKey, costBasis)
       })
     })
 
     return map
-  }, [balanceHistoryQueries])
+  }, [balanceHistoryQueries, uniqueAssetAddresses])
+
+  // Build a mapping from composite key (poolId-assetAddress) to borrow cost basis (from database)
+  const poolAssetBorrowCostBasisMap = useMemo(() => {
+    const map = new Map<string, number>()
+
+    balanceHistoryQueries.forEach((query, index) => {
+      if (!query.data?.history || query.data.history.length === 0) return
+
+      const assetAddress = uniqueAssetAddresses[index]
+
+      // Get latest borrow_cost_basis for each pool from this asset's history
+      const latestByPool = new Map<string, number>()
+      query.data.history.forEach((record: any) => {
+        if (record.borrow_cost_basis !== null && record.borrow_cost_basis !== undefined) {
+          // Since records are sorted newest first, first occurrence is the latest
+          if (!latestByPool.has(record.pool_id)) {
+            latestByPool.set(record.pool_id, record.borrow_cost_basis)
+          }
+        }
+      })
+
+      // Add to the overall map using composite key: poolId-assetAddress
+      latestByPool.forEach((borrowCostBasis, poolId) => {
+        const compositeKey = `${poolId}-${assetAddress}`
+        map.set(compositeKey, borrowCostBasis)
+      })
+    })
+
+    return map
+  }, [balanceHistoryQueries, uniqueAssetAddresses])
 
   // Build a mapping from assetAddress to balance history data
   // This prevents redundant fetches in child components
@@ -246,21 +233,51 @@ export default function Home() {
     return map
   }, [uniqueAssetAddresses, balanceHistoryQueries])
 
-  // Enrich asset cards with yield calculated as: SDK Balance - Dune Cost Basis
+  // Build a map of asset address -> USD price from SDK positions
+  const assetPriceMap = useMemo(() => {
+    const map = new Map<string, number>()
+    if (!blendSnapshot?.positions) return map
+
+    blendSnapshot.positions.forEach(pos => {
+      if (pos.assetId && pos.price?.usdPrice && pos.price.usdPrice > 0) {
+        map.set(pos.assetId, pos.price.usdPrice)
+        console.log(`[page] Asset price for ${pos.symbol}: $${pos.price.usdPrice}`)
+      }
+    })
+
+    return map
+  }, [blendSnapshot?.positions])
+
+  // Enrich asset cards with yield calculated as: SDK Balance (USD) - Database Cost Basis (token amount × USD price)
   const enrichedAssetCards = useMemo(() => {
     return assetCards.map((asset) => {
-      // Extract pool ID from composite ID (format: poolId-assetAddress)
-      const poolId = asset.id.includes('-') ? asset.id.split('-')[0] : asset.id
-      const costBasis = poolCostBasisMap.get(poolId)
+      // asset.id is already in the format: poolId-assetAddress
+      const compositeKey = asset.id
 
-      // Calculate yield: SDK Balance (USD) - Dune Cost Basis (USD)
-      const earnedYield = costBasis !== undefined
-        ? asset.rawBalance - costBasis
-        : 0
+      // Get cost basis in token amount from database
+      const costBasisTokens = poolAssetCostBasisMap.get(compositeKey)
+
+      if (costBasisTokens === undefined) {
+        return {
+          ...asset,
+          earnedYield: 0,
+          yieldPercentage: 0,
+        } as AssetCardData
+      }
+
+      // Get USD price for this asset from SDK
+      const assetAddress = asset.id.includes('-') ? asset.id.split('-')[1] : asset.id
+      const usdPrice = assetPriceMap.get(assetAddress) || 1
+
+      // Convert cost basis from tokens to USD
+      const costBasisUsd = costBasisTokens * usdPrice
+
+      // Calculate yield: SDK Balance (USD) - Database Cost Basis (USD)
+      const earnedYield = asset.rawBalance - costBasisUsd
 
       // Calculate yield percentage: (Yield / Cost Basis) * 100
-      const yieldPercentage = costBasis !== undefined && costBasis > 0
-        ? (earnedYield / costBasis) * 100
+      const yieldPercentage = costBasisUsd > 0
+        ? (earnedYield / costBasisUsd) * 100
         : 0
 
       return {
@@ -269,14 +286,139 @@ export default function Home() {
         yieldPercentage,
       } as AssetCardData
     })
-  }, [assetCards, poolCostBasisMap])
+  }, [assetCards, poolAssetCostBasisMap, assetPriceMap])
 
-  // Get the asset address from the first asset card (extract from composite ID)
-  const firstAssetAddress = useMemo(() => {
-    if (assetCards.length === 0) return undefined
-    const assetId = assetCards[0].id
-    return assetId.includes('-') ? assetId.split('-')[1] : assetId
-  }, [assetCards])
+  // Calculate total cost basis from all assets in USD
+  const totalCostBasis = useMemo(() => {
+    if (!blendSnapshot?.positions || blendSnapshot.positions.length === 0) {
+      return undefined
+    }
+
+    let totalCostBasisUsd = 0
+
+    // For each SDK position, get the cost basis from database and convert to USD
+    blendSnapshot.positions.forEach((position) => {
+      if (position.supplyAmount <= 0) return // Skip positions with no supply
+
+      const compositeKey = position.id // Already in format: poolId-assetAddress
+      const costBasisTokens = poolAssetCostBasisMap.get(compositeKey)
+
+      if (costBasisTokens !== undefined && costBasisTokens > 0) {
+        // Convert cost basis from tokens to USD using SDK price
+        const usdPrice = position.price?.usdPrice || 1
+        const costBasisUsd = costBasisTokens * usdPrice
+        totalCostBasisUsd += costBasisUsd
+      }
+    })
+
+    return totalCostBasisUsd > 0 ? totalCostBasisUsd : undefined
+  }, [blendSnapshot?.positions, poolAssetCostBasisMap])
+
+  // Recalculate balanceData with correct total cost basis and yield
+  const balanceData = useMemo(() => {
+    if (!totalCostBasis || totalCostBasis <= 0) {
+      return initialBalanceData
+    }
+
+    const realYield = initialBalanceData.rawBalance - totalCostBasis
+    const yieldPercentage = totalCostBasis > 0 ? (realYield / totalCostBasis) * 100 : 0
+
+    const usdFormatter = new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+
+    return {
+      ...initialBalanceData,
+      interestEarned: `$${usdFormatter.format(realYield)}`,
+      rawInterestEarned: realYield,
+      growthPercentage: yieldPercentage,
+    }
+  }, [initialBalanceData, totalCostBasis])
+
+  // Aggregate historical data from ALL assets, converting each to USD
+  // This provides the combined total history for the top chart
+  const aggregatedHistoryData = useMemo(() => {
+    if (balanceHistoryDataMap.size === 0) return null
+
+    const { detectPositionChanges, calculateEarningsStats } = require('@/lib/balance-history-utils')
+
+    // Collect all dates across all assets
+    const allDatesSet = new Set<string>()
+    balanceHistoryDataMap.forEach((historyData) => {
+      historyData.chartData.forEach((point: any) => {
+        allDatesSet.add(point.date)
+      })
+    })
+
+    const allDates = Array.from(allDatesSet).sort()
+
+    // For each date, sum up all assets' values (converted to USD)
+    const aggregatedChartData = allDates.map(date => {
+      let totalBalance = 0
+      let totalDeposit = 0
+      let totalYield = 0
+      let totalBorrow = 0
+      const pools: any[] = []
+
+      // Sum across all assets
+      uniqueAssetAddresses.forEach(assetAddress => {
+        const historyData = balanceHistoryDataMap.get(assetAddress)
+        if (!historyData) return
+
+        const point = historyData.chartData.find((p: any) => p.date === date)
+        if (!point) return
+
+        // Get USD price for this asset
+        const usdPrice = assetPriceMap.get(assetAddress) || 1
+
+        // Convert token amounts to USD and add to totals
+        totalBalance += (point.total || 0) * usdPrice
+        totalDeposit += (point.deposit || 0) * usdPrice
+        totalYield += (point.yield || 0) * usdPrice
+        totalBorrow += (point.borrow || 0) * usdPrice
+
+        // Also aggregate pool data
+        point.pools?.forEach((pool: any) => {
+          pools.push({
+            ...pool,
+            balance: pool.balance * usdPrice,
+            deposit: pool.deposit * usdPrice,
+            yield: pool.yield * usdPrice,
+            borrow: (pool.borrow || 0) * usdPrice,
+          })
+        })
+      })
+
+      const dateObj = new Date(date)
+      return {
+        date,
+        formattedDate: dateObj.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        }),
+        timestamp: dateObj.getTime(),
+        total: totalBalance,
+        deposit: totalDeposit,
+        yield: totalYield,
+        borrow: totalBorrow,
+        pools,
+      }
+    })
+
+    // Calculate combined position changes and earnings stats
+    const positionChanges = detectPositionChanges([]) // Simplified for now
+    const earningsStats = calculateEarningsStats(aggregatedChartData, positionChanges)
+
+    return {
+      chartData: aggregatedChartData,
+      positionChanges,
+      earningsStats,
+      rawData: [],
+      isLoading: balanceHistoryQueries.some(q => q.isLoading),
+      error: balanceHistoryQueries.find(q => q.error)?.error || null,
+    }
+  }, [balanceHistoryDataMap, assetPriceMap, uniqueAssetAddresses, balanceHistoryQueries])
 
   const handleSelectWallet = (walletId: string) => {
     setActiveWalletId(walletId)
@@ -290,7 +432,7 @@ export default function Home() {
       id: `wallet-${Date.now()}`,
       publicKey: address,
       name: walletName,
-      isActive: wallets.length === 0,
+      isActive: true,
     }
 
     setWallets((prev) => {
@@ -298,9 +440,7 @@ export default function Home() {
       return [...updated, newWallet]
     })
 
-    if (wallets.length === 0) {
-      setActiveWalletId(newWallet.id)
-    }
+    setActiveWalletId(newWallet.id)
   }
 
   const handleDisconnect = (walletId: string) => {
@@ -318,10 +458,6 @@ export default function Home() {
         setActiveWalletId(null)
       }
     }
-  }
-
-  const handleAssetAction = (action: string, assetId: string) => {
-    // Handle asset actions (deposit, withdraw, etc.)
   }
 
   return (
@@ -366,114 +502,282 @@ export default function Home() {
                   data={balanceData}
                   chartData={chartData}
                   publicKey={activeWallet.publicKey}
-                  assetAddress={firstAssetAddress}
-                  balanceHistoryData={firstAssetAddress ? balanceHistoryDataMap.get(firstAssetAddress) : undefined}
+                  balanceHistoryData={
+                    // Use aggregated history (all assets combined, already in USD)
+                    aggregatedHistoryData ?? undefined
+                  }
                   loading={isLoading}
                   isDemoMode={isDemoMode}
                   onToggleDemoMode={() => setIsDemoMode(!isDemoMode)}
                   pendingEmissions={totalEmissions}
                   blndPrice={blndPrice}
+                  usdcPrice={1} // Aggregated data is already in USD
                 />
 
-                {enrichedAssetCards.length > 0 && (
-                  <>
-                    <div className="space-y-4">
-                      <h2 className="text-2xl font-semibold">Your Positions</h2>
+                <Tabs defaultValue="positions" className="w-full">
+                  <TabsList className="w-full h-12 p-1">
+                    <TabsTrigger value="positions" className="flex-1 gap-2 h-10">
+                      <WalletIcon className="h-4 w-4" />
+                      Positions
+                    </TabsTrigger>
+                    <TabsTrigger value="borrows" className="flex-1 gap-2 h-10">
+                      <ArrowDownFromLine className="h-4 w-4" />
+                      Borrows
+                    </TabsTrigger>
+                    <TabsTrigger value="history" className="flex-1 gap-2 h-10">
+                      <History className="h-4 w-4" />
+                      History
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="positions" className="space-y-4">
+                    {enrichedAssetCards.length > 0 ? (
                       <div className="grid gap-4 grid-cols-1">
-                        {enrichedAssetCards.map((asset) => (
-                          <AssetCard
-                            key={asset.id}
-                            data={asset}
-                            onAction={handleAssetAction}
-                            isDemoMode={isDemoMode}
-                          />
-                        ))}
+                        {Object.entries(
+                          enrichedAssetCards.reduce((acc, asset) => {
+                            // Extract pool ID from composite ID (format: poolId-assetAddress)
+                            const poolId = asset.id.includes('-') ? asset.id.split('-')[0] : asset.id
+                            const poolName = asset.protocolName
+
+                            if (!acc[poolId]) {
+                              acc[poolId] = {
+                                poolName,
+                                assets: []
+                              }
+                            }
+                            acc[poolId].assets.push(asset)
+                            return acc
+                          }, {} as Record<string, { poolName: string; assets: typeof enrichedAssetCards }>)
+                        ).map(([poolId, { poolName, assets }]) => {
+                          return (
+                            <Card key={poolId}>
+                              <CardHeader>
+                                <div className="flex items-start justify-between">
+                                  <div>
+                                    <CardTitle>{poolName}</CardTitle>
+                                  </div>
+                                  <Link href={`/pool/${encodeURIComponent(poolId)}`}>
+                                    <Button variant="outline" size="sm">
+                                      View Details
+                                    </Button>
+                                  </Link>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="space-y-3">
+                                  {assets.map((asset) => {
+                                    const yieldFormatter = new Intl.NumberFormat("en-US", {
+                                      style: "currency",
+                                      currency: "USD",
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                      signDisplay: "always",
+                                    })
+                                    const yieldToShow = asset.earnedYield ?? 0
+                                    const formattedYield = yieldFormatter.format(yieldToShow)
+                                    const hasSignificantYield = Math.abs(yieldToShow) >= 0.01
+                                    const yieldPercentage = asset.yieldPercentage ?? 0
+                                    const formattedYieldPercentage = yieldPercentage !== 0 ? ` (${yieldPercentage >= 0 ? '+' : ''}${yieldPercentage.toFixed(2)}%)` : ''
+
+                                    // Find the corresponding position to get token amount
+                                    const position = blendSnapshot?.positions.find(p => p.id === asset.id)
+                                    const tokenAmount = position?.supplyAmount || 0
+                                    const symbol = position?.symbol || asset.assetName
+                                    const isUSDC = symbol === 'USDC'
+
+                                    return (
+                                      <div key={asset.id} className="flex items-center justify-between py-3 border-b last:border-b-0">
+                                        <div className="flex items-center gap-3">
+                                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted">
+                                            <Image
+                                              src={asset.logoUrl}
+                                              alt={`${asset.assetName} logo`}
+                                              fill
+                                              className="object-cover"
+                                            />
+                                          </div>
+                                          <div>
+                                            <p className="font-medium">{asset.assetName}</p>
+                                            <p className="text-sm text-muted-foreground">
+                                              {isUSDC ? (
+                                                // USDC: show only USD value
+                                                `$${asset.rawBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                              ) : (
+                                                // Other assets: show token amount and USD value
+                                                <>
+                                                  {tokenAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {symbol}
+                                                  <span className="text-xs ml-1">
+                                                    (${asset.rawBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                                  </span>
+                                                </>
+                                              )}
+                                            </p>
+                                            {hasSignificantYield && (
+                                              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                {formattedYield} yield{formattedYieldPercentage}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                          <Badge variant="secondary" className="text-xs">
+                                            {asset.apyPercentage.toFixed(2)}% APY
+                                          </Badge>
+                                          {asset.growthPercentage > 0.005 && (
+                                            <Badge variant="secondary" className="text-xs">
+                                              +{asset.growthPercentage.toFixed(2)}% BLND
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )
+                        })}
                       </div>
-                    </div>
-
-                    {/* Balance History Section - One per unique asset */}
-                    {Array.from(
-                      new Map(
-                        assetCards.map((asset) => {
-                          // Extract asset address from composite ID (format: poolId-assetAddress)
-                          const assetAddress = asset.id.includes('-')
-                            ? asset.id.split('-')[1]
-                            : asset.id
-                          return [assetAddress, asset]
-                        })
-                      ).values()
-                    ).map((asset) => {
-                      const assetAddress = asset.id.includes('-')
-                        ? asset.id.split('-')[1]
-                        : asset.id
-
-                      const historyData = balanceHistoryDataMap.get(assetAddress)
-
-                      return (
-                        <div key={`history-${assetAddress}`} className="space-y-4">
-                          <h2 className="text-2xl font-semibold">
-                            Balance History - {asset.assetName}
-                          </h2>
-
-                          {historyData && (
-                            <>
-                              <BalanceEarningsStats
-                                earningsStats={historyData.earningsStats}
-                                totalYield={enrichedAssetCards
-                                  .filter(card => {
-                                    const cardAssetAddress = card.id.includes('-')
-                                      ? card.id.split('-')[1]
-                                      : card.id
-                                    return cardAssetAddress === assetAddress
-                                  })
-                                  .reduce((sum, card) => sum + (card.earnedYield || 0), 0)}
-                                perPoolYield={new Map(
-                                  enrichedAssetCards
-                                    .filter(card => {
-                                      const cardAssetAddress = card.id.includes('-')
-                                        ? card.id.split('-')[1]
-                                        : card.id
-                                      return cardAssetAddress === assetAddress
-                                    })
-                                    .map(card => {
-                                      const poolId = card.id.includes('-')
-                                        ? card.id.split('-')[0]
-                                        : card.id
-                                      return [poolId, card.earnedYield || 0]
-                                    })
-                                )}
-                                isLoading={historyData.isLoading}
-                                error={historyData.error}
-                              />
-
-                              <BalanceHistoryChart
-                                chartData={historyData.chartData}
-                                positionChanges={historyData.positionChanges}
-                                isLoading={historyData.isLoading}
-                                error={historyData.error}
-                              />
-
-                              <BalanceRawDataTable
-                                records={historyData.rawData}
-                                isLoading={historyData.isLoading}
-                                error={historyData.error}
-                              />
-                            </>
-                          )}
+                    ) : (
+                      !isLoading && (
+                        <div className="text-center py-8 text-muted-foreground">
+                          <p>No positions found for this wallet.</p>
+                          <p className="text-sm mt-2">
+                            Start by depositing assets to Blend pools.
+                          </p>
                         </div>
                       )
-                    })}
-                  </>
-                )}
+                    )}
+                  </TabsContent>
 
-                {assetCards.length === 0 && !isLoading && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <p>No positions found for this wallet.</p>
-                    <p className="text-sm mt-2">
-                      Start by depositing assets to Blend pools.
-                    </p>
-                  </div>
-                )}
+                  <TabsContent value="borrows" className="space-y-4">
+                    {blendSnapshot && blendSnapshot.positions.some(pos => pos.borrowUsdValue > 0) ? (
+                      <div className="grid gap-4 grid-cols-1">
+                        {Object.entries(
+                          blendSnapshot.positions
+                            .filter(pos => pos.borrowUsdValue > 0)
+                            .reduce((acc, position) => {
+                              const poolId = position.poolId
+                              const poolName = position.poolName
+
+                              if (!acc[poolId]) {
+                                acc[poolId] = {
+                                  poolName,
+                                  positions: []
+                                }
+                              }
+                              acc[poolId].positions.push(position)
+                              return acc
+                            }, {} as Record<string, { poolName: string; positions: typeof blendSnapshot.positions }>)
+                        ).map(([poolId, { poolName, positions }]) => {
+                          return (
+                            <Card key={poolId}>
+                              <CardHeader>
+                                <div className="flex items-start justify-between">
+                                  <div>
+                                    <CardTitle>{poolName}</CardTitle>
+                                  </div>
+                                  <Link href={`/pool/${encodeURIComponent(poolId)}`}>
+                                    <Button variant="outline" size="sm">
+                                      View Details
+                                    </Button>
+                                  </Link>
+                                </div>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="space-y-3">
+                                  {positions.map((position) => {
+                                    // Find the matching asset card to get the correct logoUrl
+                                    const matchingAsset = enrichedAssetCards.find(asset => asset.id === position.id)
+                                    const logoUrl = matchingAsset?.logoUrl || `/assets/${position.symbol.toLowerCase()}.svg`
+                                    const isUSDC = position.symbol === 'USDC'
+
+                                    // Calculate interest accrued similar to position yield calculation
+                                    const compositeKey = position.id // poolId-assetAddress
+                                    const borrowCostBasisTokens = poolAssetBorrowCostBasisMap.get(compositeKey) || 0
+                                    const usdPrice = position.price?.usdPrice || 1
+                                    const borrowCostBasisUsd = borrowCostBasisTokens * usdPrice
+                                    const currentDebtUsd = position.borrowUsdValue
+                                    const interestAccrued = currentDebtUsd - borrowCostBasisUsd
+                                    const interestPercentage = borrowCostBasisUsd > 0
+                                      ? (interestAccrued / borrowCostBasisUsd) * 100
+                                      : 0
+
+                                    // Format interest like yield is formatted
+                                    const interestFormatter = new Intl.NumberFormat("en-US", {
+                                      style: "currency",
+                                      currency: "USD",
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                      signDisplay: "always",
+                                    })
+                                    const formattedInterest = interestFormatter.format(interestAccrued)
+                                    const hasSignificantInterest = Math.abs(interestAccrued) >= 0.01
+                                    const formattedInterestPercentage = interestPercentage !== 0 ? ` (${interestPercentage >= 0 ? '+' : ''}${interestPercentage.toFixed(2)}%)` : ''
+
+                                    return (
+                                      <div key={position.id} className="flex items-center justify-between py-3 border-b last:border-b-0">
+                                        <div className="flex items-center gap-3">
+                                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-muted">
+                                            <Image
+                                              src={logoUrl}
+                                              alt={`${position.symbol} logo`}
+                                              fill
+                                              className="object-cover"
+                                            />
+                                          </div>
+                                          <div>
+                                            <p className="font-medium">{position.symbol}</p>
+                                            <p className="text-sm text-muted-foreground">
+                                              {isUSDC ? (
+                                                // USDC: show only USD value
+                                                `$${position.borrowUsdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                              ) : (
+                                                // Other assets: show token amount and USD value
+                                                <>
+                                                  {position.borrowAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {position.symbol}
+                                                  <span className="text-xs ml-1">
+                                                    (${position.borrowUsdValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                                  </span>
+                                                </>
+                                              )}
+                                            </p>
+                                            {hasSignificantInterest && (
+                                              <p className="text-xs text-orange-600 dark:text-orange-400">
+                                                {formattedInterest} interest{formattedInterestPercentage}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                          <Badge variant="secondary" className="text-xs">
+                                            {position.borrowApy.toFixed(2)}% APY
+                                          </Badge>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <p>No borrows found for this wallet.</p>
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="history" className="space-y-4">
+                    <TransactionHistory
+                      publicKey={activeWallet.publicKey}
+                      limit={20}
+                      hideToggle={true}
+                    />
+                  </TabsContent>
+                </Tabs>
               </>
             )}
           </div>

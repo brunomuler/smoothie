@@ -2,8 +2,7 @@
 
 import * as React from "react"
 import { useMemo } from "react"
-import { TrendingUp, PiggyBank, Maximize2, Eye, EyeOff, Gift } from "lucide-react"
-import { AreaChart, Area, CartesianGrid, XAxis, YAxis, ReferenceDot } from "recharts"
+import { TrendingUp, TrendingDown, PiggyBank, Eye, EyeOff, Gift } from "lucide-react"
 import {
   Card,
   CardContent,
@@ -19,32 +18,20 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { BalanceData, ChartDataPoint as WalletChartDataPoint } from "@/types/wallet-balance"
 import type { ChartDataPoint, EarningsStats, PositionChange } from "@/types/balance-history"
 import { useLiveBalance } from "@/hooks/use-live-balance"
+import { useUserActions } from "@/hooks/use-user-actions"
 import { FormattedBalance } from "@/components/formatted-balance"
-import { BalanceHistoryChart } from "@/components/balance-history-chart"
+import { BalanceBarChart } from "@/components/balance-bar-chart"
 
 interface WalletBalanceProps {
   data: BalanceData
   chartData: WalletChartDataPoint[]
   publicKey?: string
-  assetAddress?: string
   balanceHistoryData?: {
     earningsStats: EarningsStats
     chartData: ChartDataPoint[]
@@ -55,6 +42,7 @@ interface WalletBalanceProps {
   onToggleDemoMode?: () => void
   pendingEmissions?: number // Pending BLND emissions in tokens
   blndPrice?: number | null // BLND price in USD
+  usdcPrice?: number // USDC price from SDK oracle for normalizing historical data
 }
 
 function formatPercentage(value: number): string {
@@ -84,17 +72,6 @@ function hasSignificantAmount(value: number): boolean {
     return false
   }
   return Math.abs(value) >= 0.0000001
-}
-
-const chartConfig = {
-  deposit: {
-    label: "Deposit",
-    color: "hsl(var(--chart-1))",
-  },
-  total: {
-    label: "Balance",
-    color: "hsl(var(--chart-2))",
-  },
 }
 
 const WalletBalanceSkeleton = () => {
@@ -170,7 +147,7 @@ const DUMMY_CHART_DATA: WalletChartDataPoint[] = [
   { date: "2025-11-01", balance: 13040, deposit: 10000, yield: 3040, type: 'historical' },
 ]
 
-const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress, balanceHistoryData, loading, isDemoMode = false, onToggleDemoMode, pendingEmissions = 0, blndPrice }: WalletBalanceProps) => {
+const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, isDemoMode = false, onToggleDemoMode, pendingEmissions = 0, blndPrice, usdcPrice = 1 }: WalletBalanceProps) => {
   // Use dummy data when in demo mode
   const activeData = isDemoMode ? DUMMY_DATA : data
   const activeChartData = isDemoMode ? DUMMY_CHART_DATA : chartData
@@ -185,80 +162,72 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress, bala
 
   // Use balance history chart data if available, otherwise fallback to prop
   // Transform fallback data to have 'total' field for chart compatibility
+  // IMPORTANT: Normalize historical data to USD using the USDC price from SDK
   const displayChartData = useMemo((): ChartDataPoint[] => {
-    return historyChartData.length > 0
-      ? historyChartData
-      : activeChartData.map(point => {
-          const date = new Date(point.date)
-          return {
-            date: point.date,
-            formattedDate: date.toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-            }),
-            timestamp: date.getTime(),
-            total: Number(point.balance) || 0, // Ensure numeric value
-            deposit: Number(point.deposit) || 0, // Ensure numeric value
-            yield: Number(point.yield) || 0,
-            pools: [],
-          }
-        })
-  }, [historyChartData, activeChartData])
+    if (historyChartData.length > 0) {
+      // Normalize historical data by multiplying by USDC price
+      // Historical data is in raw USDC tokens, SDK data is in USD
+      return historyChartData.map(point => ({
+        ...point,
+        total: (point.total || 0) * usdcPrice,
+        deposit: (point.deposit || 0) * usdcPrice,
+        yield: (point.yield || 0) * usdcPrice,
+        borrow: (point.borrow || 0) * usdcPrice,
+        pool_yieldblox: point.pool_yieldblox ? point.pool_yieldblox * usdcPrice : undefined,
+        pool_blend: point.pool_blend ? point.pool_blend * usdcPrice : undefined,
+        pools: point.pools.map(pool => ({
+          ...pool,
+          balance: pool.balance * usdcPrice,
+          deposit: pool.deposit * usdcPrice,
+          yield: pool.yield * usdcPrice,
+          borrow: (pool.borrow || 0) * usdcPrice,
+        })),
+      }))
+    }
+
+    // Fallback: transform wallet chart data
+    return activeChartData.map(point => {
+      const date = new Date(point.date)
+      return {
+        date: point.date,
+        formattedDate: date.toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        }),
+        timestamp: date.getTime(),
+        total: Number(point.balance) || 0, // Already in USD from SDK
+        deposit: Number(point.deposit) || 0,
+        yield: Number(point.yield) || 0,
+        borrow: 0,
+        pools: [],
+      }
+    })
+  }, [historyChartData, activeChartData, usdcPrice])
+
+  // Calculate current total borrow from the latest chart data
+  const currentBorrow = useMemo(() => {
+    if (displayChartData.length === 0) return 0
+    const latestData = displayChartData[displayChartData.length - 1]
+    return latestData.borrow || 0
+  }, [displayChartData])
 
   const { displayBalance } = useLiveBalance(initialBalance, apyDecimal, null, 0)
+
+  // Fetch user actions for event markers
+  const { actions: userActions } = useUserActions({
+    publicKey: publicKey || '',
+    limit: 100,
+    enabled: !!publicKey && !isDemoMode,
+  })
 
   // Use yield calculated from: SDK Balance - Dune Cost Basis
   const liveGrowthAmount = activeData.rawInterestEarned
 
-  // Enhanced chart data: full history + today + 12 month projection
-  const enhancedChartData = useMemo((): ChartDataPoint[] => {
-    const today = new Date()
-    const todayStr = today.toISOString().split('T')[0]
-
-    // Start with historical data
-    let baseData = [...displayChartData]
-
-    // Calculate initial deposit from last historical point
-    const lastHistoricalDeposit = baseData.length > 0 ? baseData[baseData.length - 1].deposit : initialBalance
-
-    // Add today's data point with live balance
-    const todayPoint = {
-      date: todayStr,
-      formattedDate: today.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      timestamp: today.getTime(),
-      total: displayBalance,
-      deposit: lastHistoricalDeposit,
-      yield: displayBalance - lastHistoricalDeposit,
-      pools: [],
-      isToday: true, // Mark for annotation
-    }
-    baseData.push(todayPoint)
-
-    // Generate 12 monthly projections using weighted average APY
-    const monthlyAPY = activeData.apyPercentage > 0 ? activeData.apyPercentage / 100 / 12 : 0
-    let projectedBalance = displayBalance
-
-    for (let month = 1; month <= 12; month++) {
-      const futureDate = new Date(today)
-      futureDate.setMonth(futureDate.getMonth() + month)
-
-      // Project balance with compound interest
-      projectedBalance = projectedBalance * (1 + monthlyAPY)
-
-      baseData.push({
-        date: futureDate.toISOString().split('T')[0],
-        formattedDate: futureDate.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
-        timestamp: futureDate.getTime(),
-        total: projectedBalance,
-        deposit: lastHistoricalDeposit,
-        yield: projectedBalance - lastHistoricalDeposit,
-        pools: [],
-        isProjected: true, // Mark as projected
-      })
-    }
-
-    return baseData
-  }, [displayChartData, displayBalance, initialBalance, activeData.apyPercentage])
+  // Get first event date from history data
+  const firstEventDate = useMemo(() => {
+    if (displayChartData.length === 0) return null
+    return displayChartData[0].date
+  }, [displayChartData])
 
   const liveBalanceFormatter = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -319,9 +288,17 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress, bala
             </Button>
           )}
         </div>
-        <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-          <FormattedBalance value={formattedLiveBalance} />
-        </CardTitle>
+        <div className="flex items-center gap-2 flex-wrap">
+          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
+            <FormattedBalance value={formattedLiveBalance} />
+          </CardTitle>
+          {!isDemoMode && currentBorrow > 0 && (
+            <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800">
+              <TrendingDown className="mr-1 h-3 w-3" />
+              ${currentBorrow.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} borrowed
+            </Badge>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
             {formattedLiveGrowth} yield
@@ -424,117 +401,14 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, assetAddress, bala
       </CardHeader>
 
       <CardContent>
-        <div className="space-y-2">
-          {displayChartData.length === 0 ? (
-            <div className="aspect-[3/1] flex items-center justify-center text-muted-foreground">
-              No chart data available
-            </div>
-          ) : (
-            <>
-              <ChartContainer config={chartConfig} className="aspect-[3/1]">
-                <AreaChart
-                  data={enhancedChartData}
-                  margin={{
-                    left: 0,
-                    right: 0,
-                    top: 5,
-                    bottom: 5,
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis
-                    dataKey="timestamp"
-                    type="number"
-                    domain={['dataMin', 'dataMax']}
-                    hide
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    hide
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <ChartTooltip
-                    content={
-                      <ChartTooltipContent
-                        labelFormatter={(_value, payload) => {
-                          // Get the date from the payload data point
-                          if (payload && payload[0]?.payload?.date) {
-                            return new Date(payload[0].payload.date).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })
-                          }
-                          return ""
-                        }}
-                        formatter={(value, name, props) => {
-                          const formatted = new Intl.NumberFormat("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                          }).format(Number(value))
-                          const label = name === "deposit" ? "Deposit" : "Balance"
-                          const isProjected = props.payload?.isProjected
-                          return [formatted, isProjected ? `${label} (projected)` : label]
-                        }}
-                      />
-                    }
-                  />
-                  {/* Line showing deposit amount (principal) */}
-                  <Area
-                    type="monotone"
-                    dataKey="deposit"
-                    stroke="var(--color-deposit)"
-                    strokeWidth={2}
-                    fill="var(--color-deposit)"
-                    fillOpacity={0.1}
-                  />
-                  {/* Line showing total balance (deposit + yield) */}
-                  <Area
-                    type="monotone"
-                    dataKey="total"
-                    stroke="var(--color-total)"
-                    strokeWidth={2}
-                    fill="var(--color-total)"
-                    fillOpacity={0.1}
-                  />
-                  {/* Mark today's value */}
-                  <ReferenceDot
-                    x={enhancedChartData.find(d => d.isToday)?.timestamp}
-                    y={displayBalance}
-                    r={4}
-                    fill="var(--color-total)"
-                    stroke="#fff"
-                    strokeWidth={2}
-                  />
-                </AreaChart>
-              </ChartContainer>
-
-              {!isDemoMode && publicKey && assetAddress && balanceHistoryData && (
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="w-full">
-                      <Maximize2 className="mr-2 h-4 w-4" />
-                      View Full History
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-[95vw] sm:max-w-3xl lg:max-w-5xl max-h-[90vh] overflow-y-auto">
-                    <DialogHeader>
-                      <DialogTitle>Balance History - Full View</DialogTitle>
-                    </DialogHeader>
-                    <BalanceHistoryChart
-                      chartData={balanceHistoryData.chartData}
-                      positionChanges={balanceHistoryData.positionChanges}
-                    />
-                  </DialogContent>
-                </Dialog>
-              )}
-            </>
-          )}
-        </div>
+        <BalanceBarChart
+          historyData={displayChartData}
+          userActions={userActions}
+          currentBalance={displayBalance}
+          apy={activeData.apyPercentage}
+          firstEventDate={firstEventDate}
+          isLoading={loading}
+        />
       </CardContent>
 
       <Separator />
@@ -579,11 +453,11 @@ export const WalletBalance = React.memo(WalletBalanceComponent, (prevProps, next
     prevProps.data.blndApy === nextProps.data.blndApy &&
     prevProps.data.rawInterestEarned === nextProps.data.rawInterestEarned &&
     prevProps.publicKey === nextProps.publicKey &&
-    prevProps.assetAddress === nextProps.assetAddress &&
     prevProps.balanceHistoryData === nextProps.balanceHistoryData &&
     prevProps.loading === nextProps.loading &&
     prevProps.isDemoMode === nextProps.isDemoMode &&
     prevProps.pendingEmissions === nextProps.pendingEmissions &&
-    prevProps.blndPrice === nextProps.blndPrice
+    prevProps.blndPrice === nextProps.blndPrice &&
+    prevProps.usdcPrice === nextProps.usdcPrice
   )
 })

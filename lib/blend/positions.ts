@@ -27,21 +27,55 @@ export interface BlendReservePosition {
   symbol: string;
   name: string;
   price?: PriceQuote | null;
-  supplyAmount: number;
-  supplyUsdValue: number;
-  borrowAmount: number;
-  borrowUsdValue: number;
+  // Supply breakdown
+  supplyAmount: number; // Total supply (collateral + non-collateral) in tokens
+  supplyUsdValue: number; // Total supply in USD
+  collateralAmount: number; // Collateralized (locked) supply in tokens
+  collateralUsdValue: number; // Collateralized supply in USD
+  nonCollateralAmount: number; // Non-collateralized supply in tokens
+  nonCollateralUsdValue: number; // Non-collateralized supply in USD
+  // Borrow
+  borrowAmount: number; // Borrowed amount in tokens
+  borrowUsdValue: number; // Borrowed amount in USD
+  // APYs
   supplyApy: number;
   borrowApy: number;
   blndApy: number;
+  // Token conversion rates
   bRate: number; // Current b_rate from SDK
+  dRate: number; // Current d_rate from SDK
   bTokens: number; // Total bTokens (supply + collateral)
+  dTokens: number; // Total dTokens (liabilities)
+  // Reserve-level data
+  collateralFactor: number; // e.g. 0.75 = 75% LTV
+  liabilityFactor: number; // Liquidation threshold factor
+  reserveUtilization: number; // Pool utilization %
+  reserveTotalSupply: number; // Total pool supply in tokens
+  reserveTotalBorrow: number; // Total pool borrow in tokens
+}
+
+// Per-pool position estimate (health, borrow capacity, etc.)
+export interface BlendPoolEstimate {
+  poolId: string;
+  poolName: string;
+  totalBorrowed: number; // In oracle denomination (USD)
+  totalSupplied: number; // In oracle denomination (USD)
+  totalEffectiveLiabilities: number; // Adjusted by liability factor
+  totalEffectiveCollateral: number; // Adjusted by collateral factor
+  borrowCap: number; // Max liabilities user can take on
+  borrowLimit: number; // Ratio of liabilities to collateral (0-1, higher = riskier)
+  netApy: number;
+  supplyApy: number;
+  borrowApy: number;
 }
 
 export interface BlendWalletSnapshot {
   positions: BlendReservePosition[];
+  poolEstimates: BlendPoolEstimate[]; // Per-pool health/borrow data
   totalSupplyUsd: number;
   totalBorrowUsd: number;
+  totalCollateralUsd: number; // Total collateralized supply
+  totalNonCollateralUsd: number; // Total non-collateralized supply
   netPositionUsd: number;
   weightedSupplyApy: number | null;
   weightedBorrowApy: number | null;
@@ -250,13 +284,32 @@ async function getPriceQuote(
       reserve.assetId
     );
     const rawPrice = priceResponse.price;
+
+    console.log(`[blend] Oracle price for ${symbol ?? reserve.assetId.slice(0, 8)}:`, {
+      oracleId,
+      assetId: reserve.assetId,
+      rawPrice: rawPrice?.toString(),
+      rawPriceType: typeof rawPrice,
+      decimals,
+    });
+
     if (typeof rawPrice !== "bigint") {
+      console.warn(`[blend] Invalid price type for ${symbol}: expected bigint, got ${typeof rawPrice}`);
       setCachedValue(priceGlobalCache, cacheKey, null);
       return null;
     }
 
     const usdPrice = Number(rawPrice) / Math.pow(10, decimals);
+
+    console.log(`[blend] Calculated USD price for ${symbol}:`, {
+      rawPrice: rawPrice.toString(),
+      decimals,
+      divisor: Math.pow(10, decimals),
+      usdPrice,
+    });
+
     if (!Number.isFinite(usdPrice) || usdPrice <= 0) {
+      console.warn(`[blend] Invalid USD price for ${symbol}: ${usdPrice}`);
       setCachedValue(priceGlobalCache, cacheKey, null);
       return null;
     }
@@ -354,6 +407,20 @@ function buildPosition(
 
   const supplyUsd = totalSupply * usdMultiplier;
   const borrowUsd = totalBorrow * usdMultiplier;
+  const collateralUsd = collateralSupply * usdMultiplier;
+  const nonCollateralUsd = nonCollateralSupply * usdMultiplier;
+
+  console.log(`[blend] Position calculation for ${tokenMetadata?.symbol ?? reserve.assetId.slice(0, 8)} in ${snapshot.metadata.name}:`, {
+    totalSupply,
+    collateralSupply,
+    nonCollateralSupply,
+    totalBorrow,
+    usdMultiplier,
+    supplyUsd,
+    priceSource: price?.source,
+    priceUsdPrice: price?.usdPrice,
+  });
+
   const blndApy = computeBlndEmissionApy(snapshot, reserve, price);
 
   // Extract current b_rate from SDK (normalized from raw value)
@@ -361,9 +428,23 @@ function buildPosition(
     ? Number(reserve.data.bRate) / Math.pow(10, reserve.rateDecimals || 12)
     : 0;
 
+  // Extract current d_rate from SDK (normalized from raw value)
+  const dRate = reserve.data?.dRate
+    ? Number(reserve.data.dRate) / Math.pow(10, reserve.rateDecimals || 12)
+    : 0;
+
   // Get bTokens (raw token amounts before b_rate conversion)
-  // Calculate by dividing the float amounts by b_rate to get bTokens
   const bTokens = bRate > 0 ? totalSupply / bRate : 0;
+
+  // Get dTokens (raw token amounts before d_rate conversion)
+  const dTokens = dRate > 0 ? totalBorrow / dRate : 0;
+
+  // Get reserve-level data
+  const collateralFactor = reserve.getCollateralFactor();
+  const liabilityFactor = reserve.getLiabilityFactor();
+  const reserveUtilization = reserve.getUtilizationFloat();
+  const reserveTotalSupply = reserve.totalSupplyFloat();
+  const reserveTotalBorrow = reserve.totalLiabilitiesFloat();
 
   return {
     id: `${snapshot.tracked.id}-${reserve.assetId}`,
@@ -373,20 +454,37 @@ function buildPosition(
     symbol: tokenMetadata?.symbol ?? reserve.assetId.slice(0, 4),
     name: tokenMetadata?.name ?? tokenMetadata?.symbol ?? reserve.assetId,
     price,
+    // Supply breakdown
     supplyAmount: totalSupply,
     supplyUsdValue: supplyUsd,
+    collateralAmount: collateralSupply,
+    collateralUsdValue: collateralUsd,
+    nonCollateralAmount: nonCollateralSupply,
+    nonCollateralUsdValue: nonCollateralUsd,
+    // Borrow
     borrowAmount: totalBorrow,
     borrowUsdValue: borrowUsd,
+    // APYs
     supplyApy: reserve.estSupplyApy * 100,
     borrowApy: reserve.estBorrowApy * 100,
     blndApy,
+    // Token conversion rates
     bRate,
+    dRate,
     bTokens,
+    dTokens,
+    // Reserve-level data
+    collateralFactor,
+    liabilityFactor,
+    reserveUtilization,
+    reserveTotalSupply,
+    reserveTotalBorrow,
   };
 }
 
 function aggregateSnapshot(
   positions: BlendReservePosition[],
+  poolEstimates: BlendPoolEstimate[],
   netApyOverride: number | null
 ): BlendWalletSnapshot {
   const totalSupplyUsd = positions.reduce(
@@ -395,6 +493,14 @@ function aggregateSnapshot(
   );
   const totalBorrowUsd = positions.reduce(
     (acc, position) => acc + position.borrowUsdValue,
+    0
+  );
+  const totalCollateralUsd = positions.reduce(
+    (acc, position) => acc + position.collateralUsdValue,
+    0
+  );
+  const totalNonCollateralUsd = positions.reduce(
+    (acc, position) => acc + position.nonCollateralUsdValue,
     0
   );
 
@@ -439,8 +545,11 @@ function aggregateSnapshot(
 
   return {
     positions,
+    poolEstimates,
     totalSupplyUsd,
     totalBorrowUsd,
+    totalCollateralUsd,
+    totalNonCollateralUsd,
     netPositionUsd,
     weightedSupplyApy,
     weightedBorrowApy,
@@ -451,11 +560,17 @@ function aggregateSnapshot(
   };
 }
 
+interface EstimatesResult {
+  netApy: number | null;
+  poolEstimates: BlendPoolEstimate[];
+}
+
 function computeNetApyFromEstimates(
   snapshots: PoolSnapshot[]
-): number | null {
+): EstimatesResult {
   let weightedNetApy = 0;
   let totalWeight = 0;
+  const poolEstimates: BlendPoolEstimate[] = [];
 
   for (const snapshot of snapshots) {
     if (!snapshot.user || !snapshot.oracle) {
@@ -468,6 +583,22 @@ function computeNetApyFromEstimates(
         snapshot.oracle,
         snapshot.user.positions
       );
+
+      // Build pool estimate
+      poolEstimates.push({
+        poolId: snapshot.tracked.id,
+        poolName: snapshot.metadata.name,
+        totalBorrowed: estimate.totalBorrowed,
+        totalSupplied: estimate.totalSupplied,
+        totalEffectiveLiabilities: estimate.totalEffectiveLiabilities,
+        totalEffectiveCollateral: estimate.totalEffectiveCollateral,
+        borrowCap: estimate.borrowCap,
+        borrowLimit: estimate.borrowLimit,
+        netApy: estimate.netApy * 100,
+        supplyApy: estimate.supplyApy * 100,
+        borrowApy: estimate.borrowApy * 100,
+      });
+
       if (estimate.totalSupplied > 0) {
         weightedNetApy += estimate.totalSupplied * (estimate.netApy * 100);
         totalWeight += estimate.totalSupplied;
@@ -480,11 +611,10 @@ function computeNetApyFromEstimates(
     }
   }
 
-  if (totalWeight === 0) {
-    return null;
-  }
-
-  return weightedNetApy / totalWeight;
+  return {
+    netApy: totalWeight === 0 ? null : weightedNetApy / totalWeight,
+    poolEstimates,
+  };
 }
 
 export async function fetchWalletBlendSnapshot(
@@ -500,8 +630,11 @@ export async function fetchWalletBlendSnapshot(
   if (!context.pools.length || !walletPublicKey) {
     return {
       positions: [],
+      poolEstimates: [],
       totalSupplyUsd: 0,
       totalBorrowUsd: 0,
+      totalCollateralUsd: 0,
+      totalNonCollateralUsd: 0,
       netPositionUsd: 0,
       weightedSupplyApy: null,
       weightedBorrowApy: null,
@@ -587,8 +720,8 @@ export async function fetchWalletBlendSnapshot(
     (position): position is BlendReservePosition => !!position
   );
 
-  const netApyEstimate = computeNetApyFromEstimates(snapshotsWithUsers);
-  const snapshot = aggregateSnapshot(flattenedPositions, netApyEstimate);
+  const estimatesResult = computeNetApyFromEstimates(snapshotsWithUsers);
+  const snapshot = aggregateSnapshot(flattenedPositions, estimatesResult.poolEstimates, estimatesResult.netApy);
 
   // Calculate BLND price from first available backstop
   let blndPrice: number | null = null;

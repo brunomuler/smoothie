@@ -1,14 +1,29 @@
 /**
  * Balance History API Route
- * Fetches balance history from Dune Analytics
+ * Fetches balance history from database (parsed_events + daily_rates)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchDuneQueryResults } from '@/lib/dune/client'
-import { transformDuneResults, filterByDays, DuneRow } from '@/lib/dune/transformer'
-// import { userRepository } from '@/lib/db/user-repository' // Kept for reference, not used
+import { eventsRepository } from '@/lib/db/events-repository'
 
-const DUNE_QUERY_ID = 6245238
+// Track when daily_rates was last refreshed (in-memory cache)
+let lastRatesRefresh: number = 0
+const RATES_REFRESH_INTERVAL_MS = 15 * 60 * 1000 // 15 minutes
+
+async function ensureFreshRates(): Promise<void> {
+  const now = Date.now()
+  if (now - lastRatesRefresh > RATES_REFRESH_INTERVAL_MS) {
+    console.log('[Balance History API] Refreshing daily_rates materialized view...')
+    try {
+      await eventsRepository.refreshDailyRates()
+      lastRatesRefresh = now
+      console.log('[Balance History API] daily_rates refreshed successfully')
+    } catch (error) {
+      console.error('[Balance History API] Failed to refresh daily_rates:', error)
+      // Don't throw - continue with stale data rather than failing
+    }
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -40,46 +55,32 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Ensure daily_rates is fresh (refresh if stale)
+    await ensureFreshRates()
+
     console.log(
-      `[Balance History API] Fetching history from Dune for user=${user}, asset=${asset}, days=${days}`,
+      `[Balance History API] Fetching from DATABASE for user=${user}, asset=${asset}, days=${days}`,
     )
 
-    // Fetch data from Dune Analytics
-    const duneResult = await fetchDuneQueryResults(DUNE_QUERY_ID)
-
-    if (!duneResult.result?.rows) {
-      throw new Error('No data returned from Dune query')
-    }
-
-    // Transform Dune results to UserBalance format
-    const allBalances = transformDuneResults(
-      duneResult.result.rows as DuneRow[],
+    const { history, firstEventDate } = await eventsRepository.getBalanceHistoryFromEvents(
       user,
-      asset
+      asset,
+      days,
     )
 
-    // Filter by requested days
-    const filteredBalances = filterByDays(allBalances, days)
-
-    // Find first event date (oldest date in the full dataset)
-    const firstEventDate = allBalances.length > 0
-      ? allBalances[allBalances.length - 1].snapshot_date
-      : null
-
-    // Return data with first event date metadata
     const response = {
       user_address: user,
       asset_address: asset,
       days,
-      count: filteredBalances.length,
-      history: filteredBalances,
+      count: history.length,
+      history,
       firstEventDate,
+      source: 'database',
     }
 
-    // Return data with 12-hour cache headers
     return NextResponse.json(response, {
       headers: {
-        'Cache-Control': 'public, s-maxage=43200, stale-while-revalidate=86400',
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600', // 5 min cache
       },
     })
   } catch (error) {
@@ -88,8 +89,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: 'Internal server error',
-        message:
-          error instanceof Error ? error.message : 'Unknown error',
+        message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 },
     )
