@@ -566,16 +566,16 @@ function HomeContent() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b sticky top-0 z-50 bg-background">
+      <header className="sticky top-0 z-50 bg-background">
         <div className="container max-w-4xl mx-auto px-4 py-1.5 sm:py-2 flex items-center justify-between gap-2">
-          <div className="relative h-12">
+          <div className="relative h-10 sm:h-12">
             <Image
               src="/logo/logo-light.png"
               alt="Smoothie"
               width={0}
               height={0}
               sizes="100vw"
-              className="h-12 w-auto dark:hidden"
+              className="h-10 sm:h-12 w-auto dark:hidden"
               priority
             />
             <Image
@@ -584,7 +584,7 @@ function HomeContent() {
               width={0}
               height={0}
               sizes="100vw"
-              className="h-12 w-auto hidden dark:block"
+              className="h-10 sm:h-12 w-auto hidden dark:block"
               priority
             />
           </div>

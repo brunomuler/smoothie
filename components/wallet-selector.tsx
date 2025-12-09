@@ -186,9 +186,9 @@ export function WalletSelector({
               variant="outline"
               className={cn(
                 "gap-2 pl-1.5 pr-2.5 h-10 min-w-[140px]",
-                "bg-black border-black hover:bg-black/90 hover:border-black/90",
-                "transition-all duration-200",
-                "hover:shadow-sm"
+                "!bg-transparent border-white/10 hover:!bg-white/5 hover:border-white/20",
+                "dark:!bg-transparent dark:border-white/10 dark:hover:!bg-white/5",
+                "transition-all duration-200"
               )}
             >
               <WalletAvatar
