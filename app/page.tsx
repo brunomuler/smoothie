@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useSearchParams } from "next/navigation"
 import { usePostHog } from "@/hooks/use-posthog"
 import { TokenLogo } from "@/components/token-logo"
-import { useQueries } from "@tanstack/react-query"
+import { useQueries, useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
 import { StrKey } from "@stellar/stellar-sdk"
@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ArrowDownFromLine, History, TrendingUp, TrendingDown, PiggyBank, ChevronRight } from "lucide-react"
 import { BlndRewardsCard } from "@/components/blnd-rewards-card"
+import { PullToRefresh } from "@/components/pull-to-refresh"
 import type { Wallet } from "@/types/wallet"
 import type { ChartDataPoint } from "@/types/wallet-balance"
 import type { AssetCardData } from "@/types/asset-card"
@@ -60,6 +61,7 @@ function isValidStellarAddress(addr: string): boolean {
 
 function HomeContent() {
   const searchParams = useSearchParams()
+  const queryClient = useQueryClient()
   const [wallets, setWallets] = useState<Wallet[]>([])
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null)
   const [isDemoMode, setIsDemoMode] = useState(false)
@@ -551,6 +553,12 @@ function HomeContent() {
     }
   }
 
+  const handleRefresh = useCallback(async () => {
+    capture('pull_to_refresh')
+    // Invalidate all queries to trigger refetch
+    await queryClient.invalidateQueries()
+  }, [queryClient, capture])
+
   // Show landing page for non-logged-in users
   if (!activeWallet) {
     return (
@@ -600,8 +608,9 @@ function HomeContent() {
         </div>
       </header>
 
-      <main className="container max-w-4xl mx-auto px-4 py-3 sm:py-4">
-        <div className="space-y-6">
+      <PullToRefresh onRefresh={handleRefresh}>
+        <main className="container max-w-4xl mx-auto px-4 py-3 sm:py-4">
+          <div className="space-y-6">
             {error && (
               <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4">
                 <p className="text-destructive text-sm">
@@ -918,8 +927,9 @@ function HomeContent() {
                 </Tabs>
               </>
             )}
-        </div>
-      </main>
+          </div>
+        </main>
+      </PullToRefresh>
     </div>
   )
 }
