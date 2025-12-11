@@ -165,7 +165,15 @@ function enrichBackstopPositionsWithYield(
     // Include queued withdrawals (Q4W) in total position - they're still the user's LP tokens
     // Q4W is just locked for 21 days, not actually withdrawn yet
     const totalLpTokens = position.lpTokens + position.q4wLpTokens
-    const yieldLp = totalLpTokens - costBasis.cost_basis_lp
+    let yieldLp = totalLpTokens - costBasis.cost_basis_lp
+
+    // Handle floating-point precision: treat very small values as zero
+    // The SDK and DB calculations can differ by tiny amounts (< 0.001 LP) due to precision
+    const EPSILON = 0.0001
+    if (Math.abs(yieldLp) < EPSILON) {
+      yieldLp = 0
+    }
+
     const yieldPercent = costBasis.cost_basis_lp > 0
       ? (yieldLp / costBasis.cost_basis_lp) * 100
       : 0
@@ -243,10 +251,12 @@ export function useBlendPositions(walletPublicKey: string | undefined, totalCost
 
   const assetCards = useMemo(() => buildAssetCards(query.data), [query.data])
 
-  const totalEmissions = useMemo(
-    () => query.data?.totalEmissions ?? 0,
-    [query.data]
-  );
+  const totalEmissions = useMemo(() => {
+    const emissions = query.data?.totalEmissions ?? 0;
+    console.log('[useBlendPositions] totalEmissions:', emissions);
+    console.log('[useBlendPositions] perPoolEmissions:', query.data?.perPoolEmissions);
+    return emissions;
+  }, [query.data]);
 
   const blndPrice = useMemo(
     () => query.data?.blndPrice ?? null,

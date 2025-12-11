@@ -320,33 +320,48 @@ function getAmountDisplay(action: UserAction, currentUserAddress?: string): Reac
     }
   } else if (isBackstopEvent && action.lp_tokens !== null) {
     const lpValue = action.lp_tokens / 10000000
-    const isDeposit = action.action_type === "backstop_deposit" || action.action_type === "backstop_claim"
+    // Format LP amount the same way as tokens (with K/M abbreviations)
+    const formattedLp = lpValue >= 1000000
+      ? `${(lpValue / 1000000).toFixed(2)}M`
+      : lpValue >= 1000
+        ? `${(lpValue / 1000).toFixed(2)}K`
+        : lpValue.toFixed(2)
+    // Positive: deposit, claim, dequeue (cancel queue returns LP to available)
+    // Negative: withdraw, queue_withdrawal (LP moving out or being locked)
+    const isPositive = action.action_type === "backstop_deposit" ||
+                       action.action_type === "backstop_claim" ||
+                       action.action_type === "backstop_dequeue_withdrawal"
+    const sign = isPositive ? "" : "-"
+    const textColor = isPositive ? "text-white" : "text-red-400"
     return (
-      <div className="flex items-center gap-0.5 font-mono text-xs font-medium">
-        <div 
+      <div className={`flex items-center gap-0.5 font-mono text-xs font-medium ${textColor}`}>
+        <div
           className="flex items-center justify-center mx-0.5 rounded-full bg-purple-500/10 shrink-0"
           style={{ width: 16, height: 16 }}
         >
           <Shield className="h-2.5 w-2.5 text-purple-500" />
         </div>
-        <span className={isDeposit ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-          {isDeposit ? "+" : "-"}{lpValue.toFixed(2)}
-        </span>
-        <span className={isDeposit ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-          LP
-        </span>
+        <span>{sign}{formattedLp}</span>
+        <span>LP</span>
       </div>
     )
   } else {
     const amount = action.action_type === "claim" ? action.claim_amount : action.amount_underlying
     const symbol = action.action_type === "claim" ? "BLND" : action.asset_symbol
     const iconUrl = resolveAssetLogo(symbol ?? undefined)
+    // Negative: withdraw, withdraw_collateral, borrow (money going out)
+    // Positive: supply, supply_collateral, repay, claim
+    const isNegative = action.action_type === "withdraw" ||
+                       action.action_type === "withdraw_collateral" ||
+                       action.action_type === "borrow"
+    const sign = isNegative ? "-" : ""
+    const textColor = isNegative ? "text-red-400" : "text-white"
     return (
-      <div className="flex items-center gap-0.5 font-mono text-xs font-medium text-white">
+      <div className={`flex items-center gap-0.5 font-mono text-xs font-medium ${textColor}`}>
         {symbol && (
           <TokenLogo src={iconUrl} symbol={symbol} size={16} noPadding className="mx-0.5" />
         )}
-        <span>{formatAmount(amount, action.asset_decimals || 7)}</span>
+        <span>{sign}{formatAmount(amount, action.asset_decimals || 7)}</span>
         <span>{symbol || ""}</span>
       </div>
     )

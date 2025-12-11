@@ -427,31 +427,47 @@ function HomeContent() {
     })
   }, [assetCards, poolAssetCostBasisMap, assetPriceMap])
 
-  // Calculate total cost basis from all assets in USD
+  // Calculate total cost basis from all assets in USD (including backstop)
   const totalCostBasis = useMemo(() => {
-    if (!blendSnapshot?.positions || blendSnapshot.positions.length === 0) {
-      return undefined
-    }
-
     let totalCostBasisUsd = 0
 
-    // For each SDK position, get the cost basis from database and convert to USD
-    blendSnapshot.positions.forEach((position) => {
-      if (position.supplyAmount <= 0) return // Skip positions with no supply
+    // 1. Supply positions cost basis
+    if (blendSnapshot?.positions) {
+      blendSnapshot.positions.forEach((position) => {
+        if (position.supplyAmount <= 0) return // Skip positions with no supply
 
-      const compositeKey = position.id // Already in format: poolId-assetAddress
-      const costBasisTokens = poolAssetCostBasisMap.get(compositeKey)
+        const compositeKey = position.id // Already in format: poolId-assetAddress
+        const costBasisTokens = poolAssetCostBasisMap.get(compositeKey)
 
-      if (costBasisTokens !== undefined && costBasisTokens > 0) {
-        // Convert cost basis from tokens to USD using SDK price
-        const usdPrice = position.price?.usdPrice || 1
-        const costBasisUsd = costBasisTokens * usdPrice
-        totalCostBasisUsd += costBasisUsd
-      }
-    })
+        if (costBasisTokens !== undefined && costBasisTokens > 0) {
+          // Convert cost basis from tokens to USD using SDK price
+          const usdPrice = position.price?.usdPrice || 1
+          const costBasisUsd = costBasisTokens * usdPrice
+          totalCostBasisUsd += costBasisUsd
+        }
+      })
+    }
+
+    // 2. Backstop positions cost basis
+    // Without this, the entire backstop value would be counted as yield
+    if (backstopPositions && lpTokenPrice) {
+      backstopPositions.forEach((bp) => {
+        // If we have cost basis data from events, use it
+        if (bp.costBasisLp && bp.costBasisLp > 0) {
+          const costBasisUsd = bp.costBasisLp * lpTokenPrice
+          totalCostBasisUsd += costBasisUsd
+        } else if (bp.lpTokensUsd > 0) {
+          // FALLBACK: If no cost basis data available but user has backstop position,
+          // use current LP value as cost basis (conservative - assumes 0 yield)
+          // This prevents new deposits from appearing as yield before events are indexed
+          console.warn('[totalCostBasis] No cost basis for backstop pool', bp.poolId, '- using current LP value as fallback')
+          totalCostBasisUsd += bp.lpTokensUsd
+        }
+      })
+    }
 
     return totalCostBasisUsd > 0 ? totalCostBasisUsd : undefined
-  }, [blendSnapshot?.positions, poolAssetCostBasisMap])
+  }, [blendSnapshot?.positions, poolAssetCostBasisMap, backstopPositions, lpTokenPrice])
 
   // Recalculate balanceData with correct total cost basis and yield
   const balanceData = useMemo(() => {
@@ -545,7 +561,24 @@ function HomeContent() {
       const backstopLpTokens = backstopByDate.get(date) || 0
       const backstopUsdValue = backstopLpTokens * (lpTokenPrice || 0)
       totalBalance += backstopUsdValue
-      totalDeposit += backstopUsdValue // Backstop is a deposit/supply position
+
+      // For deposit (cost basis), use the actual cost basis from backstop positions
+      // This ensures yield = balance - deposit correctly shows only interest earned
+      const backstopCostBasisLp = backstopPositions.reduce((sum, bp) => sum + (bp.costBasisLp || 0), 0)
+
+      // IMPORTANT: Clamp cost basis to not exceed the LP tokens at this date
+      // This prevents showing negative yield when current cost basis includes recent deposits
+      // that weren't present on historical dates
+      const effectiveBackstopCostBasisLp = backstopCostBasisLp > 0
+        ? Math.min(backstopCostBasisLp, backstopLpTokens)  // Use min of cost basis and historical balance
+        : backstopLpTokens  // If no cost basis data, use LP tokens as deposit (conservative - 0 yield)
+
+      const backstopCostBasisUsd = effectiveBackstopCostBasisLp * (lpTokenPrice || 0)
+      totalDeposit += backstopCostBasisUsd
+
+      // Add backstop yield to total yield
+      const backstopYieldUsd = backstopUsdValue - backstopCostBasisUsd
+      totalYield += backstopYieldUsd
 
       const dateObj = new Date(date)
       return {
@@ -576,7 +609,7 @@ function HomeContent() {
       isLoading: balanceHistoryQueries.some(q => q.isLoading) || backstopBalanceHistoryQuery.isLoading,
       error: balanceHistoryQueries.find(q => q.error)?.error || backstopBalanceHistoryQuery.error || null,
     }
-  }, [balanceHistoryDataMap, assetPriceMap, uniqueAssetAddresses, balanceHistoryQueries, backstopBalanceHistoryQuery, lpTokenPrice])
+  }, [balanceHistoryDataMap, assetPriceMap, uniqueAssetAddresses, balanceHistoryQueries, backstopBalanceHistoryQuery, lpTokenPrice, backstopPositions])
 
   const handleSelectWallet = (walletId: string) => {
     setActiveWalletId(walletId)
@@ -711,11 +744,15 @@ function HomeContent() {
 
                   <TabsContent value="positions" className="space-y-4">
                     {/* BLND Rewards Card */}
-                    {activeWallet && (totalEmissions > 0 || !isLoading) && (
+                    {activeWallet && (totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0) || !isLoading) && (
                       <BlndRewardsCard
                         publicKey={activeWallet.publicKey}
                         pendingEmissions={totalEmissions}
+                        backstopClaimableBlnd={backstopPositions.reduce((sum, bp) => sum + (bp.claimableBlnd || 0), 0)}
                         blndPrice={blndPrice}
+                        blndPerLpToken={backstopPositions[0]?.blndAmount && backstopPositions[0]?.lpTokens
+                          ? backstopPositions[0].blndAmount / backstopPositions[0].lpTokens
+                          : 0}
                         blndApy={balanceData.blndApy}
                         isLoading={isLoading}
                       />
@@ -829,9 +866,9 @@ function HomeContent() {
                                                 formatUsdAmount(asset.rawBalance)
                                               ) : (
                                                 <>
-                                                  {formatAmount(tokenAmount)} {symbol}
+                                                  {formatUsdAmount(asset.rawBalance)}
                                                   <span className="text-xs ml-1">
-                                                    ({formatUsdAmount(asset.rawBalance)})
+                                                    ({formatAmount(tokenAmount)} {symbol})
                                                   </span>
                                                 </>
                                               )}
@@ -889,20 +926,33 @@ function HomeContent() {
                                           <div className="min-w-0 flex-1">
                                             <p className="font-medium truncate">Backstop</p>
                                             <p className="text-sm text-muted-foreground truncate">
-                                              {formatAmount(backstopPosition.lpTokens, 2)} LP
+                                              {formatUsdAmount(backstopPosition.lpTokensUsd)}
                                               <span className="text-xs ml-1">
-                                                ({formatUsdAmount(backstopPosition.lpTokensUsd)})
+                                                ({formatAmount(backstopPosition.lpTokens, 2)} LP)
                                               </span>
                                             </p>
-                                            {Math.abs(backstopPosition.yieldLp) >= 0.0001 && (
-                                              <p className={`text-xs flex items-center gap-1 ${backstopPosition.yieldLp >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                                                <TrendingUp className="h-3 w-3" />
-                                                {backstopPosition.yieldLp >= 0 ? '+' : ''}{formatAmount(backstopPosition.yieldLp, 4)} LP earned
-                                                <span className="text-muted-foreground">
-                                                  ({backstopPosition.yieldPercent >= 0 ? '+' : ''}{backstopPosition.yieldPercent.toFixed(2)}%)
-                                                </span>
-                                              </p>
-                                            )}
+                                            {(() => {
+                                              // Calculate yield in USD
+                                              const lpTokenPrice = backstopPosition.lpTokens > 0
+                                                ? backstopPosition.lpTokensUsd / backstopPosition.lpTokens
+                                                : 0
+                                              const yieldUsd = backstopPosition.yieldLp * lpTokenPrice
+                                              const yieldFormatter = new Intl.NumberFormat("en-US", {
+                                                style: "currency",
+                                                currency: "USD",
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                                signDisplay: "always",
+                                              })
+                                              const formattedYieldPercentage = backstopPosition.yieldPercent !== 0
+                                                ? ` (${backstopPosition.yieldPercent >= 0 ? '+' : ''}${backstopPosition.yieldPercent.toFixed(2)}%)`
+                                                : ''
+                                              return (
+                                                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                  {yieldFormatter.format(yieldUsd)} yield{formattedYieldPercentage}
+                                                </p>
+                                              )
+                                            })()}
                                             {hasQ4w && (
                                               <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                                                 <Clock className="h-3 w-3" />
@@ -1027,9 +1077,9 @@ function HomeContent() {
                                                 formatUsdAmount(position.borrowUsdValue)
                                               ) : (
                                                 <>
-                                                  {formatAmount(position.borrowAmount)} {position.symbol}
+                                                  {formatUsdAmount(position.borrowUsdValue)}
                                                   <span className="text-xs ml-1">
-                                                    ({formatUsdAmount(position.borrowUsdValue)})
+                                                    ({formatAmount(position.borrowAmount)} {position.symbol})
                                                   </span>
                                                 </>
                                               )}

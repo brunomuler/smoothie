@@ -196,6 +196,23 @@ function CustomTooltip({
   )
 }
 
+// Map event types to icon categories (for grouping events with same visual icon)
+const EVENT_ICON_CATEGORY: Record<string, string> = {
+  supply: 'arrow-down',
+  supply_collateral: 'arrow-down',
+  withdraw: 'arrow-up',
+  withdraw_collateral: 'arrow-up',
+  borrow: 'arrow-up',
+  repay: 'arrow-down',
+  claim: 'gift',
+  liquidate: 'gavel',
+  backstop_deposit: 'shield',
+  backstop_withdraw: 'shield',
+  backstop_queue_withdrawal: 'shield',
+  backstop_dequeue_withdrawal: 'shield',
+  backstop_claim: 'shield',
+}
+
 // SVG path data extracted from lucide icons (designed for 24x24 viewBox)
 // These match the icons used in transaction-history.tsx
 const EVENT_ICON_PATHS: Record<string, {
@@ -311,17 +328,25 @@ function renderEventMarkers(props: any) {
         // Position icons to slightly overlay the bottom of the bars (closer on mobile)
         const markerY = yBottom + (isMobile ? 8 : 12)
 
-        // Get unique event types for this bar
-        const uniqueTypes = [...new Set(bar.events.map((e) => e.type))]
-        const displayEvents = uniqueTypes.slice(0, 3)
+        // Group events by icon category (so multiple backstop events = 1 shield icon)
+        const eventsByCategory = new Map<string, string>()
+        for (const event of bar.events) {
+          const category = EVENT_ICON_CATEGORY[event.type] || event.type
+          if (!eventsByCategory.has(category)) {
+            eventsByCategory.set(category, event.type) // Store first event type for this category
+          }
+        }
+        // Get unique icon categories and their representative event types
+        const uniqueCategories = Array.from(eventsByCategory.entries())
+        const displayEvents = uniqueCategories.slice(0, 4).map(([_, type]) => type)
         const numIcons = displayEvents.length
 
         // Background circle size (same for all, smaller on mobile)
         const bgRadius = isMobile ? 12 : 16
         // Icon size - smaller when multiple icons, and smaller on mobile
         const iconSize = isMobile
-          ? (numIcons === 1 ? 10 : numIcons === 2 ? 8 : 7)
-          : (numIcons === 1 ? 14 : numIcons === 2 ? 10 : 9)
+          ? (numIcons === 1 ? 10 : numIcons === 2 ? 8 : numIcons === 3 ? 6 : 5)
+          : (numIcons === 1 ? 14 : numIcons === 2 ? 10 : numIcons === 3 ? 8 : 7)
 
         return (
           <g key={idx}>
@@ -360,6 +385,26 @@ function renderEventMarkers(props: any) {
                   // Bottom two icons
                   offsetX = (eventIdx === 1 ? -1 : 1) * spacing * 0.7
                   offsetY = spacing * 0.5
+                }
+              } else if (numIcons === 4) {
+                // Four icons: diamond/losange arrangement (1 top, 2 middle, 1 bottom)
+                const spacing = iconSize * 1.0
+                if (eventIdx === 0) {
+                  // Top icon
+                  offsetX = 0
+                  offsetY = -spacing * 0.9
+                } else if (eventIdx === 1) {
+                  // Left middle icon
+                  offsetX = -spacing * 0.9
+                  offsetY = 0
+                } else if (eventIdx === 2) {
+                  // Right middle icon
+                  offsetX = spacing * 0.9
+                  offsetY = 0
+                } else {
+                  // Bottom icon
+                  offsetX = 0
+                  offsetY = spacing * 0.9
                 }
               }
 
@@ -415,7 +460,7 @@ function renderEventMarkers(props: any) {
                 </g>
               )
             })}
-            {uniqueTypes.length > 3 && (
+            {uniqueCategories.length > 4 && (
               <text
                 x={barCenterX + bgRadius + 4}
                 y={markerY}
@@ -425,7 +470,7 @@ function renderEventMarkers(props: any) {
                 fill="currentColor"
                 opacity={0.6}
               >
-                +{uniqueTypes.length - 3}
+                +{uniqueCategories.length - 4}
               </text>
             )}
           </g>

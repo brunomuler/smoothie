@@ -1,6 +1,7 @@
 import {
   Backstop,
   BackstopPoolUser,
+  BackstopPoolUserEst,
   BackstopPoolV1,
   BackstopPoolV2,
   BackstopPoolEst,
@@ -58,6 +59,8 @@ export interface BlendReservePosition {
   reserveUtilization: number; // Pool utilization %
   reserveTotalSupply: number; // Total pool supply in tokens
   reserveTotalBorrow: number; // Total pool borrow in tokens
+  // Claimable BLND emissions
+  claimableBlnd: number; // BLND waiting to be claimed for this position
 }
 
 // Backstop position for a specific pool
@@ -88,6 +91,8 @@ export interface BlendBackstopPosition {
   yieldPercent: number; // Percentage yield ((yieldLp / costBasisLp) * 100)
   // Pool-level Q4W risk indicator
   poolQ4wPercent: number; // Percent of pool's backstop capital queued for withdrawal (higher = riskier)
+  // Claimable BLND emissions
+  claimableBlnd: number; // BLND waiting to be claimed for this backstop position
 }
 
 // Per-pool position estimate (health, borrow capacity, etc.)
@@ -121,6 +126,7 @@ export interface BlendWalletSnapshot {
   netApy: number | null;
   weightedBlndApy: number | null;
   totalEmissions: number; // Total claimable BLND emissions in tokens
+  perPoolEmissions: Record<string, number>; // Per-pool claimable BLND emissions
   blndPrice: number | null; // BLND price in USDC from backstop
   lpTokenPrice: number | null; // LP token price in USD from backstop
 }
@@ -459,7 +465,8 @@ function buildPosition(
   snapshot: PoolSnapshot,
   reserve: Reserve,
   tokenMetadata: TokenMetadata | null,
-  price: PriceQuote | null
+  price: PriceQuote | null,
+  claimableBlnd: number = 0
 ): BlendReservePosition | null {
   const reserveUser = snapshot.user;
   if (!reserveUser) {
@@ -542,6 +549,8 @@ function buildPosition(
     reserveUtilization,
     reserveTotalSupply,
     reserveTotalBorrow,
+    // Claimable BLND emissions
+    claimableBlnd,
   };
 }
 
@@ -645,6 +654,7 @@ function aggregateSnapshot(
     netApy,
     weightedBlndApy,
     totalEmissions: 0, // Will be set by fetchWalletBlendSnapshot
+    perPoolEmissions: {}, // Will be set by fetchWalletBlendSnapshot
     blndPrice: null, // Will be set by fetchWalletBlendSnapshot
     lpTokenPrice: null, // Will be set by fetchWalletBlendSnapshot
   };
@@ -735,6 +745,7 @@ export async function fetchWalletBlendSnapshot(
       netApy: null,
       weightedBlndApy: null,
       totalEmissions: 0,
+      perPoolEmissions: {},
       blndPrice: null,
       lpTokenPrice: null,
     };
@@ -755,23 +766,49 @@ export async function fetchWalletBlendSnapshot(
   const tokenMetadataCache = new Map<string, TokenMetadata>();
   const priceCache = new Map<string, PriceQuote | null>();
 
-  // Calculate total emissions across all pools
+  // Calculate total emissions and per-reserve claimable BLND across all pools
   let totalEmissions = 0;
+  // Map: poolId -> assetId -> claimable BLND
+  const perReserveEmissions = new Map<string, Map<string, number>>();
+  // Map: poolId -> total claimable BLND for that pool
+  const perPoolEmissionsMap = new Map<string, number>();
+
   for (const snapshot of snapshotsWithUsers) {
     if (!snapshot.user || !snapshot.pool) {
+      console.log('[blend] Skipping pool - no user or pool data:', snapshot.tracked?.id);
       continue;
     }
     try {
       // estimateEmissions returns { emissions: number, claimedTokens: number[] }
       // The emissions value is already a float (converted via FixedMath.toFloat in the SDK)
-      const result = snapshot.user.estimateEmissions(
-        Array.from(snapshot.pool.reserves.values())
-      );
+      // claimedTokens[i] corresponds to reserves[i] - the claimable BLND for that reserve
+      const reserves = Array.from(snapshot.pool.reserves.values());
+      const result = snapshot.user.estimateEmissions(reserves);
+
+      console.log('[blend] estimateEmissions for pool:', snapshot.tracked.id, '- result:', JSON.stringify(result));
+
       if (result && typeof result.emissions === 'number' && result.emissions > 0) {
         totalEmissions += result.emissions;
+        // Store per-pool total emissions
+        perPoolEmissionsMap.set(snapshot.tracked.id, result.emissions);
+        console.log('[blend] Set perPoolEmissions for', snapshot.tracked.id, '=', result.emissions);
+
+        // Store per-reserve claimable amounts
+        const poolEmissions = new Map<string, number>();
+        if (result.claimedTokens && Array.isArray(result.claimedTokens)) {
+          reserves.forEach((reserve, index) => {
+            const claimable = result.claimedTokens[index] ?? 0;
+            if (claimable > 0) {
+              poolEmissions.set(reserve.assetId, claimable);
+            }
+          });
+        }
+        perReserveEmissions.set(snapshot.tracked.id, poolEmissions);
+      } else {
+        console.log('[blend] No emissions for pool:', snapshot.tracked.id, '- emissions:', result?.emissions);
       }
-    } catch {
-      // Failed to calculate emissions - continue without them
+    } catch (e) {
+      console.warn('[blend] Failed to estimate emissions for pool:', snapshot.tracked.id, e);
     }
   }
 
@@ -783,6 +820,8 @@ export async function fetchWalletBlendSnapshot(
     }
 
     const reserves = Array.from(snapshot.pool.reserves.values());
+    const poolEmissions = perReserveEmissions.get(snapshot.tracked.id);
+
     for (const reserve of reserves) {
       const tokenMetadata = await getTokenMetadata(
         context.network,
@@ -797,11 +836,15 @@ export async function fetchWalletBlendSnapshot(
         priceCache
       );
 
+      // Get per-reserve claimable BLND
+      const claimableBlnd = poolEmissions?.get(reserve.assetId) ?? 0;
+
       const position = buildPosition(
         snapshot,
         reserve,
         tokenMetadata,
-        price
+        price,
+        claimableBlnd
       );
       if (position) {
         positionResults.push(position);
@@ -935,6 +978,43 @@ export async function fetchWalletBlendSnapshot(
         }
       }
 
+      // Get the actual pending BLND for backstop position from SDK
+      // Use BackstopPoolUserEst.build() - the same method the Blend UI uses
+      // This ensures we get the exact same calculation
+      let backstopClaimableBlnd = 0;
+      try {
+        // DETAILED DEBUG: Log all raw values from SDK
+        console.log('[blend] ========== BACKSTOP EMISSIONS DEBUG ==========');
+        console.log('[blend] Pool ID:', poolId);
+        console.log('[blend] User shares (balance.shares):', backstopUser.balance.shares.toString());
+        console.log('[blend] Q4W shares (balance.totalQ4W):', backstopUser.balance.totalQ4W.toString());
+        console.log('[blend] User emissions exists:', backstopUser.emissions ? 'YES' : 'NO');
+        if (backstopUser.emissions) {
+          console.log('[blend]   User emissions.index:', backstopUser.emissions.index.toString());
+          console.log('[blend]   User emissions.accrued:', backstopUser.emissions.accrued.toString());
+        }
+        console.log('[blend] Pool emissions exists:', backstopPool.emissions ? 'YES' : 'NO');
+        if (backstopPool.emissions) {
+          console.log('[blend]   Pool emissions.index:', backstopPool.emissions.index.toString());
+        }
+
+        // Use BackstopPoolUserEst.build() - exactly like the Blend UI does
+        // This handles all the edge cases (undefined emissions, index calculations, etc.)
+        const backstopUserEst = BackstopPoolUserEst.build(
+          poolSnapshot.backstop!,
+          backstopPool,
+          backstopUser
+        );
+
+        backstopClaimableBlnd = backstopUserEst.emissions;
+        console.log('[blend] BackstopPoolUserEst result:');
+        console.log('[blend]   emissions (claimable BLND):', backstopClaimableBlnd);
+        console.log('[blend]   tokens (LP tokens):', backstopUserEst.tokens);
+        console.log('[blend] ========== END DEBUG ==========');
+      } catch (e) {
+        console.warn('[blend] Failed to get backstop emissions for pool:', poolId, e);
+      }
+
       backstopPositions.push({
         id: `backstop-${poolId}`,
         poolId,
@@ -958,6 +1038,8 @@ export async function fetchWalletBlendSnapshot(
         yieldPercent: 0,
         // Pool-level risk indicator
         poolQ4wPercent: Number.isFinite(poolQ4wPercent) ? poolQ4wPercent : 0,
+        // Claimable BLND emissions
+        claimableBlnd: Number.isFinite(backstopClaimableBlnd) ? backstopClaimableBlnd : 0,
       });
     } catch (error) {
       console.warn(
@@ -975,10 +1057,20 @@ export async function fetchWalletBlendSnapshot(
     estimatesResult.netApy
   );
 
-  // Add total emissions, BLND price, and LP token price to snapshot
+  // Convert per-pool emissions map to a plain object for serialization
+  const perPoolEmissions: Record<string, number> = {};
+  perPoolEmissionsMap.forEach((value, key) => {
+    perPoolEmissions[key] = value;
+  });
+
+  console.log('[blend] Final perPoolEmissions object:', JSON.stringify(perPoolEmissions));
+  console.log('[blend] totalEmissions:', totalEmissions);
+
+  // Add total emissions, per-pool emissions, BLND price, and LP token price to snapshot
   return {
     ...snapshot,
     totalEmissions,
+    perPoolEmissions,
     blndPrice,
     lpTokenPrice,
   };

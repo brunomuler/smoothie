@@ -1072,6 +1072,82 @@ export class EventsRepository {
       }
     })
   }
+  /**
+   * Get total claimed emissions (LP tokens) per pool for a user.
+   * These are from 'gulp_emissions' events which represent BLND emissions claimed and auto-compounded to LP.
+   */
+  async getClaimedEmissionsPerPool(userAddress: string): Promise<Array<{
+    pool_address: string;
+    total_claimed_lp: number;  // Total LP tokens received from claiming emissions
+    claim_count: number;       // Number of claim events
+    last_claim_date: string | null;
+  }>> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        pool_address,
+        COALESCE(SUM(COALESCE(emissions_shares, lp_tokens)::numeric), 0) / 1e7 AS total_claimed_lp,
+        COUNT(*) AS claim_count,
+        MAX(ledger_closed_at)::text AS last_claim_date
+      FROM backstop_events
+      WHERE user_address = $1
+        AND action_type = 'gulp_emissions'
+      GROUP BY pool_address
+      `,
+      [userAddress]
+    )
+
+    return result.rows.map((row) => ({
+      pool_address: row.pool_address,
+      total_claimed_lp: parseFloat(row.total_claimed_lp) || 0,
+      claim_count: parseInt(row.claim_count, 10) || 0,
+      last_claim_date: row.last_claim_date,
+    }))
+  }
+
+  /**
+   * Get total claimed BLND from pool claims for a user.
+   * This queries the user_action_history view for 'claim' actions.
+   * Note: claim_amount is computed in the view from amount_underlying for claim actions.
+   */
+  async getClaimedBlndFromPools(userAddress: string): Promise<Array<{
+    pool_id: string;
+    total_claimed_blnd: number;  // Total BLND claimed from this pool
+    claim_count: number;
+    last_claim_date: string | null;
+  }>> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        pool_id,
+        COALESCE(SUM(claim_amount::numeric), 0) / 1e7 AS total_claimed_blnd,
+        COUNT(*) AS claim_count,
+        MAX(ledger_closed_at)::text AS last_claim_date
+      FROM user_action_history
+      WHERE user_address = $1
+        AND action_type = 'claim'
+        AND claim_amount IS NOT NULL
+        AND claim_amount > 0
+      GROUP BY pool_id
+      `,
+      [userAddress]
+    )
+
+    return result.rows.map((row) => ({
+      pool_id: row.pool_id,
+      total_claimed_blnd: parseFloat(row.total_claimed_blnd) || 0,
+      claim_count: parseInt(row.claim_count, 10) || 0,
+      last_claim_date: row.last_claim_date,
+    }))
+  }
 }
 
 export const eventsRepository = new EventsRepository()

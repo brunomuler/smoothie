@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Gift, Coins, ChevronDown } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -16,8 +17,10 @@ import { useUserActions } from "@/hooks/use-user-actions"
 
 interface BlndRewardsCardProps {
   publicKey: string
-  pendingEmissions: number
+  pendingEmissions: number // Supply/borrow claimable BLND
+  backstopClaimableBlnd?: number // Backstop claimable BLND from SDK (usually 0 - SDK doesn't estimate)
   blndPrice: number | null
+  blndPerLpToken?: number // For converting backstop LP to BLND
   blndApy?: number
   isLoading?: boolean
 }
@@ -38,13 +41,15 @@ function formatUsd(value: number): string {
 export function BlndRewardsCard({
   publicKey,
   pendingEmissions,
+  backstopClaimableBlnd = 0,
   blndPrice,
+  blndPerLpToken = 0,
   blndApy = 0,
   isLoading = false,
 }: BlndRewardsCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  // Fetch claim actions to calculate total claimed BLND
+  // Fetch claim actions to calculate total claimed BLND from supply/borrow positions
   const { actions: claimActions, isLoading: actionsLoading } = useUserActions({
     publicKey,
     actionTypes: ["claim"],
@@ -53,8 +58,21 @@ export function BlndRewardsCard({
     selectActionsOnly: true, // Only re-render when actions change
   })
 
-  // Calculate total claimed BLND from all claim actions
-  const totalClaimedBlnd = useMemo(() => {
+  // Fetch backstop claimed LP data (also includes last_claim_date for estimating pending)
+  const { data: backstopClaimsData, isLoading: backstopClaimsLoading } = useQuery({
+    queryKey: ["claimed-blnd-backstop", publicKey],
+    enabled: !!publicKey,
+    queryFn: async () => {
+      const response = await fetch(`/api/claimed-blnd?user=${encodeURIComponent(publicKey)}`)
+      if (!response.ok) return { backstop_claims: [], pool_claims: [] }
+      const data = await response.json()
+      return data
+    },
+    staleTime: 60_000,
+  })
+
+  // Calculate total claimed BLND from supply/borrow claim actions
+  const poolClaimedBlnd = useMemo(() => {
     if (!claimActions || claimActions.length === 0) {
       return 0
     }
@@ -65,13 +83,43 @@ export function BlndRewardsCard({
     }, 0)
   }, [claimActions])
 
+  // Calculate total claimed BLND from backstop emissions (LP tokens → BLND)
+  const backstopClaimedBlnd = useMemo(() => {
+    // DEBUG
+    console.log('[BlndRewardsCard] backstopClaimsData:', backstopClaimsData)
+    console.log('[BlndRewardsCard] blndPerLpToken:', blndPerLpToken)
+
+    if (!backstopClaimsData?.backstop_claims || !blndPerLpToken) {
+      console.log('[BlndRewardsCard] Returning 0 - no data or no blndPerLpToken')
+      return 0
+    }
+    // Sum all backstop LP tokens claimed and convert to BLND
+    const totalLpClaimed = backstopClaimsData.backstop_claims.reduce(
+      (total: number, claim: { total_claimed_lp: number }) => total + (claim.total_claimed_lp || 0),
+      0
+    )
+    console.log('[BlndRewardsCard] totalLpClaimed:', totalLpClaimed)
+    console.log('[BlndRewardsCard] backstopClaimedBlnd:', totalLpClaimed * blndPerLpToken)
+    return totalLpClaimed * blndPerLpToken
+  }, [backstopClaimsData, blndPerLpToken])
+
+  // Backstop pending emissions
+  // Note: SDK doesn't provide backstop emissions estimate, so we only use what's passed in
+  // (which is usually 0). Backstop emissions auto-compound as LP tokens when claimed,
+  // so showing a pending BLND amount would be misleading anyway.
+  const effectiveBackstopPending = backstopClaimableBlnd > 0 ? backstopClaimableBlnd : 0
+
+  // Combined totals
+  const totalClaimedBlnd = poolClaimedBlnd + backstopClaimedBlnd
+  const totalPendingBlnd = pendingEmissions + effectiveBackstopPending
+
   // Calculate USD values
-  const pendingUsdValue = blndPrice && pendingEmissions ? pendingEmissions * blndPrice : null
+  const pendingUsdValue = blndPrice && totalPendingBlnd ? totalPendingBlnd * blndPrice : null
   const claimedUsdValue = blndPrice && totalClaimedBlnd ? totalClaimedBlnd * blndPrice : null
 
-  const hasPendingEmissions = pendingEmissions > 0
+  const hasPendingEmissions = totalPendingBlnd > 0
   const hasClaimedBlnd = totalClaimedBlnd > 0
-  const loading = isLoading || actionsLoading
+  const loading = isLoading || actionsLoading || backstopClaimsLoading
 
   if (loading) {
     return (
@@ -110,7 +158,7 @@ export function BlndRewardsCard({
       >
         <div className="flex items-center gap-2 text-base font-semibold">
           <Coins className="h-5 w-5 text-muted-foreground" />
-          {formatNumber(pendingEmissions, 2)} BLND
+          {formatNumber(totalPendingBlnd, 2)} BLND
         </div>
         <div className="flex items-center gap-2">
           {blndApy > 0 && (
@@ -143,12 +191,18 @@ export function BlndRewardsCard({
                   <span>To Be Claimed</span>
                 </div>
                 <div className="text-lg font-bold tabular-nums">
-                  {formatNumber(pendingEmissions, 2)}
+                  {formatNumber(totalPendingBlnd, 2)}
                   <span className="text-sm font-medium ml-0.5">BLND</span>
                 </div>
                 {pendingUsdValue !== null && (
                   <div className="text-xs text-muted-foreground">
                     {formatUsd(pendingUsdValue)}
+                  </div>
+                )}
+                {/* Show breakdown if both supply and backstop have emissions */}
+                {pendingEmissions > 0 && effectiveBackstopPending > 0 && (
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {formatNumber(pendingEmissions, 2)} supply + {formatNumber(effectiveBackstopPending, 2)} backstop
                   </div>
                 )}
               </div>
@@ -168,6 +222,12 @@ export function BlndRewardsCard({
                     {formatUsd(claimedUsdValue)}
                   </div>
                 )}
+                {/* Show breakdown if both pool and backstop have claims */}
+                {poolClaimedBlnd > 0 && backstopClaimedBlnd > 0 && (
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {formatNumber(poolClaimedBlnd, 2)} supply + ~{formatNumber(backstopClaimedBlnd, 2)} backstop
+                  </div>
+                )}
               </div>
             </div>
 
@@ -179,11 +239,11 @@ export function BlndRewardsCard({
                   <span className="text-muted-foreground">Total BLND Earned</span>
                   <div className="text-right">
                     <span className="font-semibold tabular-nums">
-                      {formatNumber(pendingEmissions + totalClaimedBlnd, 2)} BLND
+                      {formatNumber(totalPendingBlnd + totalClaimedBlnd, 2)} BLND
                     </span>
                     {blndPrice && (
                       <span className="text-muted-foreground ml-2">
-                        ({formatUsd((pendingEmissions + totalClaimedBlnd) * blndPrice)})
+                        ({formatUsd((totalPendingBlnd + totalClaimedBlnd) * blndPrice)})
                       </span>
                     )}
                   </div>

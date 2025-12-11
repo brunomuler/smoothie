@@ -16,6 +16,29 @@ import { toTrackedPools } from "@/lib/blend/pools"
 import { usePoolsOnly } from "@/hooks/use-metadata"
 import { TokenLogo } from "@/components/token-logo"
 
+// Extended position type with yield data
+interface PositionWithYield extends BlendReservePosition {
+  earnedYield: number
+  yieldPercentage: number
+  estimatedClaimableBlnd: number // Per-position share of pool's claimable BLND
+  estimatedClaimedBlnd: number // Per-position share of pool's claimed BLND (proportional)
+}
+
+// Types for claimed BLND API response
+interface PoolClaimData {
+  pool_id: string
+  total_claimed_blnd: number
+  claim_count: number
+  last_claim_date: string | null
+}
+
+interface BackstopClaimData {
+  pool_address: string
+  total_claimed_lp: number
+  claim_count: number
+  last_claim_date: string | null
+}
+
 const WALLETS_STORAGE_KEY = "stellar-wallet-tracked-addresses"
 const ACTIVE_WALLET_STORAGE_KEY = "stellar-wallet-active-id"
 
@@ -142,10 +165,19 @@ function PoolSummary({ estimate }: { estimate: BlendPoolEstimate }) {
 }
 
 // Asset row for the positions table
-function AssetRow({ position }: { position: BlendReservePosition }) {
+function AssetRow({ position, blndPrice }: { position: PositionWithYield; blndPrice: number | null }) {
   const hasCollateral = position.collateralAmount > 0
   const hasNonCollateral = position.nonCollateralAmount > 0
   const hasBorrow = position.borrowAmount > 0
+  const hasYield = position.earnedYield !== 0
+
+  const yieldFormatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    signDisplay: "always",
+  })
 
   return (
     <div className="py-4 border-b last:border-0">
@@ -201,7 +233,7 @@ function AssetRow({ position }: { position: BlendReservePosition }) {
       </div>
 
       {/* Position details grid */}
-      <div className="grid grid-cols-4 gap-4 text-sm">
+      <div className="grid grid-cols-6 gap-4 text-sm">
         {/* Collateral */}
         <div>
           <p className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
@@ -247,6 +279,60 @@ function AssetRow({ position }: { position: BlendReservePosition }) {
           )}
         </div>
 
+        {/* Yield Earned */}
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">Yield Earned</p>
+          {hasYield ? (
+            <>
+              <p className={`font-mono ${position.earnedYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {yieldFormatter.format(position.earnedYield)}
+              </p>
+              <p className={`text-xs ${position.earnedYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {position.yieldPercentage >= 0 ? '+' : ''}{formatPercent(position.yieldPercentage)}
+              </p>
+            </>
+          ) : (
+            <p className="text-muted-foreground">-</p>
+          )}
+        </div>
+
+        {/* BLND Emissions per token - always show for visibility */}
+        <div>
+          <p className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
+            <Coins className="h-3 w-3 text-purple-500" />
+            BLND Rewards
+          </p>
+          <div className="space-y-1">
+            <div>
+              <p className="font-mono text-purple-400">
+                {position.estimatedClaimableBlnd > 0
+                  ? `~${formatNumber(position.estimatedClaimableBlnd, 4)} BLND`
+                  : '0 BLND'
+                }
+              </p>
+              {position.estimatedClaimableBlnd > 0 && blndPrice && (
+                <p className="text-xs text-muted-foreground">
+                  {formatUsd(position.estimatedClaimableBlnd * blndPrice)}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">to claim</p>
+            </div>
+            {position.estimatedClaimedBlnd > 0 && (
+              <div className="pt-1 border-t border-border/30">
+                <p className="font-mono text-sm text-muted-foreground">
+                  ~{formatNumber(position.estimatedClaimedBlnd, 2)} BLND
+                </p>
+                {blndPrice && (
+                  <p className="text-xs text-muted-foreground">
+                    {formatUsd(position.estimatedClaimedBlnd * blndPrice)}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">claimed</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Reserve Info */}
         <div>
           <p className="text-xs text-muted-foreground mb-1">Utilization</p>
@@ -264,10 +350,19 @@ function AssetRow({ position }: { position: BlendReservePosition }) {
 }
 
 // Mobile asset card
-function MobileAssetCard({ position }: { position: BlendReservePosition }) {
+function MobileAssetCard({ position, blndPrice }: { position: PositionWithYield; blndPrice: number | null }) {
   const hasCollateral = position.collateralAmount > 0
   const hasNonCollateral = position.nonCollateralAmount > 0
   const hasBorrow = position.borrowAmount > 0
+  const hasYield = position.earnedYield !== 0
+
+  const yieldFormatter = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    signDisplay: "always",
+  })
 
   return (
     <div className="py-4 border-b last:border-0">
@@ -353,6 +448,56 @@ function MobileAssetCard({ position }: { position: BlendReservePosition }) {
             <p className="text-xs text-red-400">{formatUsd(position.borrowUsdValue)}</p>
           </div>
         )}
+
+        {/* Yield Earned */}
+        {hasYield && (
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Yield Earned</p>
+            <p className={`font-mono ${position.earnedYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {yieldFormatter.format(position.earnedYield)}
+            </p>
+            <p className={`text-xs ${position.earnedYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {position.yieldPercentage >= 0 ? '+' : ''}{formatPercent(position.yieldPercentage)}
+            </p>
+          </div>
+        )}
+
+        {/* BLND Rewards per token - always show */}
+        <div>
+          <p className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
+            <Coins className="h-3 w-3 text-purple-500" />
+            BLND Rewards
+          </p>
+          <div className="space-y-1">
+            <div>
+              <p className="font-mono text-purple-400">
+                {position.estimatedClaimableBlnd > 0
+                  ? `~${formatNumber(position.estimatedClaimableBlnd, 4)} BLND`
+                  : '0 BLND'
+                }
+              </p>
+              {position.estimatedClaimableBlnd > 0 && blndPrice && (
+                <p className="text-xs text-muted-foreground">
+                  {formatUsd(position.estimatedClaimableBlnd * blndPrice)}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">to claim</p>
+            </div>
+            {position.estimatedClaimedBlnd > 0 && (
+              <div className="pt-1 border-t border-border/30">
+                <p className="font-mono text-sm text-muted-foreground">
+                  ~{formatNumber(position.estimatedClaimedBlnd, 2)} BLND
+                </p>
+                {blndPrice && (
+                  <p className="text-xs text-muted-foreground">
+                    {formatUsd(position.estimatedClaimedBlnd * blndPrice)}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">claimed</p>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Reserve info */}
@@ -398,7 +543,19 @@ function formatTimeRemaining(targetDate: Date): string {
 }
 
 // Backstop section component
-function BackstopSection({ position }: { position: BlendBackstopPosition }) {
+interface BackstopSectionProps {
+  position: BlendBackstopPosition
+  claimedLp?: number // Total LP tokens claimed from emissions
+  blndPerLpToken?: number // BLND per LP token for conversion
+}
+
+function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0 }: BackstopSectionProps) {
+  // DEBUG: Log backstop data
+  console.log('[BackstopSection] claimedLp:', claimedLp)
+  console.log('[BackstopSection] blndPerLpToken:', blndPerLpToken)
+  console.log('[BackstopSection] position.claimableBlnd:', position.claimableBlnd)
+  console.log('[BackstopSection] claimedBlndApprox:', claimedLp * blndPerLpToken)
+
   const hasQ4w = position.q4wShares > BigInt(0)
   const q4wExpDate = position.q4wExpiration
     ? new Date(position.q4wExpiration * 1000)
@@ -459,18 +616,49 @@ function BackstopSection({ position }: { position: BlendBackstopPosition }) {
           {/* Yield Earned */}
           <div>
             <p className="text-xs text-muted-foreground mb-1">Yield Earned</p>
-            {position.yieldLp !== 0 ? (
-              <>
-                <p className={`font-mono ${position.yieldLp >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {position.yieldLp >= 0 ? '+' : ''}{formatNumber(position.yieldLp, 4)} LP
-                </p>
-                <p className={`text-xs ${position.yieldLp >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {position.yieldPercent >= 0 ? '+' : ''}{formatPercent(position.yieldPercent)}
-                </p>
-              </>
-            ) : (
-              <p className="text-muted-foreground">-</p>
-            )}
+            {(() => {
+              // Calculate yield in USD
+              const lpTokenPrice = position.lpTokens > 0
+                ? position.lpTokensUsd / position.lpTokens
+                : 0
+              const yieldUsd = position.yieldLp * lpTokenPrice
+              const yieldFormatter = new Intl.NumberFormat("en-US", {
+                style: "currency",
+                currency: "USD",
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+                signDisplay: "always",
+              })
+
+              // Convert claimed LP to BLND (approximate based on current LP composition)
+              const claimedBlndApprox = claimedLp * blndPerLpToken
+
+              return (
+                <>
+                  <p className={`font-mono ${position.yieldLp >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                    {yieldFormatter.format(yieldUsd)}
+                  </p>
+                  <p className={`text-xs ${position.yieldLp >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
+                    {position.yieldPercent >= 0 ? '+' : ''}{formatPercent(position.yieldPercent)}
+                  </p>
+                  {/* BLND Emissions - always show */}
+                  <div className="mt-1 pt-1 border-t border-border/30">
+                    <p className="text-xs text-purple-400">
+                      <Coins className="inline h-3 w-3 mr-1" />
+                      {position.claimableBlnd > 0
+                        ? `${formatNumber(position.claimableBlnd, 4)} BLND to claim`
+                        : '0 BLND to claim'
+                      }
+                    </p>
+                    {claimedBlndApprox > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        ~{formatNumber(claimedBlndApprox, 2)} BLND claimed
+                      </p>
+                    )}
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
 
@@ -600,6 +788,71 @@ export default function PoolDetailsPage() {
     staleTime: 60_000,
   })
 
+  // Get unique asset addresses for positions in this pool
+  const poolAssetAddresses = useMemo(() => {
+    if (!snapshot) return []
+    const positions = snapshot.positions.filter(p => p.poolId === poolId)
+    return [...new Set(positions.map(p => p.assetId))]
+  }, [snapshot, poolId])
+
+  // Fetch balance history for each asset to get cost basis
+  const { data: balanceHistoryData } = useQuery({
+    queryKey: ["pool-balance-history", activeWallet?.publicKey, poolId, poolAssetAddresses.join(',')],
+    enabled: !!activeWallet?.publicKey && poolAssetAddresses.length > 0,
+    queryFn: async () => {
+      const results = await Promise.all(
+        poolAssetAddresses.map(async (assetAddress) => {
+          const response = await fetch(
+            `/api/balance-history?user=${encodeURIComponent(activeWallet!.publicKey)}&asset=${encodeURIComponent(assetAddress)}`
+          )
+          if (!response.ok) return null
+          const data = await response.json()
+          return { assetAddress, data }
+        })
+      )
+      return results.filter(r => r !== null)
+    },
+    staleTime: 60_000,
+  })
+
+  // Fetch claimed BLND data
+  const { data: claimedBlndData } = useQuery({
+    queryKey: ["claimed-blnd", activeWallet?.publicKey],
+    enabled: !!activeWallet?.publicKey,
+    queryFn: async () => {
+      const response = await fetch(`/api/claimed-blnd?user=${encodeURIComponent(activeWallet!.publicKey)}`)
+      if (!response.ok) throw new Error('Failed to fetch claimed BLND')
+      const data = await response.json()
+      return {
+        poolClaims: (data.pool_claims || []) as PoolClaimData[],
+        backstopClaims: (data.backstop_claims || []) as BackstopClaimData[],
+      }
+    },
+    staleTime: 60_000,
+  })
+
+  // Build cost basis map from balance history
+  const costBasisMap = useMemo(() => {
+    const map = new Map<string, number>()
+    if (!balanceHistoryData) return map
+
+    balanceHistoryData.forEach((result) => {
+      if (!result?.data?.history) return
+      const { assetAddress, data } = result
+
+      // Get latest cost basis for this pool from the history
+      for (const record of data.history) {
+        if (record.pool_id === poolId && record.total_cost_basis !== null) {
+          const compositeKey = `${poolId}-${assetAddress}`
+          map.set(compositeKey, record.total_cost_basis)
+          break // First occurrence is latest (sorted by date desc)
+        }
+      }
+    })
+
+    return map
+  }, [balanceHistoryData, poolId])
+
   const poolData = useMemo(() => {
     if (!snapshot) return null
 
@@ -612,7 +865,14 @@ export default function PoolDetailsPage() {
     if (rawBackstopPosition && rawBackstopPosition.lpTokensUsd > 0) {
       const costBasis = costBases?.find(cb => cb.pool_address === poolId)
       if (costBasis) {
-        const yieldLp = rawBackstopPosition.lpTokens - costBasis.cost_basis_lp
+        // Include Q4W LP tokens in total - they're still the user's tokens, just locked
+        const totalLpTokens = rawBackstopPosition.lpTokens + rawBackstopPosition.q4wLpTokens
+        let yieldLp = totalLpTokens - costBasis.cost_basis_lp
+        // Handle floating-point precision: treat very small values as zero
+        const EPSILON = 0.0001
+        if (Math.abs(yieldLp) < EPSILON) {
+          yieldLp = 0
+        }
         const yieldPercent = costBasis.cost_basis_lp > 0
           ? (yieldLp / costBasis.cost_basis_lp) * 100
           : 0
@@ -632,19 +892,102 @@ export default function PoolDetailsPage() {
       }
     }
 
+    // Get claimed BLND data for this pool
+    const poolClaimData = claimedBlndData?.poolClaims?.find(pc => pc.pool_id === poolId)
+    const backstopClaimData = claimedBlndData?.backstopClaims?.find(bc => bc.pool_address === poolId)
+
+    // Get total claimable BLND for this pool from per-pool emissions
+    // This is more reliable than summing per-position claimable amounts
+    // as the SDK may not provide per-reserve breakdown
+    const poolTotalClaimableBlnd = snapshot?.perPoolEmissions?.[poolId] || 0
+
+    // Pool-level claimed BLND (from database) - need this before position calculation
+    const poolTotalClaimedBlnd = poolClaimData?.total_claimed_blnd || 0
+
+    // DEBUG: Log emissions data
+    console.log('[pool-details] poolId:', poolId)
+    console.log('[pool-details] perPoolEmissions:', snapshot?.perPoolEmissions)
+    console.log('[pool-details] poolTotalClaimableBlnd:', poolTotalClaimableBlnd)
+    console.log('[pool-details] poolTotalClaimedBlnd:', poolTotalClaimedBlnd)
+    console.log('[pool-details] totalEmissions from snapshot:', snapshot?.totalEmissions)
+
+    // Calculate total supply USD value for proportional distribution
+    const totalSupplyUsd = poolPositions.reduce((sum, pos) => sum + (pos.supplyUsdValue || 0), 0)
+
+    // Enrich positions with yield data and distribute claimable/claimed BLND proportionally
+    const positionsWithYield: PositionWithYield[] = poolPositions.map((position) => {
+      const compositeKey = position.id // Already in format: poolId-assetAddress
+      const costBasisTokens = costBasisMap.get(compositeKey)
+      const usdPrice = position.price?.usdPrice || 1
+
+      // Default values
+      let earnedYield = 0
+      let yieldPercentage = 0
+
+      if (costBasisTokens !== undefined && costBasisTokens > 0) {
+        const currentTokens = position.supplyAmount
+        const yieldTokens = currentTokens - costBasisTokens
+
+        // Handle floating-point precision
+        const EPSILON = 0.0001
+        if (Math.abs(yieldTokens) > EPSILON) {
+          earnedYield = yieldTokens * usdPrice
+          yieldPercentage = (yieldTokens / costBasisTokens) * 100
+        }
+      }
+
+      // Calculate this position's share of pool's claimable BLND
+      // Distribute proportionally based on supply USD value
+      // Use SDK's per-reserve value if available, otherwise estimate from pool total
+      const sdkClaimable = position.claimableBlnd || 0
+      const estimatedClaimableBlnd = sdkClaimable > 0
+        ? sdkClaimable
+        : (totalSupplyUsd > 0 && poolTotalClaimableBlnd > 0
+            ? poolTotalClaimableBlnd * ((position.supplyUsdValue || 0) / totalSupplyUsd)
+            : 0)
+
+      // Calculate this position's share of pool's claimed BLND (proportional distribution)
+      // Claims are made at pool level, so we distribute based on supply USD value
+      const estimatedClaimedBlnd = totalSupplyUsd > 0 && poolTotalClaimedBlnd > 0
+        ? poolTotalClaimedBlnd * ((position.supplyUsdValue || 0) / totalSupplyUsd)
+        : 0
+
+      return {
+        ...position,
+        earnedYield,
+        yieldPercentage,
+        estimatedClaimableBlnd,
+        estimatedClaimedBlnd,
+      }
+    })
+
+    // Total claimable for UI display
+    const totalClaimableBlnd = poolTotalClaimableBlnd
+
+    // Pool-level claimed BLND (from database)
+    const totalClaimedBlnd = poolTotalClaimedBlnd
+
     // Show pool if user has positions OR backstop
-    const hasPositions = poolPositions.length > 0
+    const hasPositions = positionsWithYield.length > 0
     const hasBackstop = backstopPosition !== null
 
     if (!poolEstimate || (!hasPositions && !hasBackstop)) return null
 
     return {
       estimate: poolEstimate,
-      positions: poolPositions,
+      positions: positionsWithYield,
       backstopPosition,
-      poolName: poolPositions[0]?.poolName || backstopPosition?.poolName || "Unknown Pool"
+      backstopClaimedLp: backstopClaimData?.total_claimed_lp || 0,
+      blndPerLpToken: snapshot?.backstopPositions?.[0]?.blndAmount && snapshot?.backstopPositions?.[0]?.lpTokens
+        ? snapshot.backstopPositions[0].blndAmount / snapshot.backstopPositions[0].lpTokens
+        : 0,
+      poolName: positionsWithYield[0]?.poolName || backstopPosition?.poolName || "Unknown Pool",
+      // Pool-level BLND data
+      totalClaimableBlnd,
+      totalClaimedBlnd,
+      blndPrice: snapshot?.blndPrice || null,
     }
-  }, [snapshot, poolId, costBases])
+  }, [snapshot, poolId, costBases, costBasisMap, claimedBlndData])
 
   // Get pool info from tracked pools for explorer link
   const poolInfo = trackedPools.find(p => p.id === poolId)
@@ -758,7 +1101,11 @@ export default function PoolDetailsPage() {
 
           {/* Backstop Position */}
           {poolData.backstopPosition && (
-            <BackstopSection position={poolData.backstopPosition} />
+            <BackstopSection
+              position={poolData.backstopPosition}
+              claimedLp={poolData.backstopClaimedLp}
+              blndPerLpToken={poolData.blndPerLpToken}
+            />
           )}
         </div>
       </main>
