@@ -12,6 +12,9 @@ export async function GET(request: NextRequest) {
     const user = searchParams.get('user')
     const daysParam = searchParams.get('days') || '365'
     const days = parseInt(daysParam, 10)
+    // Get timezone from query param, default to UTC
+    // Frontend should pass IANA timezone name (e.g., 'America/New_York')
+    const timezone = searchParams.get('timezone') || 'UTC'
 
     // Validate required parameters
     if (!user) {
@@ -54,7 +57,7 @@ export async function GET(request: NextRequest) {
     // Fetch balance history for each pool
     const historyByPool = await Promise.all(
       costBases.map(cb =>
-        eventsRepository.getBackstopUserBalanceHistory(user, cb.pool_address, days)
+        eventsRepository.getBackstopUserBalanceHistory(user, cb.pool_address, days, timezone)
       )
     )
 

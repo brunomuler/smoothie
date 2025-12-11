@@ -789,10 +789,14 @@ export class EventsRepository {
       `
       SELECT
         pool_address,
+        -- LP token flow for MAIN pool (excluding emissions):
+        -- NOTE: gulp_emissions and claim are EXCLUDED because:
+        --   - gulp_emissions only has emissions_shares (BLND units), NOT lp_tokens
+        --   - Using emissions_shares inflates pool LP by ~70% (wrong units!)
+        --   - claim LP tokens come from emissions pool, not main LP pool
         SUM(CASE
           WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
-          WHEN action_type = 'gulp_emissions' THEN COALESCE(emissions_shares::numeric, 0)
-          WHEN action_type IN ('withdraw', 'draw') THEN -lp_tokens::numeric
+          WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
           ELSE 0
         END) as total_lp_tokens,
         SUM(CASE
@@ -833,7 +837,8 @@ export class EventsRepository {
   async getBackstopUserBalanceHistory(
     userAddress: string,
     poolAddress: string,
-    days: number = 30
+    days: number = 30,
+    timezone: string = 'UTC'
   ): Promise<BackstopUserBalance[]> {
     if (!pool) {
       throw new Error('Database pool not initialized')
@@ -843,23 +848,25 @@ export class EventsRepository {
     // 1. Gets user's cumulative shares at each date they had activity
     // 2. Gets pool's share rate at each date
     // 3. Calculates LP token value = shares × rate
+    // NOTE: All timestamps are converted to user's timezone before extracting date
+    // to ensure consistency with regular balance history data
     const result = await pool.query(
       `
       WITH date_range AS (
         SELECT generate_series(
           GREATEST(
-            CURRENT_DATE - $3::integer,
-            (SELECT MIN(ledger_closed_at::date) FROM backstop_events
+            (CURRENT_TIMESTAMP AT TIME ZONE $4)::date - $3::integer,
+            (SELECT MIN((ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date) FROM backstop_events
              WHERE user_address = $1 AND pool_address = $2)
           ),
-          CURRENT_DATE,
+          (CURRENT_TIMESTAMP AT TIME ZONE $4)::date,
           '1 day'::interval
         )::date AS date
       ),
       -- User's cumulative shares over time
       user_events AS (
         SELECT
-          ledger_closed_at::date AS event_date,
+          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type = 'deposit' THEN shares::numeric
             WHEN action_type = 'withdraw' THEN -shares::numeric
@@ -868,7 +875,7 @@ export class EventsRepository {
         FROM backstop_events
         WHERE user_address = $1
           AND pool_address = $2
-        GROUP BY ledger_closed_at::date
+        GROUP BY (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
       ),
       user_cumulative AS (
         SELECT
@@ -877,13 +884,20 @@ export class EventsRepository {
         FROM user_events
       ),
       -- Pool's total LP tokens and shares over time (for rate calculation)
+      -- LP token flow for MAIN pool (excluding emissions):
+      --   deposit/donate: LP tokens enter the pool
+      --   withdraw/draw: LP tokens leave the pool
+      -- NOTE: gulp_emissions and claim are EXCLUDED because:
+      --   - gulp_emissions only has emissions_shares (BLND units), NOT lp_tokens
+      --   - Using emissions_shares inflates pool LP by ~70% (wrong units!)
+      --   - claim LP tokens come from emissions pool, not main LP pool
+      --   - SDK calculates user value directly from on-chain state, not shares × rate
       pool_events AS (
         SELECT
-          ledger_closed_at::date AS event_date,
+          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
-            WHEN action_type = 'gulp_emissions' THEN COALESCE(emissions_shares::numeric, 0)
-            WHEN action_type IN ('withdraw', 'draw') THEN -lp_tokens::numeric
+            WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
             ELSE 0
           END) AS lp_change,
           SUM(CASE
@@ -893,7 +907,7 @@ export class EventsRepository {
           END) AS shares_change
         FROM backstop_events
         WHERE pool_address = $2
-        GROUP BY ledger_closed_at::date
+        GROUP BY (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
       ),
       pool_cumulative AS (
         SELECT
@@ -931,7 +945,7 @@ export class EventsRepository {
       WHERE COALESCE(uc.cumulative_shares, 0) > 0
       ORDER BY d.date DESC
       `,
-      [userAddress, poolAddress, days]
+      [userAddress, poolAddress, days, timezone]
     )
 
     return result.rows.map((row) => ({

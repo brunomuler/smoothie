@@ -75,13 +75,30 @@ export function mapEventsToBar(
       const actionDate = new Date(action.ledger_closed_at)
       return actionDate >= periodStart && actionDate <= periodEnd
     })
-    .map((action) => ({
-      type: action.action_type,
-      date: action.ledger_closed_at,
-      amount: action.action_type === 'claim' ? action.claim_amount : action.amount_underlying,
-      assetSymbol: action.action_type === 'claim' ? 'BLND' : action.asset_symbol,
-      assetDecimals: action.asset_decimals,
-    }))
+    .map((action) => {
+      // Determine amount based on action type:
+      // - claim: use claim_amount
+      // - backstop events: use lp_tokens
+      // - regular events: use amount_underlying
+      const isBackstopEvent = action.action_type.startsWith('backstop_')
+      let amount: number | null = null
+      if (action.action_type === 'claim') {
+        amount = action.claim_amount
+      } else if (isBackstopEvent) {
+        amount = action.lp_tokens
+      } else {
+        amount = action.amount_underlying
+      }
+
+      return {
+        type: action.action_type,
+        date: action.ledger_closed_at,
+        amount,
+        assetSymbol: action.action_type === 'claim' ? 'BLND' : action.asset_symbol,
+        // Backstop LP tokens use 7 decimals (already stored correctly)
+        assetDecimals: action.asset_decimals,
+      }
+    })
 }
 
 /**

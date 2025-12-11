@@ -547,9 +547,10 @@ interface BackstopSectionProps {
   position: BlendBackstopPosition
   claimedLp?: number // Total LP tokens claimed from emissions
   blndPerLpToken?: number // BLND per LP token for conversion
+  blndPrice?: number | null // BLND price in USD for displaying value
 }
 
-function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0 }: BackstopSectionProps) {
+function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPrice }: BackstopSectionProps) {
   // DEBUG: Log backstop data
   console.log('[BackstopSection] claimedLp:', claimedLp)
   console.log('[BackstopSection] blndPerLpToken:', blndPerLpToken)
@@ -650,9 +651,15 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0 }: Backst
                         : '0 BLND to claim'
                       }
                     </p>
+                    {position.claimableBlnd > 0 && blndPrice && (
+                      <p className="text-xs text-muted-foreground">
+                        {formatUsd(position.claimableBlnd * blndPrice)}
+                      </p>
+                    )}
                     {claimedBlndApprox > 0 && (
                       <p className="text-xs text-muted-foreground">
                         ~{formatNumber(claimedBlndApprox, 2)} BLND claimed
+                        {blndPrice && ` (${formatUsd(claimedBlndApprox * blndPrice)})`}
                       </p>
                     )}
                   </div>
@@ -1105,6 +1112,7 @@ export default function PoolDetailsPage() {
               position={poolData.backstopPosition}
               claimedLp={poolData.backstopClaimedLp}
               blndPerLpToken={poolData.blndPerLpToken}
+              blndPrice={poolData.blndPrice}
             />
           )}
         </div>

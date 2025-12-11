@@ -262,11 +262,12 @@ function HomeContent() {
 
   // Fetch backstop balance history (LP tokens over time)
   const backstopBalanceHistoryQuery = useQuery({
-    queryKey: ["backstop-balance-history", activeWallet?.publicKey || ''],
+    queryKey: ["backstop-balance-history", activeWallet?.publicKey || '', userTimezone],
     queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
         user: activeWallet?.publicKey || '',
         days: '365',
+        timezone: userTimezone,
       })
 
       const response = await fetchWithTimeout(`/api/backstop-balance-history?${params.toString()}`, { signal })
