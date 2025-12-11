@@ -14,6 +14,9 @@ import {
   AlertTriangle,
   Filter,
   CalendarIcon,
+  Shield,
+  Clock,
+  XCircle,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -24,7 +27,6 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   Popover,
@@ -35,6 +37,26 @@ import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { useInfiniteUserActions } from "@/hooks/use-user-actions"
 import type { UserAction, ActionType } from "@/lib/db/types"
+import { TokenLogo } from "@/components/token-logo"
+
+// Token logo map - matches the one in use-blend-positions.ts
+const ASSET_LOGO_MAP: Record<string, string> = {
+  USDC: "/tokens/usdc.png",
+  USDT: "/tokens/usdc.png",
+  XLM: "/tokens/xlm.png",
+  AQUA: "/tokens/aqua.png",
+  EURC: "/tokens/eurc.png",
+  CETES: "/tokens/cetes.png",
+  USDGLO: "/tokens/usdglo.png",
+  USTRY: "/tokens/ustry.png",
+  BLND: "/tokens/blnd.png",
+}
+
+function resolveAssetLogo(symbol: string | undefined): string | null {
+  if (!symbol) return null
+  const normalized = symbol.toUpperCase()
+  return ASSET_LOGO_MAP[normalized] ?? null
+}
 
 // All available action types for filtering
 const ACTION_TYPE_OPTIONS: { value: ActionType; label: string }[] = [
@@ -48,6 +70,12 @@ const ACTION_TYPE_OPTIONS: { value: ActionType; label: string }[] = [
   { value: "new_auction", label: "Liquidation Started" },
   { value: "fill_auction", label: "Liquidation" },
   { value: "delete_auction", label: "Liquidation Cancelled" },
+  // Backstop actions
+  { value: "backstop_deposit", label: "Backstop Deposit" },
+  { value: "backstop_withdraw", label: "Backstop Withdraw" },
+  { value: "backstop_queue_withdrawal", label: "Queue Withdrawal" },
+  { value: "backstop_dequeue_withdrawal", label: "Cancel Queue" },
+  { value: "backstop_claim", label: "Backstop Claim" },
 ]
 
 interface TransactionHistoryProps {
@@ -135,6 +163,37 @@ const ACTION_CONFIG: Record<
     color: "text-gray-600 dark:text-gray-400",
     bgColor: "bg-gray-100 dark:bg-gray-900/30",
   },
+  // Backstop actions
+  backstop_deposit: {
+    label: "Backstop Deposit",
+    icon: Shield,
+    color: "text-purple-600 dark:text-purple-400",
+    bgColor: "bg-purple-100 dark:bg-purple-900/30",
+  },
+  backstop_withdraw: {
+    label: "Backstop Withdraw",
+    icon: Shield,
+    color: "text-red-600 dark:text-red-400",
+    bgColor: "bg-red-100 dark:bg-red-900/30",
+  },
+  backstop_queue_withdrawal: {
+    label: "Queued Withdrawal",
+    icon: Clock,
+    color: "text-amber-600 dark:text-amber-400",
+    bgColor: "bg-amber-100 dark:bg-amber-900/30",
+  },
+  backstop_dequeue_withdrawal: {
+    label: "Cancelled Queue",
+    icon: XCircle,
+    color: "text-gray-600 dark:text-gray-400",
+    bgColor: "bg-gray-100 dark:bg-gray-900/30",
+  },
+  backstop_claim: {
+    label: "Backstop Claim",
+    icon: Gift,
+    color: "text-purple-600 dark:text-purple-400",
+    bgColor: "bg-purple-100 dark:bg-purple-900/30",
+  },
 }
 
 function formatAmount(amount: number | null, decimals: number = 7): string {
@@ -185,69 +244,36 @@ function ActionBadge({ action, currentUserAddress }: { action: UserAction; curre
   )
 }
 
-function TransactionRow({ action, currentUserAddress }: { action: UserAction; currentUserAddress?: string }) {
-  const config = ACTION_CONFIG[action.action_type] || ACTION_CONFIG.supply
-  const explorerUrl = `https://stellar.expert/explorer/public/tx/${action.transaction_hash}`
-
-  // Determine what to display based on action type
-  const isAuctionEvent = action.action_type === "fill_auction" || action.action_type === "new_auction"
-  const isLiquidator = action.filler_address === currentUserAddress
-
-  // For auction events, show lot and bid amounts
-  // For claims, use claim_amount; otherwise use amount_underlying
-  let amountDisplay: React.ReactNode
-
-  if (isAuctionEvent && action.lot_amount && action.bid_amount) {
-    const lotValue = action.lot_amount / 10000000
-    const bidValue = action.bid_amount / 10000000
-    const lotSymbol = action.lot_asset_symbol || "LOT"
-    const bidSymbol = action.bid_asset_symbol || "BID"
-
-    if (isLiquidator) {
-      // Liquidator gains collateral, takes on debt
-      amountDisplay = (
-        <div className="flex flex-col text-xs">
-          <span className="text-green-600 dark:text-green-400">+{lotValue.toFixed(2)} {lotSymbol}</span>
-          <span className="text-orange-600 dark:text-orange-400">+{bidValue.toFixed(2)} {bidSymbol} debt</span>
-        </div>
-      )
-    } else {
-      // Liquidated user loses collateral, loses debt
-      amountDisplay = (
-        <div className="flex flex-col text-xs">
-          <span className="text-red-600 dark:text-red-400">-{lotValue.toFixed(2)} {lotSymbol}</span>
-          <span className="text-blue-600 dark:text-blue-400">-{bidValue.toFixed(2)} {bidSymbol} debt</span>
-        </div>
-      )
-    }
-  } else {
-    const amount = action.action_type === "claim" ? action.claim_amount : action.amount_underlying
-    const symbol = action.action_type === "claim" ? "BLND" : action.asset_symbol
-    amountDisplay = (
-      <div className="font-mono text-xs font-medium text-white">
-        {formatAmount(amount, action.asset_decimals || 7)} {symbol || ""}
-      </div>
-    )
-  }
+function TransactionRow({ actions, currentUserAddress }: { actions: UserAction[]; currentUserAddress?: string }) {
+  const firstAction = actions[0]
+  const explorerUrl = `https://stellar.expert/explorer/public/tx/${firstAction.transaction_hash}`
 
   return (
     <TableRow className="hover:bg-transparent">
       <TableCell>
         <div className="flex flex-col">
-          <span className="font-medium">{action.pool_name || action.pool_short_name || action.pool_id?.slice(0, 8)}</span>
+          <span className="font-medium">{firstAction.pool_name || firstAction.pool_short_name || firstAction.pool_id?.slice(0, 8)}</span>
         </div>
       </TableCell>
       <TableCell>
-        <ActionBadge action={action} currentUserAddress={currentUserAddress} />
+        <div className="flex flex-col gap-1">
+          {actions.map((action) => (
+            <ActionBadge key={action.id} action={action} currentUserAddress={currentUserAddress} />
+          ))}
+        </div>
       </TableCell>
       <TableCell>
-        {amountDisplay}
+        <div className="flex flex-col gap-1">
+          {actions.map((action) => (
+            <div key={action.id}>{getAmountDisplay(action, currentUserAddress)}</div>
+          ))}
+        </div>
       </TableCell>
       <TableCell>
         <div className="flex flex-col text-sm">
-          <span>{formatDate(action.ledger_closed_at)}</span>
+          <span>{formatDate(firstAction.ledger_closed_at)}</span>
           <span className="text-muted-foreground text-xs">
-            {formatTime(action.ledger_closed_at)}
+            {formatTime(firstAction.ledger_closed_at)}
           </span>
         </div>
       </TableCell>
@@ -258,7 +284,7 @@ function TransactionRow({ action, currentUserAddress }: { action: UserAction; cu
           rel="noopener noreferrer"
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
         >
-          <span className="font-mono text-xs">{action.transaction_hash.slice(0, 8)}...</span>
+          <span className="font-mono text-xs">{firstAction.transaction_hash.slice(0, 8)}...</span>
           <ExternalLink className="h-3 w-3" />
         </a>
       </TableCell>
@@ -266,14 +292,10 @@ function TransactionRow({ action, currentUserAddress }: { action: UserAction; cu
   )
 }
 
-function MobileTransactionCard({ action, currentUserAddress }: { action: UserAction; currentUserAddress?: string }) {
-  const explorerUrl = `https://stellar.expert/explorer/public/tx/${action.transaction_hash}`
-
-  // Determine what to display based on action type
+function getAmountDisplay(action: UserAction, currentUserAddress?: string): React.ReactNode {
   const isAuctionEvent = action.action_type === "fill_auction" || action.action_type === "new_auction"
+  const isBackstopEvent = action.action_type.startsWith("backstop_")
   const isLiquidator = action.filler_address === currentUserAddress
-
-  let amountDisplay: React.ReactNode
 
   if (isAuctionEvent && action.lot_amount && action.bid_amount) {
     const lotValue = action.lot_amount / 10000000
@@ -282,39 +304,68 @@ function MobileTransactionCard({ action, currentUserAddress }: { action: UserAct
     const bidSymbol = action.bid_asset_symbol || "BID"
 
     if (isLiquidator) {
-      amountDisplay = (
+      return (
         <div className="flex flex-col text-xs text-right">
           <span className="text-green-600 dark:text-green-400">+{lotValue.toFixed(2)} {lotSymbol}</span>
           <span className="text-orange-600 dark:text-orange-400">+{bidValue.toFixed(2)} {bidSymbol} debt</span>
         </div>
       )
     } else {
-      amountDisplay = (
+      return (
         <div className="flex flex-col text-xs text-right">
           <span className="text-red-600 dark:text-red-400">-{lotValue.toFixed(2)} {lotSymbol}</span>
           <span className="text-blue-600 dark:text-blue-400">-{bidValue.toFixed(2)} {bidSymbol} debt</span>
         </div>
       )
     }
+  } else if (isBackstopEvent && action.lp_tokens !== null) {
+    const lpValue = action.lp_tokens / 10000000
+    const isDeposit = action.action_type === "backstop_deposit" || action.action_type === "backstop_claim"
+    return (
+      <div className="flex items-center gap-0.5 font-mono text-xs font-medium">
+        <div 
+          className="flex items-center justify-center mx-0.5 rounded-full bg-purple-500/10 shrink-0"
+          style={{ width: 16, height: 16 }}
+        >
+          <Shield className="h-2.5 w-2.5 text-purple-500" />
+        </div>
+        <span className={isDeposit ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+          {isDeposit ? "+" : "-"}{lpValue.toFixed(2)}
+        </span>
+        <span className={isDeposit ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+          LP
+        </span>
+      </div>
+    )
   } else {
     const amount = action.action_type === "claim" ? action.claim_amount : action.amount_underlying
     const symbol = action.action_type === "claim" ? "BLND" : action.asset_symbol
-    amountDisplay = (
-      <div className="font-mono text-xs font-medium text-white">
-        {formatAmount(amount, action.asset_decimals || 7)} {symbol || ""}
+    const iconUrl = resolveAssetLogo(symbol ?? undefined)
+    return (
+      <div className="flex items-center gap-0.5 font-mono text-xs font-medium text-white">
+        {symbol && (
+          <TokenLogo src={iconUrl} symbol={symbol} size={16} noPadding className="mx-0.5" />
+        )}
+        <span>{formatAmount(amount, action.asset_decimals || 7)}</span>
+        <span>{symbol || ""}</span>
       </div>
     )
   }
+}
+
+function MobileTransactionCard({ actions, currentUserAddress }: { actions: UserAction[]; currentUserAddress?: string }) {
+  const firstAction = actions[0]
+  const explorerUrl = `https://stellar.expert/explorer/public/tx/${firstAction.transaction_hash}`
 
   return (
     <div className="py-3 space-y-3 border-b last:border-0">
       <div className="flex justify-between items-center">
         <div className="text-sm font-medium">
-          {action.pool_name || action.pool_short_name || action.pool_id?.slice(0, 8)}
+          {firstAction.pool_name || firstAction.pool_short_name || firstAction.pool_id?.slice(0, 8)}
         </div>
         <div className="flex items-center gap-2">
           <div className="text-right text-xs text-muted-foreground">
-            {formatDate(action.ledger_closed_at)} {formatTime(action.ledger_closed_at)}
+            {formatDate(firstAction.ledger_closed_at)} {formatTime(firstAction.ledger_closed_at)}
           </div>
           <a
             href={explorerUrl}
@@ -327,12 +378,14 @@ function MobileTransactionCard({ action, currentUserAddress }: { action: UserAct
         </div>
       </div>
 
-      <div className="flex justify-between items-center">
-        <ActionBadge action={action} currentUserAddress={currentUserAddress} />
-        <div className="text-right">
-          {amountDisplay}
+      {actions.map((action) => (
+        <div key={action.id} className="flex justify-between items-center">
+          <ActionBadge action={action} currentUserAddress={currentUserAddress} />
+          <div className="text-right">
+            {getAmountDisplay(action, currentUserAddress)}
+          </div>
         </div>
-      </div>
+      ))}
     </div>
   )
 }
@@ -367,6 +420,17 @@ export function TransactionHistory({
     endDate: endDateStr,
     enabled: (hideToggle || isOpen) && !!publicKey,
   })
+
+  // Group actions by transaction_hash to merge related events (e.g., claim + deposit)
+  const groupedActions = actions.reduce<{ key: string; actions: UserAction[] }[]>((acc, action) => {
+    const lastGroup = acc[acc.length - 1]
+    if (lastGroup && lastGroup.key === action.transaction_hash) {
+      lastGroup.actions.push(action)
+    } else {
+      acc.push({ key: action.transaction_hash, actions: [action] })
+    }
+    return acc
+  }, [])
 
   // Infinite scroll observer
   const handleObserver = useCallback(
@@ -644,8 +708,8 @@ export function TransactionHistory({
               {/* Mobile Card View */}
               <div className="md:hidden">
                 <div className="[&>*:last-child]:border-0">
-                  {actions.map((action: UserAction) => (
-                    <MobileTransactionCard key={action.id} action={action} currentUserAddress={publicKey} />
+                  {groupedActions.map((group) => (
+                    <MobileTransactionCard key={group.key} actions={group.actions} currentUserAddress={publicKey} />
                   ))}
                 </div>
                 {/* Load more trigger */}
@@ -662,8 +726,8 @@ export function TransactionHistory({
                 <div className="max-h-[500px] overflow-auto">
                   <Table>
                     <TableBody>
-                      {actions.map((action: UserAction) => (
-                        <TransactionRow key={action.id} action={action} currentUserAddress={publicKey} />
+                      {groupedActions.map((group) => (
+                        <TransactionRow key={group.key} actions={group.actions} currentUserAddress={publicKey} />
                       ))}
                     </TableBody>
                   </Table>

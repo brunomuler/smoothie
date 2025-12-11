@@ -29,6 +29,9 @@ export async function GET(request: NextRequest) {
     const asset = searchParams.get('asset')
     const daysParam = searchParams.get('days') || '30'
     const days = parseInt(daysParam, 10)
+    // Get timezone from query param, default to UTC
+    // Frontend should pass IANA timezone name (e.g., 'America/New_York')
+    const timezone = searchParams.get('timezone') || 'UTC'
 
     // Validate required parameters
     if (!user || !asset) {
@@ -59,6 +62,7 @@ export async function GET(request: NextRequest) {
       user,
       asset,
       days,
+      timezone,
     )
 
     const response = {

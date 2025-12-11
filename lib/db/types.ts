@@ -44,6 +44,12 @@ export type ActionType =
   | 'new_auction'
   | 'fill_auction'
   | 'delete_auction'
+  // Backstop actions
+  | 'backstop_deposit'
+  | 'backstop_withdraw'
+  | 'backstop_queue_withdrawal'
+  | 'backstop_dequeue_withdrawal'
+  | 'backstop_claim'
 
 // Auction types from Blend protocol
 // 0=interest, 2=liquidation, 7=bad_debt
@@ -62,6 +68,7 @@ export interface UserAction {
   asset_symbol: string | null
   asset_name: string | null
   asset_decimals: number | null
+  asset_icon_url: string | null
   user_address: string
   amount_underlying: number | null
   amount_tokens: number | null
@@ -79,6 +86,10 @@ export interface UserAction {
   // Resolved token symbols for auction assets
   lot_asset_symbol: string | null
   bid_asset_symbol: string | null
+  // Backstop-specific fields
+  lp_tokens: number | null
+  shares: number | null
+  q4w_expiration: number | null
 }
 
 // Pool Metadata
@@ -113,4 +124,42 @@ export interface DailyRate {
   d_rate: number | null
   rate_timestamp: string | null
   ledger_sequence: number | null
+}
+
+// Backstop Pool State (aggregated from events)
+export interface BackstopPoolState {
+  pool_address: string
+  total_lp_tokens: number  // Total LP tokens in the backstop pool
+  total_shares: number     // Total shares issued
+  share_rate: number       // LP tokens per share (total_lp_tokens / total_shares)
+  as_of_date: string       // Date this state represents
+}
+
+// Backstop User Balance History
+export interface BackstopUserBalance {
+  date: string
+  cumulative_shares: number    // User's total shares as of this date
+  lp_tokens_value: number      // Shares converted to LP tokens using pool rate
+  pool_address: string
+}
+
+// Backstop Cost Basis
+export interface BackstopCostBasis {
+  pool_address: string
+  user_address: string
+  total_deposited_lp: number   // Sum of all deposited LP tokens
+  total_withdrawn_lp: number   // Sum of all withdrawn LP tokens
+  cost_basis_lp: number        // Net LP tokens deposited (deposited - withdrawn)
+  first_deposit_date: string | null
+  last_activity_date: string | null
+}
+
+// Backstop Yield
+export interface BackstopYield {
+  pool_address: string
+  user_address: string
+  cost_basis_lp: number        // Original LP tokens deposited (net)
+  current_lp_tokens: number    // Current LP token value of shares
+  yield_lp: number             // LP tokens earned (current - cost basis)
+  yield_percent: number        // Percentage yield
 }

@@ -2,11 +2,12 @@
 
 import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { fetchWalletBlendSnapshot, type BlendWalletSnapshot } from "@/lib/blend/positions"
+import { fetchWalletBlendSnapshot, type BlendWalletSnapshot, type BlendBackstopPosition } from "@/lib/blend/positions"
 import { toTrackedPools } from "@/lib/blend/pools"
 import { useMetadata } from "@/hooks/use-metadata"
 import type { BalanceData } from "@/types/wallet-balance"
 import type { AssetCardData } from "@/types/asset-card"
+import type { BackstopCostBasis } from "@/lib/db/types"
 
 const usdFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
@@ -68,13 +69,18 @@ function buildBalanceData(snapshot: BlendWalletSnapshot | undefined): BalanceDat
     (acc, position) => acc + position.supplyUsdValue,
     0
   )
+
+  // Include backstop balance in total
+  const totalBackstopUsd = snapshot.totalBackstopUsd ?? 0
+  const totalBalanceUsd = totalSupplyUsd + totalBackstopUsd
+
   const weightedSupplyApy = snapshot.weightedSupplyApy ?? 0
   // APY is already the effective annual rate (compound rate), so annual yield is simply Balance × APY
   const estimatedAnnualYield = (totalSupplyUsd * weightedSupplyApy) / 100
 
   return {
-    balance: formatUsdWithDecimals(totalSupplyUsd),
-    rawBalance: totalSupplyUsd, // USD value for yield calculation
+    balance: formatUsdWithDecimals(totalBalanceUsd),
+    rawBalance: totalBalanceUsd, // USD value for yield calculation (includes backstop)
     apyPercentage: Number.isFinite(weightedSupplyApy) ? weightedSupplyApy : 0,
     interestEarned: "0.00",
     rawInterestEarned: 0,
@@ -102,18 +108,119 @@ function buildAssetCards(snapshot: BlendWalletSnapshot | undefined): AssetCardDa
     }))
 }
 
+// Fetch backstop cost basis from API
+async function fetchBackstopCostBases(userAddress: string): Promise<BackstopCostBasis[]> {
+  const response = await fetch(`/api/backstop-cost-basis?user=${encodeURIComponent(userAddress)}`)
+  if (!response.ok) {
+    throw new Error('Failed to fetch backstop cost basis')
+  }
+  const data = await response.json()
+  return data.cost_bases || []
+}
+
+// Enrich backstop positions with yield data from cost basis
+function enrichBackstopPositionsWithYield(
+  positions: BlendBackstopPosition[],
+  costBases: BackstopCostBasis[]
+): BlendBackstopPosition[] {
+  console.log('[backstop-yield] ========== DEBUG START ==========')
+  console.log('[backstop-yield] Positions count:', positions.length)
+  console.log('[backstop-yield] Cost bases count:', costBases.length)
+  console.log('[backstop-yield] Cost bases raw:', JSON.stringify(costBases, null, 2))
+  console.log('[backstop-yield] Positions raw:', positions.map(p => ({
+    poolId: p.poolId,
+    poolName: p.poolName,
+    lpTokens: p.lpTokens,
+    q4wLpTokens: p.q4wLpTokens,
+    totalLp: p.lpTokens + p.q4wLpTokens
+  })))
+
+  return positions.map(position => {
+    // Try to find matching cost basis - log all pool addresses for comparison
+    console.log('[backstop-yield] Searching for poolId:', position.poolId)
+    console.log('[backstop-yield] Available pool_addresses:', costBases.map(cb => cb.pool_address))
+
+    const costBasis = costBases.find(cb => cb.pool_address === position.poolId)
+    console.log('[backstop-yield] Match found:', !!costBasis)
+
+    if (!costBasis) {
+      // No cost basis data - return position with zero yield
+      console.log('[backstop-yield] NO COST BASIS - checking if pool addresses differ in format')
+      // Check for partial matches
+      const partialMatch = costBases.find(cb =>
+        cb.pool_address?.includes(position.poolId) ||
+        position.poolId?.includes(cb.pool_address)
+      )
+      if (partialMatch) {
+        console.log('[backstop-yield] PARTIAL MATCH FOUND:', partialMatch.pool_address)
+      }
+      return {
+        ...position,
+        costBasisLp: 0,
+        yieldLp: 0,
+        yieldPercent: 0,
+      }
+    }
+
+    // Include queued withdrawals (Q4W) in total position - they're still the user's LP tokens
+    // Q4W is just locked for 21 days, not actually withdrawn yet
+    const totalLpTokens = position.lpTokens + position.q4wLpTokens
+    const yieldLp = totalLpTokens - costBasis.cost_basis_lp
+    const yieldPercent = costBasis.cost_basis_lp > 0
+      ? (yieldLp / costBasis.cost_basis_lp) * 100
+      : 0
+
+    console.log('[backstop-yield] YIELD CALCULATED:', {
+      poolId: position.poolId,
+      currentLpTokens: position.lpTokens,
+      q4wLpTokens: position.q4wLpTokens,
+      totalLpTokens,
+      costBasisLp: costBasis.cost_basis_lp,
+      yieldLp,
+      yieldPercent: yieldPercent.toFixed(4) + '%'
+    })
+    console.log('[backstop-yield] ========== DEBUG END ==========')
+
+    return {
+      ...position,
+      costBasisLp: costBasis.cost_basis_lp,
+      yieldLp,
+      yieldPercent,
+    }
+  })
+}
+
 export function useBlendPositions(walletPublicKey: string | undefined, totalCostBasis?: number) {
   const { pools: dbPools } = useMetadata()
   const trackedPools = useMemo(() => toTrackedPools(dbPools), [dbPools])
 
-  const query = useQuery({
+  // Fetch wallet snapshot from SDK
+  const snapshotQuery = useQuery({
     queryKey: ["blend-wallet-snapshot", walletPublicKey, trackedPools.map(p => p.id).join(',')],
     enabled: !!walletPublicKey && trackedPools.length > 0,
     queryFn: () => fetchWalletBlendSnapshot(walletPublicKey, trackedPools),
     staleTime: 30_000,
     refetchInterval: 60_000,
-    refetchIntervalInBackground: false, // Don't waste requests when tab is hidden
+    refetchIntervalInBackground: false,
   })
+
+  // Fetch backstop cost bases from database
+  const costBasisQuery = useQuery({
+    queryKey: ["backstop-cost-basis", walletPublicKey],
+    enabled: !!walletPublicKey,
+    queryFn: () => fetchBackstopCostBases(walletPublicKey!),
+    staleTime: 60_000, // Cost basis changes less frequently
+    refetchInterval: 120_000,
+  })
+
+  // Combine snapshot and cost basis data
+  const query = useMemo(() => ({
+    data: snapshotQuery.data,
+    isLoading: snapshotQuery.isLoading || costBasisQuery.isLoading,
+    isError: snapshotQuery.isError,
+    error: snapshotQuery.error,
+    refetch: snapshotQuery.refetch,
+  }), [snapshotQuery, costBasisQuery])
 
   const balanceData = useMemo(() => {
     const data = buildBalanceData(query.data)
@@ -146,11 +253,30 @@ export function useBlendPositions(walletPublicKey: string | undefined, totalCost
     [query.data]
   );
 
+  const lpTokenPrice = useMemo(
+    () => query.data?.lpTokenPrice ?? null,
+    [query.data]
+  );
+
+  const backstopPositions = useMemo(() => {
+    const positions = snapshotQuery.data?.backstopPositions ?? []
+    const costBases = costBasisQuery.data ?? []
+    return enrichBackstopPositionsWithYield(positions, costBases)
+  }, [snapshotQuery.data, costBasisQuery.data]);
+
+  const totalBackstopUsd = useMemo(
+    () => query.data?.totalBackstopUsd ?? 0,
+    [query.data]
+  );
+
   return {
     ...query,
     balanceData,
     assetCards,
     totalEmissions,
     blndPrice,
+    lpTokenPrice,
+    backstopPositions,
+    totalBackstopUsd,
   }
 }

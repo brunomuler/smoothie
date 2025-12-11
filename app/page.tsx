@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useSearchParams } from "next/navigation"
 import { usePostHog } from "@/hooks/use-posthog"
 import { TokenLogo } from "@/components/token-logo"
-import { useQueries } from "@tanstack/react-query"
+import { useQueries, useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
 import { StrKey } from "@stellar/stellar-sdk"
@@ -18,7 +18,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowDownFromLine, History, TrendingUp, TrendingDown, PiggyBank, ChevronRight, Coins } from "lucide-react"
+import { ArrowDownFromLine, History, TrendingUp, TrendingDown, PiggyBank, ChevronRight, Coins, Shield, Clock } from "lucide-react"
 import { BlndRewardsCard } from "@/components/blnd-rewards-card"
 import type { Wallet } from "@/types/wallet"
 import type { ChartDataPoint } from "@/types/wallet-balance"
@@ -199,7 +199,7 @@ function HomeContent() {
     [wallets, activeWalletId]
   )
 
-  const { balanceData: initialBalanceData, assetCards, isLoading, error, data: blendSnapshot, totalEmissions, blndPrice } = useBlendPositions(
+  const { balanceData: initialBalanceData, assetCards, isLoading, error, data: blendSnapshot, totalEmissions, blndPrice, lpTokenPrice, backstopPositions } = useBlendPositions(
     activeWallet?.publicKey,
     undefined // We'll calculate totalCostBasis separately
   )
@@ -228,16 +228,20 @@ function HomeContent() {
     return Array.from(addresses)
   }, [assetCards, blendSnapshot?.positions])
 
+  // Get user's timezone for correct date handling in balance history
+  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
   // Batch fetch balance history for all unique assets using useQueries
   // This eliminates the N+1 query problem by managing all queries in parallel
   const balanceHistoryQueries = useQueries({
     queries: uniqueAssetAddresses.map((assetAddress) => ({
-      queryKey: ["balance-history", activeWallet?.publicKey || '', assetAddress, 365],
+      queryKey: ["balance-history", activeWallet?.publicKey || '', assetAddress, 365, userTimezone],
       queryFn: async ({ signal }) => {
         const params = new URLSearchParams({
           user: activeWallet?.publicKey || '',
           asset: assetAddress,
           days: '365',
+          timezone: userTimezone,
         })
 
         const response = await fetchWithTimeout(`/api/balance-history?${params.toString()}`, { signal })
@@ -254,6 +258,30 @@ function HomeContent() {
       refetchOnWindowFocus: false,
       retry: 2,
     })),
+  })
+
+  // Fetch backstop balance history (LP tokens over time)
+  const backstopBalanceHistoryQuery = useQuery({
+    queryKey: ["backstop-balance-history", activeWallet?.publicKey || ''],
+    queryFn: async ({ signal }) => {
+      const params = new URLSearchParams({
+        user: activeWallet?.publicKey || '',
+        days: '365',
+      })
+
+      const response = await fetchWithTimeout(`/api/backstop-balance-history?${params.toString()}`, { signal })
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || "Failed to fetch backstop balance history")
+      }
+
+      return response.json()
+    },
+    enabled: !!activeWallet?.publicKey,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
   })
 
   // Build a mapping from composite key (poolId-assetAddress) to cost basis (from database)
@@ -447,10 +475,10 @@ function HomeContent() {
     }
   }, [initialBalanceData, totalCostBasis])
 
-  // Aggregate historical data from ALL assets, converting each to USD
+  // Aggregate historical data from ALL assets + backstop, converting each to USD
   // This provides the combined total history for the top chart
   const aggregatedHistoryData = useMemo(() => {
-    if (balanceHistoryDataMap.size === 0) return null
+    if (balanceHistoryDataMap.size === 0 && !backstopBalanceHistoryQuery.data?.history?.length) return null
 
     const { detectPositionChanges, calculateEarningsStats } = require('@/lib/balance-history-utils')
 
@@ -462,7 +490,18 @@ function HomeContent() {
       })
     })
 
+    // Also add backstop dates
+    backstopBalanceHistoryQuery.data?.history?.forEach((point: any) => {
+      allDatesSet.add(point.date)
+    })
+
     const allDates = Array.from(allDatesSet).sort()
+
+    // Build a map of backstop history by date for quick lookup
+    const backstopByDate = new Map<string, number>()
+    backstopBalanceHistoryQuery.data?.history?.forEach((point: any) => {
+      backstopByDate.set(point.date, point.lp_tokens || 0)
+    })
 
     // For each date, sum up all assets' values (converted to USD)
     const aggregatedChartData = allDates.map(date => {
@@ -501,6 +540,13 @@ function HomeContent() {
         })
       })
 
+      // Add backstop balance (LP tokens * current LP price)
+      // Note: Using current LP price for historical values (same approach as regular assets)
+      const backstopLpTokens = backstopByDate.get(date) || 0
+      const backstopUsdValue = backstopLpTokens * (lpTokenPrice || 0)
+      totalBalance += backstopUsdValue
+      totalDeposit += backstopUsdValue // Backstop is a deposit/supply position
+
       const dateObj = new Date(date)
       return {
         date,
@@ -513,6 +559,7 @@ function HomeContent() {
         deposit: totalDeposit,
         yield: totalYield,
         borrow: totalBorrow,
+        backstop: backstopUsdValue, // Include backstop value separately for reference
         pools,
       }
     })
@@ -526,10 +573,10 @@ function HomeContent() {
       positionChanges,
       earningsStats,
       rawData: [],
-      isLoading: balanceHistoryQueries.some(q => q.isLoading),
-      error: balanceHistoryQueries.find(q => q.error)?.error || null,
+      isLoading: balanceHistoryQueries.some(q => q.isLoading) || backstopBalanceHistoryQuery.isLoading,
+      error: balanceHistoryQueries.find(q => q.error)?.error || backstopBalanceHistoryQuery.error || null,
     }
-  }, [balanceHistoryDataMap, assetPriceMap, uniqueAssetAddresses, balanceHistoryQueries])
+  }, [balanceHistoryDataMap, assetPriceMap, uniqueAssetAddresses, balanceHistoryQueries, backstopBalanceHistoryQuery, lpTokenPrice])
 
   const handleSelectWallet = (walletId: string) => {
     setActiveWalletId(walletId)
@@ -700,23 +747,38 @@ function HomeContent() {
                           </Card>
                         ))}
                       </div>
-                    ) : enrichedAssetCards.length > 0 ? (
+                    ) : (enrichedAssetCards.length > 0 || backstopPositions.length > 0) ? (
                       <div className="grid gap-4 grid-cols-1">
                         {Object.entries(
-                          enrichedAssetCards.reduce((acc, asset) => {
-                            // Extract pool ID from composite ID (format: poolId-assetAddress)
-                            const poolId = asset.id.includes('-') ? asset.id.split('-')[0] : asset.id
-                            const poolName = asset.protocolName
+                          // First, group supply positions by pool
+                          (() => {
+                            const poolMap = enrichedAssetCards.reduce((acc, asset) => {
+                              // Extract pool ID from composite ID (format: poolId-assetAddress)
+                              const poolId = asset.id.includes('-') ? asset.id.split('-')[0] : asset.id
+                              const poolName = asset.protocolName
 
-                            if (!acc[poolId]) {
-                              acc[poolId] = {
-                                poolName,
-                                assets: []
+                              if (!acc[poolId]) {
+                                acc[poolId] = {
+                                  poolName,
+                                  assets: []
+                                }
                               }
-                            }
-                            acc[poolId].assets.push(asset)
-                            return acc
-                          }, {} as Record<string, { poolName: string; assets: typeof enrichedAssetCards }>)
+                              acc[poolId].assets.push(asset)
+                              return acc
+                            }, {} as Record<string, { poolName: string; assets: typeof enrichedAssetCards }>)
+
+                            // Add backstop-only pools (pools where user has backstop but no supply)
+                            backstopPositions.forEach(bp => {
+                              if (!poolMap[bp.poolId] && bp.lpTokensUsd > 0) {
+                                poolMap[bp.poolId] = {
+                                  poolName: bp.poolName,
+                                  assets: []
+                                }
+                              }
+                            })
+
+                            return poolMap
+                          })()
                         ).map(([poolId, { poolName, assets }]) => {
                           return (
                             <Card key={poolId} className="py-2 gap-0">
@@ -781,21 +843,94 @@ function HomeContent() {
                                             )}
                                           </div>
                                         </div>
-                                        <div className="flex flex-col gap-1 items-end shrink-0">
+                                        <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
                                           <Badge variant="secondary" className="text-xs">
                                             <TrendingUp className="mr-1 h-3 w-3" />
                                             {asset.apyPercentage.toFixed(2)}% APY
                                           </Badge>
                                           {asset.growthPercentage > 0.005 && (
                                             <Badge variant="secondary" className="text-xs">
-                                              <PiggyBank className="mr-1 h-3 w-3" />
-                                              +{asset.growthPercentage.toFixed(2)}% BLND
+                                              <Coins className="mr-1 h-3 w-3" />
+                                              {asset.growthPercentage.toFixed(2)}% BLND
                                             </Badge>
                                           )}
                                         </div>
                                       </div>
                                     )
                                   })}
+
+                                  {/* Backstop Position for this pool */}
+                                  {(() => {
+                                    const backstopPosition = backstopPositions.find(bp => bp.poolId === poolId)
+                                    if (!backstopPosition || backstopPosition.lpTokensUsd <= 0) return null
+
+                                    const hasQ4w = backstopPosition.q4wShares > BigInt(0)
+                                    const q4wExpDate = backstopPosition.q4wExpiration
+                                      ? new Date(backstopPosition.q4wExpiration * 1000)
+                                      : null
+                                    const isQ4wExpired = q4wExpDate && q4wExpDate <= new Date()
+                                    // Format as "Xd Yh" (no minutes on home page)
+                                    const timeRemaining = (() => {
+                                      if (!q4wExpDate) return ""
+                                      const diff = q4wExpDate.getTime() - Date.now()
+                                      if (diff <= 0) return "0d 0h"
+                                      const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+                                      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+                                      if (days > 0) return `${days}d ${hours}h`
+                                      return `${hours}h`
+                                    })()
+
+                                    return (
+                                      <div key={`backstop-${poolId}`} className="flex items-center justify-between py-2 gap-3 border-t border-border/50 mt-2 pt-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                          <div className="h-10 w-10 rounded-full bg-purple-500/10 flex items-center justify-center">
+                                            <Shield className="h-5 w-5 text-purple-500" />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <p className="font-medium truncate">Backstop</p>
+                                            <p className="text-sm text-muted-foreground truncate">
+                                              {formatAmount(backstopPosition.lpTokens, 2)} LP
+                                              <span className="text-xs ml-1">
+                                                ({formatUsdAmount(backstopPosition.lpTokensUsd)})
+                                              </span>
+                                            </p>
+                                            {Math.abs(backstopPosition.yieldLp) >= 0.0001 && (
+                                              <p className={`text-xs flex items-center gap-1 ${backstopPosition.yieldLp >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                                                <TrendingUp className="h-3 w-3" />
+                                                {backstopPosition.yieldLp >= 0 ? '+' : ''}{formatAmount(backstopPosition.yieldLp, 4)} LP earned
+                                                <span className="text-muted-foreground">
+                                                  ({backstopPosition.yieldPercent >= 0 ? '+' : ''}{backstopPosition.yieldPercent.toFixed(2)}%)
+                                                </span>
+                                              </p>
+                                            )}
+                                            {hasQ4w && (
+                                              <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                                <Clock className="h-3 w-3" />
+                                                {isQ4wExpired
+                                                  ? `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP ready to withdraw`
+                                                  : `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP unlocks in ${timeRemaining}`
+                                                }
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
+                                          {backstopPosition.interestApr > 0 && (
+                                            <Badge variant="secondary" className="text-xs">
+                                              <TrendingUp className="mr-1 h-3 w-3" />
+                                              {backstopPosition.interestApr.toFixed(2)}% APR
+                                            </Badge>
+                                          )}
+                                          {backstopPosition.emissionApy > 0 && (
+                                            <Badge variant="secondary" className="text-xs">
+                                              <Coins className="mr-1 h-3 w-3" />
+                                              {backstopPosition.emissionApy.toFixed(2)}% BLND
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  })()}
                                 </div>
                               </CardContent>
                             </Card>
@@ -906,7 +1041,7 @@ function HomeContent() {
                                             )}
                                           </div>
                                         </div>
-                                        <div className="flex flex-col gap-1 items-end shrink-0">
+                                        <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
                                           <Badge variant="secondary" className="text-xs">
                                             <TrendingDown className="mr-1 h-3 w-3" />
                                             {position.borrowApy.toFixed(2)}% APY
@@ -914,7 +1049,7 @@ function HomeContent() {
                                           {position.borrowBlndApy > 0 && (
                                             <Badge variant="outline" className="text-xs">
                                               <Coins className="mr-1 h-3 w-3" />
-                                              +{position.borrowBlndApy.toFixed(2)}% BLND
+                                              {position.borrowBlndApy.toFixed(2)}% BLND
                                             </Badge>
                                           )}
                                         </div>

@@ -386,6 +386,12 @@ export function getActionColor(actionType: string): string {
       return '#a855f7' // purple
     case 'liquidate':
       return '#dc2626' // dark red
+    case 'backstop_deposit':
+    case 'backstop_withdraw':
+    case 'backstop_queue_withdrawal':
+    case 'backstop_dequeue_withdrawal':
+    case 'backstop_claim':
+      return '#a855f7' // purple (same as claim, for backstop events)
     default:
       return '#6b7280' // gray
   }

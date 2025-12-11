@@ -4,13 +4,14 @@ import { useState, useEffect, useMemo } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Lock, Unlock, Coins } from "lucide-react"
+import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Lock, Unlock, Coins, Shield, Clock } from "lucide-react"
 import { ApySparkline } from "@/components/apy-sparkline"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { fetchWalletBlendSnapshot, type BlendReservePosition, type BlendPoolEstimate } from "@/lib/blend/positions"
+import { fetchWalletBlendSnapshot, type BlendReservePosition, type BlendPoolEstimate, type BlendBackstopPosition } from "@/lib/blend/positions"
+import type { BackstopCostBasis } from "@/lib/db/types"
 import { toTrackedPools } from "@/lib/blend/pools"
 import { usePoolsOnly } from "@/hooks/use-metadata"
 import { TokenLogo } from "@/components/token-logo"
@@ -376,6 +377,148 @@ function MobileAssetCard({ position }: { position: BlendReservePosition }) {
   )
 }
 
+// Format remaining time as "Xd Yh Zm"
+function formatTimeRemaining(targetDate: Date): string {
+  const now = Date.now()
+  const diff = targetDate.getTime() - now
+
+  if (diff <= 0) return "0d 0h 0m"
+
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`
+  } else if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  } else {
+    return `${minutes}m`
+  }
+}
+
+// Backstop section component
+function BackstopSection({ position }: { position: BlendBackstopPosition }) {
+  const hasQ4w = position.q4wShares > BigInt(0)
+  const q4wExpDate = position.q4wExpiration
+    ? new Date(position.q4wExpiration * 1000)
+    : null
+  const isQ4wExpired = q4wExpDate && q4wExpDate <= new Date()
+  const timeRemaining = q4wExpDate ? formatTimeRemaining(q4wExpDate) : ""
+
+  // Pool-level Q4W risk assessment
+  const poolQ4w = position.poolQ4wPercent
+  const isHighRisk = poolQ4w >= 15
+  const isMediumRisk = poolQ4w >= 5 && poolQ4w < 15
+  const q4wRiskColor = isHighRisk ? 'text-red-500' : isMediumRisk ? 'text-amber-500' : 'text-green-500'
+  const q4wRiskBgColor = isHighRisk ? 'bg-red-500/10' : isMediumRisk ? 'bg-amber-500/10' : 'bg-green-500/10'
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <Shield className="h-5 w-5 text-purple-500" />
+          Backstop Position
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* LP Tokens */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">LP Tokens</p>
+            <p className="font-mono text-lg">{formatNumber(position.lpTokens, 4)}</p>
+            <p className="text-xs text-muted-foreground">{formatUsd(position.lpTokensUsd)}</p>
+          </div>
+
+          {/* Breakdown */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">LP Breakdown</p>
+            <p className="text-sm">{formatNumber(position.blndAmount, 2)} BLND</p>
+            <p className="text-sm">{formatNumber(position.usdcAmount, 2)} USDC</p>
+          </div>
+
+          {/* APR/APY */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Yield Rates</p>
+            <div className="flex flex-col gap-1">
+              {position.interestApr > 0 && (
+                <Badge variant="secondary" className="text-xs w-fit">
+                  <TrendingUp className="mr-1 h-3 w-3" />
+                  {formatPercent(position.interestApr)} APR
+                </Badge>
+              )}
+              {position.emissionApy > 0 && (
+                <Badge variant="secondary" className="text-xs w-fit">
+                  <Coins className="mr-1 h-3 w-3" />
+                  {formatPercent(position.emissionApy)} BLND
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          {/* Yield Earned */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Yield Earned</p>
+            {position.yieldLp !== 0 ? (
+              <>
+                <p className={`font-mono ${position.yieldLp >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {position.yieldLp >= 0 ? '+' : ''}{formatNumber(position.yieldLp, 4)} LP
+                </p>
+                <p className={`text-xs ${position.yieldLp >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                  {position.yieldPercent >= 0 ? '+' : ''}{formatPercent(position.yieldPercent)}
+                </p>
+              </>
+            ) : (
+              <p className="text-muted-foreground">-</p>
+            )}
+          </div>
+        </div>
+
+        {/* Pool Q4W Risk Indicator */}
+        <div className="mt-4 pt-4 border-t">
+          <div className={`flex items-center justify-between p-3 rounded-lg ${q4wRiskBgColor}`}>
+            <div className="flex items-center gap-2">
+              {isHighRisk && <AlertTriangle className="h-4 w-4 text-red-500" />}
+              <div>
+                <p className="text-xs text-muted-foreground">Pool Q4W</p>
+                <p className={`font-mono font-semibold ${q4wRiskColor}`}>
+                  {formatPercent(poolQ4w)}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Capital queued for withdrawal</p>
+              <p className={`text-xs ${q4wRiskColor}`}>
+                {isHighRisk ? 'High risk - reduced insurance coverage' :
+                 isMediumRisk ? 'Moderate risk - watch this metric' :
+                 'Low risk - healthy backstop'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* User Q4W Status */}
+        {hasQ4w && (
+          <div className="mt-4 pt-4 border-t">
+            <div className="flex items-center gap-2">
+              <Clock className={`h-4 w-4 ${isQ4wExpired ? 'text-green-500' : 'text-amber-500'}`} />
+              <span className={`text-sm ${isQ4wExpired ? 'text-green-500' : 'text-amber-500'}`}>
+                {isQ4wExpired
+                  ? `${formatNumber(position.q4wLpTokens, 2)} LP ready to withdraw`
+                  : `${formatNumber(position.q4wLpTokens, 2)} LP unlocks in ${timeRemaining}`
+                }
+              </span>
+              <span className="text-xs text-muted-foreground">
+                ({formatUsd(position.q4wLpTokensUsd)})
+              </span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // Page header component to reduce duplication
 function PageHeader({ title, subtitle, explorerUrl }: { title: string; subtitle?: string; explorerUrl?: string }) {
   return (
@@ -444,20 +587,64 @@ export default function PoolDetailsPage() {
     refetchIntervalInBackground: false,
   })
 
+  // Fetch backstop cost basis
+  const { data: costBases } = useQuery({
+    queryKey: ["backstop-cost-basis", activeWallet?.publicKey],
+    enabled: !!activeWallet?.publicKey,
+    queryFn: async () => {
+      const response = await fetch(`/api/backstop-cost-basis?user=${encodeURIComponent(activeWallet!.publicKey)}`)
+      if (!response.ok) throw new Error('Failed to fetch backstop cost basis')
+      const data = await response.json()
+      return (data.cost_bases || []) as BackstopCostBasis[]
+    },
+    staleTime: 60_000,
+  })
+
   const poolData = useMemo(() => {
     if (!snapshot) return null
 
     const poolEstimate = snapshot.poolEstimates.find(e => e.poolId === poolId)
     const poolPositions = snapshot.positions.filter(p => p.poolId === poolId)
+    const rawBackstopPosition = snapshot.backstopPositions.find(bp => bp.poolId === poolId)
 
-    if (!poolEstimate || poolPositions.length === 0) return null
+    // Enrich backstop position with yield data
+    let backstopPosition: BlendBackstopPosition | null = null
+    if (rawBackstopPosition && rawBackstopPosition.lpTokensUsd > 0) {
+      const costBasis = costBases?.find(cb => cb.pool_address === poolId)
+      if (costBasis) {
+        const yieldLp = rawBackstopPosition.lpTokens - costBasis.cost_basis_lp
+        const yieldPercent = costBasis.cost_basis_lp > 0
+          ? (yieldLp / costBasis.cost_basis_lp) * 100
+          : 0
+        backstopPosition = {
+          ...rawBackstopPosition,
+          costBasisLp: costBasis.cost_basis_lp,
+          yieldLp,
+          yieldPercent,
+        }
+      } else {
+        backstopPosition = {
+          ...rawBackstopPosition,
+          costBasisLp: 0,
+          yieldLp: 0,
+          yieldPercent: 0,
+        }
+      }
+    }
+
+    // Show pool if user has positions OR backstop
+    const hasPositions = poolPositions.length > 0
+    const hasBackstop = backstopPosition !== null
+
+    if (!poolEstimate || (!hasPositions && !hasBackstop)) return null
 
     return {
       estimate: poolEstimate,
       positions: poolPositions,
-      poolName: poolPositions[0]?.poolName || "Unknown Pool"
+      backstopPosition,
+      poolName: poolPositions[0]?.poolName || backstopPosition?.poolName || "Unknown Pool"
     }
-  }, [snapshot, poolId])
+  }, [snapshot, poolId, costBases])
 
   // Get pool info from tracked pools for explorer link
   const poolInfo = trackedPools.find(p => p.id === poolId)
@@ -545,27 +732,34 @@ export default function PoolDetailsPage() {
           {/* Summary Stats */}
           <PoolSummary estimate={poolData.estimate} />
 
-          {/* Positions */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Your Positions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {/* Desktop */}
-              <div className="hidden md:block">
-                {poolData.positions.map((position) => (
-                  <AssetRow key={position.id} position={position} />
-                ))}
-              </div>
+          {/* Supply/Borrow Positions */}
+          {poolData.positions.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">Your Positions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* Desktop */}
+                <div className="hidden md:block">
+                  {poolData.positions.map((position) => (
+                    <AssetRow key={position.id} position={position} />
+                  ))}
+                </div>
 
-              {/* Mobile */}
-              <div className="md:hidden">
-                {poolData.positions.map((position) => (
-                  <MobileAssetCard key={position.id} position={position} />
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                {/* Mobile */}
+                <div className="md:hidden">
+                  {poolData.positions.map((position) => (
+                    <MobileAssetCard key={position.id} position={position} />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Backstop Position */}
+          {poolData.backstopPosition && (
+            <BackstopSection position={poolData.backstopPosition} />
+          )}
         </div>
       </main>
     </div>

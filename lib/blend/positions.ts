@@ -1,6 +1,11 @@
 import {
   Backstop,
+  BackstopPoolUser,
+  BackstopPoolV1,
+  BackstopPoolV2,
+  BackstopPoolEst,
   Pool,
+  PoolEstimate,
   PoolMetadata,
   PoolOracle,
   PoolV1,
@@ -55,6 +60,36 @@ export interface BlendReservePosition {
   reserveTotalBorrow: number; // Total pool borrow in tokens
 }
 
+// Backstop position for a specific pool
+export interface BlendBackstopPosition {
+  id: string; // Format: backstop-{poolId}
+  poolId: string;
+  poolName: string;
+  // Position data
+  shares: bigint; // Raw shares (internal accounting unit)
+  lpTokens: number; // LP tokens value (shares converted via pool ratio)
+  lpTokensUsd: number; // USD value of LP tokens
+  // LP token breakdown
+  blndAmount: number; // BLND portion of LP (80%)
+  usdcAmount: number; // USDC portion of LP (20%)
+  // Queued withdrawal (Q4W) - 21-day lock
+  q4wShares: bigint; // Shares queued for withdrawal
+  q4wLpTokens: number; // LP tokens value of queued shares
+  q4wLpTokensUsd: number; // USD value of queued shares
+  q4wExpiration: number | null; // Unix timestamp when Q4W unlocks
+  unlockedQ4wShares: bigint; // Shares ready to withdraw (past expiration)
+  // APR/APY
+  interestApr: number; // APR from pool interest (backstop's share of borrower interest)
+  emissionApy: number; // APY from BLND emissions for this pool's backstop (in %)
+  blndEmissionsPerLpToken: number; // Raw BLND emissions per LP token per year
+  // Yield tracking (from event aggregation)
+  costBasisLp: number; // Net LP tokens deposited (deposits - withdrawals)
+  yieldLp: number; // LP tokens earned (current lpTokens - costBasisLp)
+  yieldPercent: number; // Percentage yield ((yieldLp / costBasisLp) * 100)
+  // Pool-level Q4W risk indicator
+  poolQ4wPercent: number; // Percent of pool's backstop capital queued for withdrawal (higher = riskier)
+}
+
 // Per-pool position estimate (health, borrow capacity, etc.)
 export interface BlendPoolEstimate {
   poolId: string;
@@ -72,11 +107,14 @@ export interface BlendPoolEstimate {
 
 export interface BlendWalletSnapshot {
   positions: BlendReservePosition[];
+  backstopPositions: BlendBackstopPosition[]; // User's backstop positions per pool
   poolEstimates: BlendPoolEstimate[]; // Per-pool health/borrow data
   totalSupplyUsd: number;
   totalBorrowUsd: number;
   totalCollateralUsd: number; // Total collateralized supply
   totalNonCollateralUsd: number; // Total non-collateralized supply
+  totalBackstopUsd: number; // Total backstop value in USD
+  totalBackstopQ4wUsd: number; // Total queued backstop withdrawals in USD
   netPositionUsd: number;
   weightedSupplyApy: number | null;
   weightedBorrowApy: number | null;
@@ -84,6 +122,7 @@ export interface BlendWalletSnapshot {
   weightedBlndApy: number | null;
   totalEmissions: number; // Total claimable BLND emissions in tokens
   blndPrice: number | null; // BLND price in USDC from backstop
+  lpTokenPrice: number | null; // LP token price in USD from backstop
 }
 
 interface LoadContext {
@@ -508,6 +547,7 @@ function buildPosition(
 
 function aggregateSnapshot(
   positions: BlendReservePosition[],
+  backstopPositions: BlendBackstopPosition[],
   poolEstimates: BlendPoolEstimate[],
   netApyOverride: number | null
 ): BlendWalletSnapshot {
@@ -528,15 +568,32 @@ function aggregateSnapshot(
     0
   );
 
-  const netPositionUsd = totalSupplyUsd - totalBorrowUsd;
+  // Aggregate backstop totals
+  const totalBackstopUsd = backstopPositions.reduce(
+    (acc, bp) => acc + bp.lpTokensUsd,
+    0
+  );
+  const totalBackstopQ4wUsd = backstopPositions.reduce(
+    (acc, bp) => acc + bp.q4wLpTokensUsd,
+    0
+  );
 
+  // Net position includes backstop (but not Q4W as it's locked)
+  const netPositionUsd = totalSupplyUsd - totalBorrowUsd + totalBackstopUsd;
+  const totalPositionUsd = totalSupplyUsd + totalBackstopUsd;
+
+  // Weighted Supply APY includes both supply positions and backstop interest APR
+  const supplyApyValue = positions.reduce(
+    (acc, position) => acc + position.supplyUsdValue * (position.supplyApy || 0),
+    0
+  );
+  const backstopApyValue = backstopPositions.reduce(
+    (acc, bp) => acc + bp.lpTokensUsd * (bp.interestApr || 0),
+    0
+  );
   const weightedSupplyApy =
-    totalSupplyUsd > 0
-      ? positions.reduce(
-          (acc, position) =>
-            acc + position.supplyUsdValue * (position.supplyApy || 0),
-          0
-        ) / totalSupplyUsd
+    totalPositionUsd > 0
+      ? (supplyApyValue + backstopApyValue) / totalPositionUsd
       : null;
 
   const weightedBorrowApy =
@@ -548,13 +605,18 @@ function aggregateSnapshot(
         ) / totalBorrowUsd
       : null;
 
+  // Weighted BLND APY includes both supply positions and backstop emissions
+  const supplyBlndValue = positions.reduce(
+    (acc, position) => acc + position.supplyUsdValue * (position.blndApy || 0),
+    0
+  );
+  const backstopBlndValue = backstopPositions.reduce(
+    (acc, bp) => acc + bp.lpTokensUsd * (bp.emissionApy || 0),
+    0
+  );
   const weightedBlndApy =
-    totalSupplyUsd > 0
-      ? positions.reduce(
-          (acc, position) =>
-            acc + position.supplyUsdValue * (position.blndApy || 0),
-          0
-        ) / totalSupplyUsd
+    totalPositionUsd > 0
+      ? (supplyBlndValue + backstopBlndValue) / totalPositionUsd
       : null;
 
   const computedNetApy =
@@ -569,11 +631,14 @@ function aggregateSnapshot(
 
   return {
     positions,
+    backstopPositions,
     poolEstimates,
     totalSupplyUsd,
     totalBorrowUsd,
     totalCollateralUsd,
     totalNonCollateralUsd,
+    totalBackstopUsd,
+    totalBackstopQ4wUsd,
     netPositionUsd,
     weightedSupplyApy,
     weightedBorrowApy,
@@ -581,6 +646,7 @@ function aggregateSnapshot(
     weightedBlndApy,
     totalEmissions: 0, // Will be set by fetchWalletBlendSnapshot
     blndPrice: null, // Will be set by fetchWalletBlendSnapshot
+    lpTokenPrice: null, // Will be set by fetchWalletBlendSnapshot
   };
 }
 
@@ -655,11 +721,14 @@ export async function fetchWalletBlendSnapshot(
   if (!context.pools.length || !walletPublicKey) {
     return {
       positions: [],
+      backstopPositions: [],
       poolEstimates: [],
       totalSupplyUsd: 0,
       totalBorrowUsd: 0,
       totalCollateralUsd: 0,
       totalNonCollateralUsd: 0,
+      totalBackstopUsd: 0,
+      totalBackstopQ4wUsd: 0,
       netPositionUsd: 0,
       weightedSupplyApy: null,
       weightedBorrowApy: null,
@@ -667,6 +736,7 @@ export async function fetchWalletBlendSnapshot(
       weightedBlndApy: null,
       totalEmissions: 0,
       blndPrice: null,
+      lpTokenPrice: null,
     };
   }
 
@@ -743,20 +813,26 @@ export async function fetchWalletBlendSnapshot(
     (position): position is BlendReservePosition => !!position
   );
 
-  const estimatesResult = computeNetApyFromEstimates(snapshotsWithUsers);
-  const snapshot = aggregateSnapshot(flattenedPositions, estimatesResult.poolEstimates, estimatesResult.netApy);
-
-  // Calculate BLND price from first available backstop
+  // Calculate BLND price and LP token price from first available backstop
   let blndPrice: number | null = null;
+  let lpTokenPrice: number | null = null;
+  let backstopToken: { blndPerLpToken: number; usdcPerLpToken: number; lpTokenPrice: number } | null = null;
+
   for (const poolSnapshot of snapshotsWithUsers) {
     if (poolSnapshot.backstop?.backstopToken) {
       try {
-        const backstopToken = poolSnapshot.backstop.backstopToken;
-        const usdcAmount = FixedMath.toFloat(backstopToken.usdc, 7);
-        const blndAmount = FixedMath.toFloat(backstopToken.blnd, 7);
+        const bt = poolSnapshot.backstop.backstopToken;
+        const usdcAmount = FixedMath.toFloat(bt.usdc, 7);
+        const blndAmount = FixedMath.toFloat(bt.blnd, 7);
         // Backstop is 80% BLND / 20% USDC
         if (blndAmount > 0) {
           blndPrice = (usdcAmount / 0.2) / (blndAmount / 0.8);
+          lpTokenPrice = bt.lpTokenPrice;
+          backstopToken = {
+            blndPerLpToken: bt.blndPerLpToken,
+            usdcPerLpToken: bt.usdcPerLpToken,
+            lpTokenPrice: bt.lpTokenPrice,
+          };
           break;
         }
       } catch {
@@ -765,10 +841,145 @@ export async function fetchWalletBlendSnapshot(
     }
   }
 
-  // Add total emissions and BLND price to snapshot
+  // Load backstop positions for each pool
+  const backstopPositions: BlendBackstopPosition[] = [];
+
+  for (const poolSnapshot of snapshotsWithUsers) {
+    if (!poolSnapshot.backstop || !poolSnapshot.metadata.backstop) {
+      continue;
+    }
+
+    try {
+      const backstopId = poolSnapshot.metadata.backstop;
+      const poolId = poolSnapshot.tracked.id;
+
+      // Load user's backstop position for this pool
+      const backstopUser = await BackstopPoolUser.load(
+        context.network,
+        backstopId,
+        poolId,
+        walletPublicKey
+      );
+
+      // Skip if user has no backstop position in this pool
+      const userShares = backstopUser.balance.shares;
+      const totalQ4wShares = backstopUser.balance.totalQ4W;
+
+      if (userShares === BigInt(0) && totalQ4wShares === BigInt(0)) {
+        continue;
+      }
+
+      // Load the backstop pool data to get shares-to-tokens conversion
+      let backstopPool: BackstopPoolV1 | BackstopPoolV2;
+      if (poolSnapshot.tracked.version === Version.V2) {
+        backstopPool = await BackstopPoolV2.load(context.network, backstopId, poolId);
+      } else {
+        backstopPool = await BackstopPoolV1.load(context.network, backstopId, poolId);
+      }
+
+      // Convert shares to LP tokens
+      const lpTokens = backstopPool.sharesToBackstopTokensFloat(userShares);
+      const q4wLpTokens = backstopPool.sharesToBackstopTokensFloat(totalQ4wShares);
+
+      // Calculate USD values
+      const tokenPrice = lpTokenPrice ?? 0;
+      const lpTokensUsd = lpTokens * tokenPrice;
+      const q4wLpTokensUsd = q4wLpTokens * tokenPrice;
+
+      // Calculate BLND/USDC breakdown
+      const blndPerLp = backstopToken?.blndPerLpToken ?? 0;
+      const usdcPerLp = backstopToken?.usdcPerLpToken ?? 0;
+      const blndAmount = lpTokens * blndPerLp;
+      const usdcAmount = lpTokens * usdcPerLp;
+
+      // Get Q4W expiration (use the first one if multiple exist)
+      const q4wExpiration = backstopUser.balance.q4w.length > 0
+        ? Number(backstopUser.balance.q4w[0].exp)
+        : null;
+
+      // Calculate emission APY for this pool's backstop
+      // emissionPerYearPerBackstopToken() returns BLND per LP token per year
+      const blndEmissionsPerLpToken = backstopPool.emissionPerYearPerBackstopToken();
+      // Convert to APY: (BLND emissions × BLND price) / LP token price × 100
+      const emissionValueUsd = blndEmissionsPerLpToken * (blndPrice ?? 0);
+      const emissionApy = tokenPrice > 0 ? (emissionValueUsd / tokenPrice) * 100 : 0;
+
+      // Calculate interest APR for backstop using same formula as Blend UI:
+      // estBackstopApr = (backstopRate * avgBorrowApy * totalBorrowed) / totalSpotValue
+      let interestApr = 0;
+      let poolQ4wPercent = 0;
+
+      if (poolSnapshot.oracle && poolSnapshot.backstop?.backstopToken) {
+        try {
+          // Get pool estimate with avgBorrowApy and totalBorrowed
+          const poolEst = PoolEstimate.build(poolSnapshot.pool.reserves, poolSnapshot.oracle);
+
+          // Get backstop pool estimate with totalSpotValue and q4wPercentage
+          const backstopPoolEst = BackstopPoolEst.build(
+            poolSnapshot.backstop.backstopToken,
+            backstopPool.poolBalance
+          );
+
+          // backstopRate is stored as fixed-point with 7 decimals
+          const backstopRateFloat = FixedMath.toFloat(BigInt(poolSnapshot.metadata.backstopRate), 7);
+
+          // Calculate APR using Blend UI formula (result is already a decimal, multiply by 100 for %)
+          if (backstopPoolEst.totalSpotValue > 0) {
+            interestApr = (backstopRateFloat * poolEst.avgBorrowApy * poolEst.totalBorrowed) / backstopPoolEst.totalSpotValue * 100;
+          }
+
+          // Pool-level Q4W percentage (risk indicator) - already in decimal form, multiply by 100 for %
+          poolQ4wPercent = backstopPoolEst.q4wPercentage * 100;
+        } catch (e) {
+          console.warn(`[blend] Failed to calculate backstop APR for pool ${poolId}:`, e);
+        }
+      }
+
+      backstopPositions.push({
+        id: `backstop-${poolId}`,
+        poolId,
+        poolName: poolSnapshot.metadata.name,
+        shares: userShares,
+        lpTokens,
+        lpTokensUsd,
+        blndAmount,
+        usdcAmount,
+        q4wShares: totalQ4wShares,
+        q4wLpTokens,
+        q4wLpTokensUsd,
+        q4wExpiration,
+        unlockedQ4wShares: backstopUser.balance.unlockedQ4W,
+        interestApr: Number.isFinite(interestApr) ? interestApr : 0,
+        emissionApy: Number.isFinite(emissionApy) ? emissionApy : 0,
+        blndEmissionsPerLpToken: Number.isFinite(blndEmissionsPerLpToken) ? blndEmissionsPerLpToken : 0,
+        // Yield fields - will be enriched by hook with data from events database
+        costBasisLp: 0,
+        yieldLp: 0,
+        yieldPercent: 0,
+        // Pool-level risk indicator
+        poolQ4wPercent: Number.isFinite(poolQ4wPercent) ? poolQ4wPercent : 0,
+      });
+    } catch (error) {
+      console.warn(
+        `[blend] Failed to load backstop position for pool ${poolSnapshot.tracked.id}:`,
+        (error as Error)?.message ?? error
+      );
+    }
+  }
+
+  const estimatesResult = computeNetApyFromEstimates(snapshotsWithUsers);
+  const snapshot = aggregateSnapshot(
+    flattenedPositions,
+    backstopPositions,
+    estimatesResult.poolEstimates,
+    estimatesResult.netApy
+  );
+
+  // Add total emissions, BLND price, and LP token price to snapshot
   return {
     ...snapshot,
     totalEmissions,
     blndPrice,
+    lpTokenPrice,
   };
 }
