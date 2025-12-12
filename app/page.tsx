@@ -667,7 +667,7 @@ function HomeContent() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 bg-background">
+      <header className="sticky top-0 z-50 bg-background shadow-[0_8px_16px_-2px_rgba(0,0,0,0.35)] dark:shadow-[0_8px_16px_-2px_rgba(0,0,0,0.7)]">
         <div className="container max-w-4xl mx-auto px-4 py-1.5 sm:py-2 flex items-center justify-between gap-2">
           <div className="relative h-10 sm:h-12">
             <Image
