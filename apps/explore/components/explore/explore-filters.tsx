@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Search, RotateCcw, DollarSign, Coins } from "lucide-react"
+import { Search, RotateCcw, DollarSign, Flame } from "lucide-react"
 import type { Token, Pool, ActionType } from "@/lib/db/types"
 import type { ExploreQueryType, TimeRangePreset } from "@/types/explore"
 
@@ -253,7 +253,7 @@ export function ExploreFilters({
                 {filters.inUsd ? (
                   <DollarSign className="h-4 w-4" />
                 ) : (
-                  <Coins className="h-4 w-4" />
+                  <Flame className="h-4 w-4" />
                 )}
               </Button>
             </div>

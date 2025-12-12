@@ -54,31 +54,29 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Fetch balance history for each pool
-    const historyByPool = await Promise.all(
-      costBases.map(cb =>
-        eventsRepository.getBackstopUserBalanceHistory(user, cb.pool_address, days, timezone)
-      )
+    // Fetch balance history for all pools in a single query
+    const poolAddresses = costBases.map(cb => cb.pool_address)
+    const allHistory = await eventsRepository.getBackstopUserBalanceHistoryMultiplePools(
+      user,
+      poolAddresses,
+      days,
+      timezone
     )
 
     // Aggregate history across all pools by date
     const dateMap = new Map<string, { lpTokens: number; pools: { poolAddress: string; lpTokens: number }[] }>()
 
-    historyByPool.forEach((poolHistory, index) => {
-      const poolAddress = costBases[index].pool_address
-
-      poolHistory.forEach(point => {
-        const existing = dateMap.get(point.date)
-        if (existing) {
-          existing.lpTokens += point.lp_tokens_value
-          existing.pools.push({ poolAddress, lpTokens: point.lp_tokens_value })
-        } else {
-          dateMap.set(point.date, {
-            lpTokens: point.lp_tokens_value,
-            pools: [{ poolAddress, lpTokens: point.lp_tokens_value }]
-          })
-        }
-      })
+    allHistory.forEach(point => {
+      const existing = dateMap.get(point.date)
+      if (existing) {
+        existing.lpTokens += point.lp_tokens_value
+        existing.pools.push({ poolAddress: point.pool_address, lpTokens: point.lp_tokens_value })
+      } else {
+        dateMap.set(point.date, {
+          lpTokens: point.lp_tokens_value,
+          pools: [{ poolAddress: point.pool_address, lpTokens: point.lp_tokens_value }]
+        })
+      }
     })
 
     // Convert to sorted array

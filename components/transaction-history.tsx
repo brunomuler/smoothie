@@ -7,7 +7,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   ExternalLink,
-  Gift,
+  Flame,
   RefreshCw,
   Loader2,
   Gavel,
@@ -135,7 +135,7 @@ const ACTION_CONFIG: Record<
   },
   claim: {
     label: "Claimed BLND",
-    icon: Gift,
+    icon: Flame,
     color: "text-purple-600 dark:text-purple-400",
     bgColor: "bg-purple-100 dark:bg-purple-900/30",
   },
@@ -190,7 +190,7 @@ const ACTION_CONFIG: Record<
   },
   backstop_claim: {
     label: "Backstop Claim",
-    icon: Gift,
+    icon: Flame,
     color: "text-purple-600 dark:text-purple-400",
     bgColor: "bg-purple-100 dark:bg-purple-900/30",
   },

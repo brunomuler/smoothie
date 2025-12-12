@@ -957,6 +957,136 @@ export class EventsRepository {
   }
 
   /**
+   * Get backstop balance history for multiple pools in a single query.
+   * This is more efficient than calling getBackstopUserBalanceHistory multiple times.
+   */
+  async getBackstopUserBalanceHistoryMultiplePools(
+    userAddress: string,
+    poolAddresses: string[],
+    days: number = 30,
+    timezone: string = 'UTC'
+  ): Promise<BackstopUserBalance[]> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    if (poolAddresses.length === 0) {
+      return []
+    }
+
+    // This query handles multiple pools by including pool_address in the grouping
+    // and computing per-pool share rates
+    const result = await pool.query(
+      `
+      WITH date_range AS (
+        SELECT generate_series(
+          GREATEST(
+            (CURRENT_TIMESTAMP AT TIME ZONE $4)::date - $3::integer,
+            (SELECT MIN((ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date) FROM backstop_events
+             WHERE user_address = $1 AND pool_address = ANY($2))
+          ),
+          (CURRENT_TIMESTAMP AT TIME ZONE $4)::date,
+          '1 day'::interval
+        )::date AS date
+      ),
+      -- Get all pools from the input array
+      pools AS (
+        SELECT unnest($2::text[]) AS pool_address
+      ),
+      -- User's cumulative shares over time per pool
+      user_events AS (
+        SELECT
+          pool_address,
+          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
+          SUM(CASE
+            WHEN action_type = 'deposit' THEN shares::numeric
+            WHEN action_type = 'withdraw' THEN -shares::numeric
+            ELSE 0
+          END) AS shares_change
+        FROM backstop_events
+        WHERE user_address = $1
+          AND pool_address = ANY($2)
+        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
+      ),
+      user_cumulative AS (
+        SELECT
+          pool_address,
+          event_date,
+          SUM(shares_change) OVER (PARTITION BY pool_address ORDER BY event_date) AS cumulative_shares
+        FROM user_events
+      ),
+      -- Pool's total LP tokens and shares over time per pool
+      pool_events AS (
+        SELECT
+          pool_address,
+          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
+          SUM(CASE
+            WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
+            WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
+            ELSE 0
+          END) AS lp_change,
+          SUM(CASE
+            WHEN action_type = 'deposit' THEN shares::numeric
+            WHEN action_type = 'withdraw' THEN -shares::numeric
+            ELSE 0
+          END) AS shares_change
+        FROM backstop_events
+        WHERE pool_address = ANY($2)
+        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
+      ),
+      pool_cumulative AS (
+        SELECT
+          pool_address,
+          event_date,
+          SUM(lp_change) OVER (PARTITION BY pool_address ORDER BY event_date) AS total_lp_tokens,
+          SUM(shares_change) OVER (PARTITION BY pool_address ORDER BY event_date) AS total_shares
+        FROM pool_events
+      )
+      SELECT
+        p.pool_address,
+        d.date::text,
+        COALESCE(uc.cumulative_shares, 0) / 1e7 AS cumulative_shares,
+        COALESCE(pc.total_lp_tokens, 0) / 1e7 AS pool_lp_tokens,
+        COALESCE(pc.total_shares, 0) / 1e7 AS pool_shares,
+        CASE
+          WHEN COALESCE(pc.total_shares, 0) > 0
+          THEN (COALESCE(uc.cumulative_shares, 0) / 1e7) *
+               (COALESCE(pc.total_lp_tokens, 0) / COALESCE(pc.total_shares, 1))
+          ELSE 0
+        END AS lp_tokens_value
+      FROM date_range d
+      CROSS JOIN pools p
+      LEFT JOIN LATERAL (
+        SELECT cumulative_shares
+        FROM user_cumulative uc_inner
+        WHERE uc_inner.pool_address = p.pool_address
+          AND uc_inner.event_date <= d.date
+        ORDER BY uc_inner.event_date DESC
+        LIMIT 1
+      ) uc ON true
+      LEFT JOIN LATERAL (
+        SELECT total_lp_tokens, total_shares
+        FROM pool_cumulative pc_inner
+        WHERE pc_inner.pool_address = p.pool_address
+          AND pc_inner.event_date <= d.date
+        ORDER BY pc_inner.event_date DESC
+        LIMIT 1
+      ) pc ON true
+      WHERE COALESCE(uc.cumulative_shares, 0) > 0
+      ORDER BY p.pool_address, d.date DESC
+      `,
+      [userAddress, poolAddresses, days, timezone]
+    )
+
+    return result.rows.map((row) => ({
+      date: row.date,
+      cumulative_shares: parseFloat(row.cumulative_shares) || 0,
+      lp_tokens_value: parseFloat(row.lp_tokens_value) || 0,
+      pool_address: row.pool_address,
+    }))
+  }
+
+  /**
    * Get backstop cost basis for a user - net LP tokens deposited.
    * Cost basis = total deposited LP tokens - total withdrawn LP tokens
    */

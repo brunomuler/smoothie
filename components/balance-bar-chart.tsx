@@ -16,7 +16,7 @@ import {
   ArrowUpCircle,
   Banknote,
   CheckCircle,
-  Gift,
+  Flame,
   AlertTriangle,
   Circle,
   Shield,
@@ -30,6 +30,12 @@ import {
   getDateRangeForPeriod,
   getActionColor,
 } from "@/lib/chart-utils"
+import {
+  EVENT_ICON_PATHS,
+  EVENT_ICON_CATEGORY,
+  FALLBACK_ICON,
+  type IconPathData,
+} from "@/lib/icon-paths"
 
 interface BalanceBarChartProps {
   historyData: ChartDataPoint[]
@@ -59,7 +65,7 @@ const EventIcons: Record<string, React.ComponentType<{ className?: string; color
   withdraw_collateral: ArrowUpCircle,
   borrow: Banknote,
   repay: CheckCircle,
-  claim: Gift,
+  claim: Flame,
   liquidate: AlertTriangle,
   backstop_deposit: Shield,
   backstop_withdraw: Shield,
@@ -196,97 +202,6 @@ function CustomTooltip({
   )
 }
 
-// Map event types to icon categories (for grouping events with same visual icon)
-const EVENT_ICON_CATEGORY: Record<string, string> = {
-  supply: 'arrow-down',
-  supply_collateral: 'arrow-down',
-  withdraw: 'arrow-up',
-  withdraw_collateral: 'arrow-up',
-  borrow: 'arrow-up',
-  repay: 'arrow-down',
-  claim: 'gift',
-  liquidate: 'gavel',
-  backstop_deposit: 'shield',
-  backstop_withdraw: 'shield',
-  backstop_queue_withdrawal: 'shield',
-  backstop_dequeue_withdrawal: 'shield',
-  backstop_claim: 'shield',
-}
-
-// SVG path data extracted from lucide icons (designed for 24x24 viewBox)
-// These match the icons used in transaction-history.tsx
-const EVENT_ICON_PATHS: Record<string, {
-  paths: string[];
-  rect?: { x: number; y: number; width: number; height: number; rx?: number };
-}> = {
-  // ArrowDownRight - supply/deposit (green in history)
-  supply: {
-    paths: ["M7 7l10 10", "M17 7v10H7"],
-  },
-  supply_collateral: {
-    paths: ["M7 7l10 10", "M17 7v10H7"],
-  },
-  // ArrowUpRight - withdraw (red in history)
-  withdraw: {
-    paths: ["M7 17L17 7", "M7 7h10v10"],
-  },
-  withdraw_collateral: {
-    paths: ["M7 17L17 7", "M7 7h10v10"],
-  },
-  // ArrowUpRight - borrow (orange in history, same icon as withdraw)
-  borrow: {
-    paths: ["M7 17L17 7", "M7 7h10v10"],
-  },
-  // ArrowDownRight - repay (blue in history, same icon as supply)
-  repay: {
-    paths: ["M7 7l10 10", "M17 7v10H7"],
-  },
-  // Gift - claim (purple in history)
-  claim: {
-    paths: [
-      "M12 8v13",
-      "M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7",
-      "M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5",
-    ],
-    rect: { x: 3, y: 8, width: 18, height: 4, rx: 1 },
-  },
-  // Gavel - liquidate (red in history)
-  liquidate: {
-    paths: [
-      "m14.5 12.5-8 8a2.119 2.119 0 1 1-3-3l8-8",
-      "m16 16 6-6",
-      "m8 8 6-6",
-      "m9 7 8 8",
-      "m21 11-8-8",
-    ],
-  },
-  // Shield - backstop events (purple)
-  backstop_deposit: {
-    paths: [
-      "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
-    ],
-  },
-  backstop_withdraw: {
-    paths: [
-      "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
-    ],
-  },
-  backstop_queue_withdrawal: {
-    paths: [
-      "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
-    ],
-  },
-  backstop_dequeue_withdrawal: {
-    paths: [
-      "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
-    ],
-  },
-  backstop_claim: {
-    paths: [
-      "M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",
-    ],
-  },
-}
 
 // Custom event markers renderer for Recharts Customized component
 // Renders native SVG icon paths extracted from lucide icons
@@ -412,41 +327,46 @@ function renderEventMarkers(props: any) {
               const iconX = barCenterX + offsetX - iconSize / 2
               const iconY = markerY + offsetY - iconSize / 2
 
-              if (!iconData) {
-                // Fallback to small circle if no icon data
-                return (
-                  <circle
-                    key={eventIdx}
-                    cx={barCenterX + offsetX}
-                    cy={markerY + offsetY}
-                    r={iconSize / 4}
-                    fill={color}
-                  />
-                )
-              }
+              // Use fallback icon if no data for this type
+              const effectiveIconData = iconData || FALLBACK_ICON
 
               return (
                 <g
                   key={eventIdx}
                   transform={`translate(${iconX}, ${iconY}) scale(${iconSize / 24})`}
                 >
-                  {/* Rect element (for gift icon box) */}
-                  {iconData.rect && (
+                  {/* Rect elements (for icon boxes) */}
+                  {effectiveIconData.rects?.map((rect, rectIdx) => (
                     <rect
-                      x={iconData.rect.x}
-                      y={iconData.rect.y}
-                      width={iconData.rect.width}
-                      height={iconData.rect.height}
-                      rx={iconData.rect.rx}
+                      key={rectIdx}
+                      x={rect.x}
+                      y={rect.y}
+                      width={rect.width}
+                      height={rect.height}
+                      rx={rect.rx}
                       fill="none"
                       stroke={color}
                       strokeWidth={2}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
-                  )}
+                  ))}
+                  {/* Circle elements (for coins icon) */}
+                  {effectiveIconData.circles?.map((circle, circleIdx) => (
+                    <circle
+                      key={circleIdx}
+                      cx={circle.cx}
+                      cy={circle.cy}
+                      r={circle.r}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={2}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ))}
                   {/* Icon paths */}
-                  {iconData.paths.map((d, pathIdx) => (
+                  {effectiveIconData.paths.map((d, pathIdx) => (
                     <path
                       key={pathIdx}
                       d={d}

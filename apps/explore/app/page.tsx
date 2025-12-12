@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { DollarSign, Coins } from "lucide-react"
+import { DollarSign, Flame } from "lucide-react"
 import { usePostHog } from "@/hooks/use-posthog"
 import { useMetadata } from "@/hooks/use-metadata"
 import { useExplore } from "@/hooks/use-explore"
@@ -99,7 +99,7 @@ export default function ExplorePage() {
               </>
             ) : (
               <>
-                <Coins className="h-4 w-4" />
+                <Flame className="h-4 w-4" />
                 Token Primary
               </>
             )}

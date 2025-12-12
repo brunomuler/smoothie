@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Lock, Unlock, Coins, Shield, Clock } from "lucide-react"
+import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Lock, Unlock, Flame, Shield, Clock } from "lucide-react"
 import { ApySparkline } from "@/components/apy-sparkline"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -203,7 +203,7 @@ function AssetRow({ position, blndPrice }: { position: PositionWithYield; blndPr
           </Badge>
           {position.blndApy > 0 && (
             <Badge variant="outline" className="text-xs">
-              <Coins className="mr-1 h-3 w-3" />
+              <Flame className="mr-1 h-3 w-3" />
               +{formatPercent(position.blndApy)}
             </Badge>
           )}
@@ -215,7 +215,7 @@ function AssetRow({ position, blndPrice }: { position: PositionWithYield; blndPr
           )}
           {hasBorrow && position.borrowBlndApy > 0 && (
             <Badge variant="outline" className="text-xs">
-              <Coins className="mr-1 h-3 w-3" />
+              <Flame className="mr-1 h-3 w-3" />
               +{formatPercent(position.borrowBlndApy)}
             </Badge>
           )}
@@ -299,7 +299,7 @@ function AssetRow({ position, blndPrice }: { position: PositionWithYield; blndPr
         {/* BLND Emissions per token - always show for visibility */}
         <div>
           <p className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
-            <Coins className="h-3 w-3 text-purple-500" />
+            <Flame className="h-3 w-3 text-purple-500" />
             BLND Rewards
           </p>
           <div className="space-y-1">
@@ -388,7 +388,7 @@ function MobileAssetCard({ position, blndPrice }: { position: PositionWithYield;
           </Badge>
           {position.blndApy > 0 && (
             <Badge variant="outline" className="text-xs">
-              <Coins className="mr-1 h-3 w-3" />
+              <Flame className="mr-1 h-3 w-3" />
               +{formatPercent(position.blndApy)}
             </Badge>
           )}
@@ -400,7 +400,7 @@ function MobileAssetCard({ position, blndPrice }: { position: PositionWithYield;
           )}
           {hasBorrow && position.borrowBlndApy > 0 && (
             <Badge variant="outline" className="text-xs">
-              <Coins className="mr-1 h-3 w-3" />
+              <Flame className="mr-1 h-3 w-3" />
               +{formatPercent(position.borrowBlndApy)}
             </Badge>
           )}
@@ -465,7 +465,7 @@ function MobileAssetCard({ position, blndPrice }: { position: PositionWithYield;
         {/* BLND Rewards per token - always show */}
         <div>
           <p className="text-xs text-muted-foreground flex items-center gap-1 mb-1">
-            <Coins className="h-3 w-3 text-purple-500" />
+            <Flame className="h-3 w-3 text-purple-500" />
             BLND Rewards
           </p>
           <div className="space-y-1">
@@ -601,7 +601,7 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
               )}
               {position.emissionApy > 0 && (
                 <Badge variant="secondary" className="text-xs w-fit">
-                  <Coins className="mr-1 h-3 w-3" />
+                  <Flame className="mr-1 h-3 w-3" />
                   {formatPercent(position.emissionApy)} BLND
                 </Badge>
               )}
@@ -639,7 +639,7 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
                   {/* BLND Emissions - always show */}
                   <div className="mt-1 pt-1 border-t border-border/30">
                     <p className="text-xs text-purple-400">
-                      <Coins className="inline h-3 w-3 mr-1" />
+                      <Flame className="inline h-3 w-3 mr-1" />
                       {position.claimableBlnd > 0
                         ? `${formatNumber(position.claimableBlnd, 4)} BLND to claim`
                         : '0 BLND to claim'

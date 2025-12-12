@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { TrendingUp, Coins, MoreVertical, ArrowDownToLine, ArrowUpFromLine, Eye, Trash2 } from "lucide-react"
+import { TrendingUp, Flame, MoreVertical, ArrowDownToLine, ArrowUpFromLine, Eye, Trash2 } from "lucide-react"
 import { TokenLogo } from "@/components/token-logo"
 import {
   Card,
@@ -159,7 +159,7 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
                   <Tooltip>
                     <TooltipTrigger>
                       <Badge variant="secondary" className="text-xs">
-                        <Coins className="mr-1 h-3 w-3" />
+                        <Flame className="mr-1 h-3 w-3" />
                         {formatSignedPercentage(activeData.growthPercentage)}% BLND APY
                       </Badge>
                     </TooltipTrigger>

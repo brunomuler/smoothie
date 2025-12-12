@@ -5,7 +5,7 @@ import Image from "next/image"
 import { useSearchParams } from "next/navigation"
 import { usePostHog } from "@/hooks/use-posthog"
 import { TokenLogo } from "@/components/token-logo"
-import { useQueries, useQuery } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import Link from "next/link"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
 import { StrKey } from "@stellar/stellar-sdk"
@@ -18,7 +18,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ArrowDownFromLine, History, TrendingUp, TrendingDown, PiggyBank, ChevronRight, Coins, Shield, Clock } from "lucide-react"
+import { ArrowDownFromLine, History, TrendingUp, TrendingDown, PiggyBank, ChevronRight, Flame, Shield, Clock } from "lucide-react"
 import { BlndRewardsCard } from "@/components/blnd-rewards-card"
 import type { Wallet } from "@/types/wallet"
 import type { ChartDataPoint } from "@/types/wallet-balance"
@@ -26,6 +26,92 @@ import type { AssetCardData } from "@/types/asset-card"
 
 const WALLETS_STORAGE_KEY = "stellar-wallet-tracked-addresses"
 const ACTIVE_WALLET_STORAGE_KEY = "stellar-wallet-active-id"
+
+// Demo mode mock data for supply positions
+const DEMO_SUPPLY_POSITIONS = [
+  {
+    id: "demo-pool-1",
+    poolName: "YieldBlox",
+    assets: [
+      {
+        id: "demo-pool-1-usdc",
+        assetName: "USDC",
+        logoUrl: "/tokens/usdc.png",
+        rawBalance: 8500.42,
+        apyPercentage: 7.85,
+        growthPercentage: 2.15,
+        earnedYield: 425.42,
+        yieldPercentage: 5.27,
+        tokenAmount: 8500.42,
+        symbol: "USDC",
+      },
+      {
+        id: "demo-pool-1-xlm",
+        assetName: "XLM",
+        logoUrl: "/tokens/xlm.png",
+        rawBalance: 2150.80,
+        apyPercentage: 4.25,
+        growthPercentage: 1.80,
+        earnedYield: 89.50,
+        yieldPercentage: 4.35,
+        tokenAmount: 21508.0,
+        symbol: "XLM",
+      },
+    ],
+    backstop: {
+      lpTokensUsd: 1250.00,
+      lpTokens: 125.5,
+      interestApr: 8.5,
+      emissionApy: 12.3,
+      yieldLp: 45.50,
+      yieldPercent: 3.78,
+      q4wShares: BigInt(0),
+      q4wLpTokens: 0,
+      q4wExpiration: null,
+      claimableBlnd: 25.5,
+    },
+  },
+  {
+    id: "demo-pool-2",
+    poolName: "Blend",
+    assets: [
+      {
+        id: "demo-pool-2-usdc",
+        assetName: "USDC",
+        logoUrl: "/tokens/usdc.png",
+        rawBalance: 3200.15,
+        apyPercentage: 6.45,
+        growthPercentage: 1.95,
+        earnedYield: 156.75,
+        yieldPercentage: 5.15,
+        tokenAmount: 3200.15,
+        symbol: "USDC",
+      },
+    ],
+    backstop: null,
+  },
+]
+
+// Demo mode mock data for borrow positions
+const DEMO_BORROW_POSITIONS = [
+  {
+    poolId: "demo-pool-1",
+    poolName: "YieldBlox",
+    positions: [
+      {
+        id: "demo-pool-1-xlm-borrow",
+        symbol: "XLM",
+        borrowAmount: 5000,
+        borrowUsdValue: 500.00,
+        borrowApy: 8.75,
+        borrowBlndApy: 1.25,
+        logoUrl: "/tokens/xlm.png",
+        interestAccrued: 12.50,
+        interestPercentage: 2.56,
+      },
+    ],
+  },
+]
 
 // Format number with full decimals for dust amounts
 function formatAmount(value: number, decimals = 2): string {
@@ -231,34 +317,83 @@ function HomeContent() {
   // Get user's timezone for correct date handling in balance history
   const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-  // Batch fetch balance history for all unique assets using useQueries
-  // This eliminates the N+1 query problem by managing all queries in parallel
-  const balanceHistoryQueries = useQueries({
-    queries: uniqueAssetAddresses.map((assetAddress) => ({
-      queryKey: ["balance-history", activeWallet?.publicKey || '', assetAddress, 365, userTimezone],
-      queryFn: async ({ signal }) => {
-        const params = new URLSearchParams({
-          user: activeWallet?.publicKey || '',
-          asset: assetAddress,
-          days: '365',
-          timezone: userTimezone,
-        })
+  // Batch fetch balance history for all assets in a single request
+  // This reduces HTTP overhead by consolidating multiple requests into one
+  const balanceHistoryBatchQuery = useQuery({
+    queryKey: ["balance-history-batch", activeWallet?.publicKey || '', uniqueAssetAddresses.join(','), 365, userTimezone],
+    queryFn: async ({ signal }) => {
+      if (uniqueAssetAddresses.length === 0) {
+        return { results: [] }
+      }
 
-        const response = await fetchWithTimeout(`/api/balance-history?${params.toString()}`, { signal })
+      const params = new URLSearchParams({
+        user: activeWallet?.publicKey || '',
+        assets: uniqueAssetAddresses.join(','),
+        days: '365',
+        timezone: userTimezone,
+      })
 
-        if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.message || "Failed to fetch balance history")
-        }
+      const response = await fetchWithTimeout(`/api/balance-history-batch?${params.toString()}`, { signal })
 
-        return response.json()
-      },
-      enabled: !!activeWallet?.publicKey && !!assetAddress,
-      staleTime: 5 * 60 * 1000, // 5 minutes (historical data doesn't change frequently)
-      refetchOnWindowFocus: false,
-      retry: 2,
-    })),
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || "Failed to fetch balance history")
+      }
+
+      return response.json()
+    },
+    enabled: !!activeWallet?.publicKey && uniqueAssetAddresses.length > 0,
+    staleTime: 5 * 60 * 1000, // 5 minutes (historical data doesn't change frequently)
+    refetchOnWindowFocus: false,
+    retry: 2,
   })
+
+  // Transform batch results into the same format as the old useQueries result
+  // This maintains compatibility with existing code that uses balanceHistoryQueries
+  interface BalanceHistoryResult {
+    asset_address: string
+    history: unknown[]
+    firstEventDate: string | null
+    error: string | null
+  }
+
+  const balanceHistoryQueries = useMemo(() => {
+    if (!balanceHistoryBatchQuery.data?.results) {
+      return uniqueAssetAddresses.map(() => ({
+        data: undefined,
+        isLoading: balanceHistoryBatchQuery.isLoading,
+        isError: balanceHistoryBatchQuery.isError,
+        error: balanceHistoryBatchQuery.error,
+      }))
+    }
+
+    // Create a map for quick lookup
+    const resultMap = new Map<string, BalanceHistoryResult>(
+      (balanceHistoryBatchQuery.data.results as BalanceHistoryResult[]).map((r) => [r.asset_address, r])
+    )
+
+    return uniqueAssetAddresses.map((assetAddress) => {
+      const result = resultMap.get(assetAddress)
+      if (!result) {
+        return {
+          data: { history: [], firstEventDate: null },
+          isLoading: false,
+          isError: false,
+          error: null,
+        }
+      }
+
+      return {
+        data: {
+          history: result.history,
+          firstEventDate: result.firstEventDate,
+        },
+        isLoading: false,
+        isError: !!result.error,
+        error: result.error ? new Error(result.error) : null,
+      }
+    })
+  }, [balanceHistoryBatchQuery.data, balanceHistoryBatchQuery.isLoading, balanceHistoryBatchQuery.isError, balanceHistoryBatchQuery.error, uniqueAssetAddresses])
 
   // Fetch backstop balance history (LP tokens over time)
   const backstopBalanceHistoryQuery = useQuery({
@@ -667,7 +802,7 @@ function HomeContent() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 bg-background shadow-[0_8px_16px_-2px_rgba(0,0,0,0.35)] dark:shadow-[0_8px_16px_-2px_rgba(0,0,0,0.7)]">
+      <header className="sticky top-0 z-50 bg-background shadow-[0_8px_16px_-2px_hsl(var(--background))]">
         <div className="container max-w-4xl mx-auto px-4 py-1.5 sm:py-2 flex items-center justify-between gap-2">
           <div className="relative h-10 sm:h-12">
             <Image
@@ -745,33 +880,33 @@ function HomeContent() {
 
                   <TabsContent value="positions" className="space-y-4">
                     {/* BLND Rewards Card */}
-                    {activeWallet && (totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0) || !isLoading) && (
+                    {activeWallet && (totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0) || !isLoading || isDemoMode) && (
                       <BlndRewardsCard
                         publicKey={activeWallet.publicKey}
-                        pendingEmissions={totalEmissions}
-                        backstopClaimableBlnd={backstopPositions.reduce((sum, bp) => sum + (bp.claimableBlnd || 0), 0)}
-                        blndPrice={blndPrice}
-                        blndPerLpToken={backstopPositions[0]?.blndAmount && backstopPositions[0]?.lpTokens
+                        pendingEmissions={isDemoMode ? 156.75 : totalEmissions}
+                        backstopClaimableBlnd={isDemoMode ? 25.5 : backstopPositions.reduce((sum, bp) => sum + (bp.claimableBlnd || 0), 0)}
+                        blndPrice={isDemoMode ? 0.0125 : blndPrice}
+                        blndPerLpToken={isDemoMode ? 0.85 : (backstopPositions[0]?.blndAmount && backstopPositions[0]?.lpTokens
                           ? backstopPositions[0].blndAmount / backstopPositions[0].lpTokens
-                          : 0}
-                        blndApy={balanceData.blndApy}
-                        isLoading={isLoading}
-                        perPoolEmissions={blendSnapshot?.perPoolEmissions}
-                        backstopPositions={backstopPositions.map(bp => ({
+                          : 0)}
+                        blndApy={isDemoMode ? 0.91 : balanceData.blndApy}
+                        isLoading={isDemoMode ? false : isLoading}
+                        perPoolEmissions={isDemoMode ? { "demo-pool-1": 156.75 } : blendSnapshot?.perPoolEmissions}
+                        backstopPositions={isDemoMode ? [{ poolId: "demo-pool-1", poolName: "YieldBlox", claimableBlnd: 25.5 }] : backstopPositions.map(bp => ({
                           poolId: bp.poolId,
                           poolName: bp.poolName,
                           claimableBlnd: bp.claimableBlnd,
                         }))}
-                        poolNames={blendSnapshot?.positions?.reduce((acc, pos) => {
+                        poolNames={isDemoMode ? { "demo-pool-1": "YieldBlox", "demo-pool-2": "Blend" } : (blendSnapshot?.positions?.reduce((acc, pos) => {
                           if (pos.poolId && pos.poolName) {
                             acc[pos.poolId] = pos.poolName
                           }
                           return acc
-                        }, {} as Record<string, string>) || {}}
+                        }, {} as Record<string, string>) || {})}
                       />
                     )}
 
-                    {isLoading ? (
+                    {isLoading && !isDemoMode ? (
                       <div className="grid gap-4 grid-cols-1">
                         {[...Array(2)].map((_, i) => (
                           <Card key={i}>
@@ -797,9 +932,141 @@ function HomeContent() {
                           </Card>
                         ))}
                       </div>
-                    ) : (enrichedAssetCards.length > 0 || backstopPositions.length > 0) ? (
+                    ) : (enrichedAssetCards.length > 0 || backstopPositions.length > 0 || isDemoMode) ? (
                       <div className="grid gap-4 grid-cols-1">
-                        {Object.entries(
+                        {isDemoMode ? (
+                          // Demo mode: render mock supply positions
+                          DEMO_SUPPLY_POSITIONS.map((pool) => (
+                            <Card key={pool.id} className="py-2 gap-0">
+                              <CardHeader className="flex flex-row items-center justify-between py-3 px-4">
+                                <CardTitle>{pool.poolName} Pool</CardTitle>
+                                <Link
+                                  href="#"
+                                  className="text-muted-foreground hover:text-foreground transition-colors"
+                                  onClick={(e) => e.preventDefault()}
+                                >
+                                  <ChevronRight className="h-5 w-5" />
+                                </Link>
+                              </CardHeader>
+                              <CardContent className="px-4 pt-0 pb-1">
+                                <div className="space-y-1">
+                                  {pool.assets.map((asset) => {
+                                    const yieldFormatter = new Intl.NumberFormat("en-US", {
+                                      style: "currency",
+                                      currency: "USD",
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                      signDisplay: "always",
+                                    })
+                                    const formattedYield = yieldFormatter.format(asset.earnedYield)
+                                    const hasSignificantYield = Math.abs(asset.earnedYield) >= 0.01
+                                    const formattedYieldPercentage = asset.yieldPercentage !== 0 ? ` (${asset.yieldPercentage >= 0 ? '+' : ''}${asset.yieldPercentage.toFixed(2)}%)` : ''
+                                    const isUSDC = asset.symbol === 'USDC'
+
+                                    return (
+                                      <div key={asset.id} className="flex items-center justify-between py-2 gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                          <TokenLogo
+                                            src={asset.logoUrl}
+                                            symbol={asset.assetName}
+                                            size={40}
+                                          />
+                                          <div className="min-w-0 flex-1">
+                                            <p className="font-medium truncate">{asset.assetName}</p>
+                                            <p className="text-sm text-muted-foreground truncate">
+                                              {isUSDC ? (
+                                                formatUsdAmount(asset.rawBalance)
+                                              ) : (
+                                                <>
+                                                  {formatUsdAmount(asset.rawBalance)}
+                                                  <span className="text-xs ml-1">
+                                                    ({formatAmount(asset.tokenAmount)} {asset.symbol})
+                                                  </span>
+                                                </>
+                                              )}
+                                            </p>
+                                            {hasSignificantYield && (
+                                              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                {formattedYield} yield{formattedYieldPercentage}
+                                              </p>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
+                                          <Badge variant="secondary" className="text-xs">
+                                            <TrendingUp className="mr-1 h-3 w-3" />
+                                            {asset.apyPercentage.toFixed(2)}% APY
+                                          </Badge>
+                                          {asset.growthPercentage > 0.005 && (
+                                            <Badge variant="secondary" className="text-xs">
+                                              <Flame className="mr-1 h-3 w-3" />
+                                              {asset.growthPercentage.toFixed(2)}% BLND
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+
+                                  {/* Demo Backstop Position */}
+                                  {pool.backstop && (
+                                    <div className="flex items-center justify-between py-2 gap-3 border-t border-border/50 mt-2 pt-3">
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <div className="h-10 w-10 rounded-full bg-purple-500/10 flex items-center justify-center">
+                                          <Shield className="h-5 w-5 text-purple-500" />
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-medium truncate">Backstop</p>
+                                          <p className="text-sm text-muted-foreground truncate">
+                                            {formatUsdAmount(pool.backstop.lpTokensUsd)}
+                                            <span className="text-xs ml-1">
+                                              ({formatAmount(pool.backstop.lpTokens, 2)} LP)
+                                            </span>
+                                          </p>
+                                          {(() => {
+                                            const lpTokenPrice = pool.backstop.lpTokens > 0
+                                              ? pool.backstop.lpTokensUsd / pool.backstop.lpTokens
+                                              : 0
+                                            const yieldUsd = pool.backstop.yieldLp * lpTokenPrice
+                                            const yieldFormatter = new Intl.NumberFormat("en-US", {
+                                              style: "currency",
+                                              currency: "USD",
+                                              minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2,
+                                              signDisplay: "always",
+                                            })
+                                            const formattedYieldPercentage = pool.backstop.yieldPercent !== 0
+                                              ? ` (${pool.backstop.yieldPercent >= 0 ? '+' : ''}${pool.backstop.yieldPercent.toFixed(2)}%)`
+                                              : ''
+                                            return (
+                                              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                {yieldFormatter.format(yieldUsd)} yield{formattedYieldPercentage}
+                                              </p>
+                                            )
+                                          })()}
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
+                                        {pool.backstop.interestApr > 0 && (
+                                          <Badge variant="secondary" className="text-xs">
+                                            <TrendingUp className="mr-1 h-3 w-3" />
+                                            {pool.backstop.interestApr.toFixed(2)}% APR
+                                          </Badge>
+                                        )}
+                                        {pool.backstop.emissionApy > 0 && (
+                                          <Badge variant="secondary" className="text-xs">
+                                            <Flame className="mr-1 h-3 w-3" />
+                                            {pool.backstop.emissionApy.toFixed(2)}% BLND
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))
+                        ) : Object.entries(
                           // First, group supply positions by pool
                           (() => {
                             const poolMap = enrichedAssetCards.reduce((acc, asset) => {
@@ -900,7 +1167,7 @@ function HomeContent() {
                                           </Badge>
                                           {asset.growthPercentage > 0.005 && (
                                             <Badge variant="secondary" className="text-xs">
-                                              <Coins className="mr-1 h-3 w-3" />
+                                              <Flame className="mr-1 h-3 w-3" />
                                               {asset.growthPercentage.toFixed(2)}% BLND
                                             </Badge>
                                           )}
@@ -986,7 +1253,7 @@ function HomeContent() {
                                           )}
                                           {backstopPosition.emissionApy > 0 && (
                                             <Badge variant="secondary" className="text-xs">
-                                              <Coins className="mr-1 h-3 w-3" />
+                                              <Flame className="mr-1 h-3 w-3" />
                                               {backstopPosition.emissionApy.toFixed(2)}% BLND
                                             </Badge>
                                           )}
@@ -1001,7 +1268,7 @@ function HomeContent() {
                         })}
                       </div>
                     ) : (
-                      !isLoading && (
+                      !isLoading && !isDemoMode && (
                         <div className="text-center py-8 text-muted-foreground">
                           <p>No positions found for this wallet.</p>
                           <p className="text-sm mt-2">
@@ -1013,7 +1280,86 @@ function HomeContent() {
                   </TabsContent>
 
                   <TabsContent value="borrows" className="space-y-4">
-                    {blendSnapshot && blendSnapshot.positions.some(pos => pos.borrowUsdValue > 0) ? (
+                    {isDemoMode ? (
+                      // Demo mode: render mock borrow positions
+                      <div className="grid gap-4 grid-cols-1">
+                        {DEMO_BORROW_POSITIONS.map((pool) => (
+                          <Card key={pool.poolId} className="py-2 gap-0">
+                            <CardHeader className="flex flex-row items-center justify-between py-3 px-4">
+                              <CardTitle>{pool.poolName} Pool</CardTitle>
+                              <Link
+                                href="#"
+                                className="text-muted-foreground hover:text-foreground transition-colors"
+                                onClick={(e) => e.preventDefault()}
+                              >
+                                <ChevronRight className="h-5 w-5" />
+                              </Link>
+                            </CardHeader>
+                            <CardContent className="px-4 pt-0 pb-1">
+                              <div className="space-y-1">
+                                {pool.positions.map((position) => {
+                                  const isUSDC = position.symbol === 'USDC'
+                                  const interestFormatter = new Intl.NumberFormat("en-US", {
+                                    style: "currency",
+                                    currency: "USD",
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                    signDisplay: "always",
+                                  })
+                                  const formattedInterest = interestFormatter.format(position.interestAccrued)
+                                  const hasSignificantInterest = Math.abs(position.interestAccrued) >= 0.01
+                                  const formattedInterestPercentage = position.interestPercentage !== 0 ? ` (${position.interestPercentage >= 0 ? '+' : ''}${position.interestPercentage.toFixed(2)}%)` : ''
+
+                                  return (
+                                    <div key={position.id} className="flex items-center justify-between py-2 gap-3">
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <TokenLogo
+                                          src={position.logoUrl}
+                                          symbol={position.symbol}
+                                          size={40}
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-medium truncate">{position.symbol}</p>
+                                          <p className="text-sm text-muted-foreground truncate">
+                                            {isUSDC ? (
+                                              formatUsdAmount(position.borrowUsdValue)
+                                            ) : (
+                                              <>
+                                                {formatUsdAmount(position.borrowUsdValue)}
+                                                <span className="text-xs ml-1">
+                                                  ({formatAmount(position.borrowAmount)} {position.symbol})
+                                                </span>
+                                              </>
+                                            )}
+                                          </p>
+                                          {hasSignificantInterest && (
+                                            <p className="text-xs text-orange-600 dark:text-orange-400">
+                                              {formattedInterest} interest{formattedInterestPercentage}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
+                                        <Badge variant="secondary" className="text-xs">
+                                          <TrendingDown className="mr-1 h-3 w-3" />
+                                          {position.borrowApy.toFixed(2)}% APY
+                                        </Badge>
+                                        {position.borrowBlndApy > 0 && (
+                                          <Badge variant="secondary" className="text-xs">
+                                            <Flame className="mr-1 h-3 w-3" />
+                                            {position.borrowBlndApy.toFixed(2)}% BLND
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    ) : blendSnapshot && blendSnapshot.positions.some(pos => pos.borrowUsdValue > 0) ? (
                       <div className="grid gap-4 grid-cols-1">
                         {Object.entries(
                           blendSnapshot.positions
@@ -1110,8 +1456,8 @@ function HomeContent() {
                                             {position.borrowApy.toFixed(2)}% APY
                                           </Badge>
                                           {position.borrowBlndApy > 0 && (
-                                            <Badge variant="outline" className="text-xs">
-                                              <Coins className="mr-1 h-3 w-3" />
+                                            <Badge variant="secondary" className="text-xs">
+                                              <Flame className="mr-1 h-3 w-3" />
                                               {position.borrowBlndApy.toFixed(2)}% BLND
                                             </Badge>
                                           )}

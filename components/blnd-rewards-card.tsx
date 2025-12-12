@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Coins, ChevronDown } from "lucide-react"
+import { Flame, ChevronDown } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -245,7 +245,7 @@ export function BlndRewardsCard({
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <div className="flex items-center gap-2 text-base font-semibold">
-          <Coins className="h-5 w-5 text-muted-foreground" />
+          <Flame className="h-5 w-5 text-muted-foreground" />
           {formatNumber(totalPendingBlnd, 2)} BLND
         </div>
         <div className="flex items-center gap-2">

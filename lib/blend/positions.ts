@@ -808,41 +808,49 @@ export async function fetchWalletBlendSnapshot(
 
   const positionResults: (BlendReservePosition | null)[] = [];
 
+  // Collect all reserve data from all snapshots for parallel fetching
+  const allReserveData: Array<{
+    snapshot: typeof snapshotsWithUsers[0];
+    reserve: Reserve;
+    poolEmissions: Map<string, number> | undefined;
+  }> = [];
+
   for (const snapshot of snapshotsWithUsers) {
     if (!snapshot.user) {
       continue;
     }
-
     const reserves = Array.from(snapshot.pool.reserves.values());
     const poolEmissions = perReserveEmissions.get(snapshot.tracked.id);
 
     for (const reserve of reserves) {
-      const tokenMetadata = await getTokenMetadata(
-        context.network,
-        reserve.assetId,
-        tokenMetadataCache
-      );
-      const price = await getPriceQuote(
-        context,
-        snapshot,
-        reserve,
-        tokenMetadata,
-        priceCache
-      );
+      allReserveData.push({ snapshot, reserve, poolEmissions });
+    }
+  }
 
-      // Get per-reserve claimable BLND
-      const claimableBlnd = poolEmissions?.get(reserve.assetId) ?? 0;
+  // Fetch all token metadata in parallel
+  const tokenMetadataResults = await Promise.all(
+    allReserveData.map(({ reserve }) =>
+      getTokenMetadata(context.network, reserve.assetId, tokenMetadataCache)
+    )
+  );
 
-      const position = buildPosition(
-        snapshot,
-        reserve,
-        tokenMetadata,
-        price,
-        claimableBlnd
-      );
-      if (position) {
-        positionResults.push(position);
-      }
+  // Fetch all prices in parallel (now that we have metadata)
+  const priceResults = await Promise.all(
+    allReserveData.map(({ snapshot, reserve }, i) =>
+      getPriceQuote(context, snapshot, reserve, tokenMetadataResults[i], priceCache)
+    )
+  );
+
+  // Build all positions (sync, no awaits needed)
+  for (let i = 0; i < allReserveData.length; i++) {
+    const { snapshot, reserve, poolEmissions } = allReserveData[i];
+    const tokenMetadata = tokenMetadataResults[i];
+    const price = priceResults[i];
+    const claimableBlnd = poolEmissions?.get(reserve.assetId) ?? 0;
+
+    const position = buildPosition(snapshot, reserve, tokenMetadata, price, claimableBlnd);
+    if (position) {
+      positionResults.push(position);
     }
   }
 
@@ -878,41 +886,79 @@ export async function fetchWalletBlendSnapshot(
     }
   }
 
-  // Load backstop positions for each pool
+  // Load backstop positions for each pool (parallelized)
   const backstopPositions: BlendBackstopPosition[] = [];
 
-  for (const poolSnapshot of snapshotsWithUsers) {
-    if (!poolSnapshot.backstop || !poolSnapshot.metadata.backstop) {
+  // Filter to pools with backstop config
+  const poolsWithBackstop = snapshotsWithUsers.filter(
+    (s) => s.backstop && s.metadata.backstop
+  );
+
+  // Step 1: Load all BackstopPoolUser in parallel
+  const backstopUserResults = await Promise.all(
+    poolsWithBackstop.map(async (poolSnapshot) => {
+      try {
+        const backstopUser = await BackstopPoolUser.load(
+          context.network,
+          poolSnapshot.metadata.backstop!,
+          poolSnapshot.tracked.id,
+          walletPublicKey
+        );
+        return { poolSnapshot, backstopUser, error: null };
+      } catch (error) {
+        return { poolSnapshot, backstopUser: null, error };
+      }
+    })
+  );
+
+  // Step 2: Filter to users with actual positions
+  const usersWithPositions = backstopUserResults.filter(
+    (r) =>
+      r.backstopUser &&
+      (r.backstopUser.balance.shares !== BigInt(0) ||
+        r.backstopUser.balance.totalQ4W !== BigInt(0))
+  ) as Array<{
+    poolSnapshot: typeof poolsWithBackstop[0];
+    backstopUser: Awaited<ReturnType<typeof BackstopPoolUser.load>>;
+    error: null;
+  }>;
+
+  // Step 3: Load all BackstopPool data in parallel
+  const backstopPoolResults = await Promise.all(
+    usersWithPositions.map(async ({ poolSnapshot }) => {
+      try {
+        const backstopId = poolSnapshot.metadata.backstop!;
+        const poolId = poolSnapshot.tracked.id;
+        let backstopPool: BackstopPoolV1 | BackstopPoolV2;
+        if (poolSnapshot.tracked.version === Version.V2) {
+          backstopPool = await BackstopPoolV2.load(context.network, backstopId, poolId);
+        } else {
+          backstopPool = await BackstopPoolV1.load(context.network, backstopId, poolId);
+        }
+        return { backstopPool, error: null };
+      } catch (error) {
+        return { backstopPool: null, error };
+      }
+    })
+  );
+
+  // Step 4: Build all positions (sync calculations)
+  for (let i = 0; i < usersWithPositions.length; i++) {
+    const { poolSnapshot, backstopUser } = usersWithPositions[i];
+    const { backstopPool, error } = backstopPoolResults[i];
+
+    if (error || !backstopPool) {
+      console.warn(
+        `[blend] Failed to load backstop pool for ${poolSnapshot.tracked.id}:`,
+        error
+      );
       continue;
     }
 
     try {
-      const backstopId = poolSnapshot.metadata.backstop;
       const poolId = poolSnapshot.tracked.id;
-
-      // Load user's backstop position for this pool
-      const backstopUser = await BackstopPoolUser.load(
-        context.network,
-        backstopId,
-        poolId,
-        walletPublicKey
-      );
-
-      // Skip if user has no backstop position in this pool
       const userShares = backstopUser.balance.shares;
       const totalQ4wShares = backstopUser.balance.totalQ4W;
-
-      if (userShares === BigInt(0) && totalQ4wShares === BigInt(0)) {
-        continue;
-      }
-
-      // Load the backstop pool data to get shares-to-tokens conversion
-      let backstopPool: BackstopPoolV1 | BackstopPoolV2;
-      if (poolSnapshot.tracked.version === Version.V2) {
-        backstopPool = await BackstopPoolV2.load(context.network, backstopId, poolId);
-      } else {
-        backstopPool = await BackstopPoolV1.load(context.network, backstopId, poolId);
-      }
 
       // Convert shares to LP tokens
       const lpTokens = backstopPool.sharesToBackstopTokensFloat(userShares);
