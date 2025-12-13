@@ -977,6 +977,8 @@ export async function fetchWalletBlendSnapshot(
 
       // Get Q4W expiration (use the first one if multiple exist)
       // exp is u64 from SDK - convert safely handling both BigInt and string formats
+      // Note: When q4w array is empty but totalQ4W > 0, it means all Q4W has unlocked
+      // (the entries are removed from q4w array once unlocked, moved to unlockedQ4W)
       const q4wExpiration = backstopUser.balance.q4w.length > 0
         ? (() => {
             const exp = backstopUser.balance.q4w[0].exp;

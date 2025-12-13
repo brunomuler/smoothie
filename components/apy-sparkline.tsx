@@ -136,8 +136,10 @@ export function ApySparkline({
           <Tooltip
             content={<CustomTooltip />}
             cursor={false}
-            allowEscapeViewBox={{ x: false, y: true }}
+            allowEscapeViewBox={{ x: true, y: true }}
             wrapperStyle={{ zIndex: 50 }}
+            offset={-70}
+            position={{ y: -50 }}
           />
           <Line
             type="monotone"

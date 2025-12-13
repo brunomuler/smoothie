@@ -22,6 +22,7 @@ interface BackstopPositionData {
   q4wShares: bigint
   q4wLpTokens: number
   q4wExpiration: number | null
+  unlockedQ4wShares: bigint
 }
 
 interface BlendPosition {
@@ -331,10 +332,13 @@ export function SupplyPositions({
                     if (!backstopPosition || backstopPosition.lpTokensUsd <= 0) return null
 
                     const hasQ4w = backstopPosition.q4wShares > BigInt(0)
+                    const hasUnlockedQ4w = backstopPosition.unlockedQ4wShares > BigInt(0)
                     const q4wExpDate = backstopPosition.q4wExpiration && backstopPosition.q4wExpiration > 0
                       ? new Date(backstopPosition.q4wExpiration * 1000)
                       : null
                     const isQ4wExpired = q4wExpDate && q4wExpDate <= new Date()
+                    // If no q4w array entries but we have totalQ4W, all shares are unlocked
+                    const allQ4wUnlocked = hasQ4w && !q4wExpDate && hasUnlockedQ4w
                     // Format as "Xd Yh" (no minutes on home page)
                     const timeRemaining = (() => {
                       if (!q4wExpDate) return null
@@ -385,7 +389,7 @@ export function SupplyPositions({
                             {hasQ4w && (
                               <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {isQ4wExpired
+                                {isQ4wExpired || allQ4wUnlocked
                                   ? `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP ready to withdraw`
                                   : timeRemaining
                                     ? `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP unlocks in ${timeRemaining}`
