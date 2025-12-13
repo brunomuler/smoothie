@@ -4,7 +4,32 @@
  */
 
 import type { ChartDataPoint, BarChartDataPoint, BarChartEvent, TimePeriod } from '@/types/balance-history'
+import type { ChartDataPoint as WalletChartDataPoint } from "@/types/wallet-balance"
 import type { UserAction } from '@/lib/db/types'
+
+/**
+ * Generate simple chart data with current balance for wallet display
+ */
+export function generateChartData(balance: number): WalletChartDataPoint[] {
+  // Generate simple chart data with current balance
+  const now = new Date()
+  const data: WalletChartDataPoint[] = []
+
+  // Add historical points (last 30 days)
+  for (let i = 29; i >= 0; i--) {
+    const date = new Date(now)
+    date.setDate(date.getDate() - i)
+    data.push({
+      date: date.toISOString(),
+      balance: balance,
+      deposit: balance * 0.9, // Approximate deposit amount
+      yield: balance * 0.1, // Approximate yield
+      type: i === 0 ? 'current' : 'historical',
+    })
+  }
+
+  return data
+}
 
 /**
  * Get the date range for a given time period

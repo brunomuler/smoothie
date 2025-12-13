@@ -976,8 +976,13 @@ export async function fetchWalletBlendSnapshot(
       const usdcAmount = lpTokens * usdcPerLp;
 
       // Get Q4W expiration (use the first one if multiple exist)
+      // exp is u64 from SDK - convert safely handling both BigInt and string formats
       const q4wExpiration = backstopUser.balance.q4w.length > 0
-        ? Number(backstopUser.balance.q4w[0].exp)
+        ? (() => {
+            const exp = backstopUser.balance.q4w[0].exp;
+            const expNum = typeof exp === 'bigint' ? Number(exp) : Number(exp);
+            return expNum > 0 ? expNum : null;
+          })()
         : null;
 
       // Calculate emission APY for this pool's backstop

@@ -55,7 +55,7 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
   const apy = data.value
 
   return (
-    <div className="bg-popover border border-border rounded-md px-2 py-1.5 shadow-md text-xs">
+    <div className="bg-popover border border-border rounded-md px-2 py-1.5 shadow-md text-xs whitespace-nowrap">
       <p className="text-muted-foreground">
         {format(new Date(date), "MMM d, yyyy")}
       </p>
@@ -136,7 +136,8 @@ export function ApySparkline({
           <Tooltip
             content={<CustomTooltip />}
             cursor={false}
-            allowEscapeViewBox={{ x: true, y: true }}
+            allowEscapeViewBox={{ x: false, y: true }}
+            wrapperStyle={{ zIndex: 50 }}
           />
           <Line
             type="monotone"

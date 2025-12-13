@@ -104,51 +104,51 @@ function PoolSummary({ estimate }: { estimate: BlendPoolEstimate }) {
   const isWarning = estimate.borrowLimit >= 0.5 && estimate.borrowLimit < 0.8
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-      <Card className="py-3">
-        <CardContent className="p-4">
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+      <Card className="py-2 md:py-3">
+        <CardContent className="p-3 md:p-4">
           <p className="text-xs text-muted-foreground mb-1">Total Supplied</p>
-          <p className="text-xl font-semibold">{formatUsd(estimate.totalSupplied)}</p>
+          <p className="text-lg md:text-xl font-semibold truncate">{formatUsd(estimate.totalSupplied)}</p>
           <div className="flex items-center gap-1 mt-1">
-            <TrendingUp className="h-3 w-3 text-green-500" />
+            <TrendingUp className="h-3 w-3 text-green-500 shrink-0" />
             <span className="text-xs text-green-500">{formatPercent(estimate.supplyApy)} APY</span>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="py-3">
-        <CardContent className="p-4">
+      <Card className="py-2 md:py-3">
+        <CardContent className="p-3 md:p-4">
           <p className="text-xs text-muted-foreground mb-1">Total Borrowed</p>
-          <p className="text-xl font-semibold">{formatUsd(estimate.totalBorrowed)}</p>
+          <p className="text-lg md:text-xl font-semibold truncate">{formatUsd(estimate.totalBorrowed)}</p>
           {estimate.totalBorrowed > 0 && (
             <div className="flex items-center gap-1 mt-1">
-              <TrendingDown className="h-3 w-3 text-red-500" />
+              <TrendingDown className="h-3 w-3 text-red-500 shrink-0" />
               <span className="text-xs text-red-500">{formatPercent(estimate.borrowApy)} APY</span>
             </div>
           )}
         </CardContent>
       </Card>
 
-      <Card className="py-3">
-        <CardContent className="p-4">
+      <Card className="py-2 md:py-3">
+        <CardContent className="p-3 md:p-4">
           <p className="text-xs text-muted-foreground mb-1">Net APY</p>
-          <p className={`text-xl font-semibold ${estimate.netApy >= 0 ? "text-green-500" : "text-red-500"}`}>
+          <p className={`text-lg md:text-xl font-semibold ${estimate.netApy >= 0 ? "text-green-500" : "text-red-500"}`}>
             {formatPercent(estimate.netApy)}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="text-xs text-muted-foreground mt-1 truncate">
             Capacity: {formatUsd(estimate.borrowCap)}
           </p>
         </CardContent>
       </Card>
 
-      <Card className="py-3">
-        <CardContent className="p-4">
+      <Card className="py-2 md:py-3">
+        <CardContent className="p-3 md:p-4">
           <p className="text-xs text-muted-foreground mb-1">Borrow Limit</p>
           <div className="flex items-center gap-2">
-            <p className={`text-xl font-semibold ${isDanger ? "text-red-500" : isWarning ? "text-yellow-500" : "text-green-500"}`}>
+            <p className={`text-lg md:text-xl font-semibold ${isDanger ? "text-red-500" : isWarning ? "text-yellow-500" : "text-green-500"}`}>
               {formatPercent(healthPercent)}
             </p>
-            {isDanger && <AlertTriangle className="h-4 w-4 text-red-500" />}
+            {isDanger && <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />}
           </div>
           <Progress
             value={healthPercent}
@@ -366,8 +366,8 @@ function MobileAssetCard({ position, blndPrice }: { position: PositionWithYield;
 
   return (
     <div className="py-4 border-b last:border-0">
-      {/* Header with token and APY badges */}
-      <div className="flex items-center justify-between mb-3">
+      {/* Header with token info */}
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
           <TokenLogo
             src={`/tokens/${position.symbol.toLowerCase()}.png`}
@@ -381,30 +381,32 @@ function MobileAssetCard({ position, blndPrice }: { position: PositionWithYield;
             </p>
           </div>
         </div>
-        <div className="flex gap-1 flex-wrap justify-end">
-          <Badge variant="secondary" className="text-xs">
-            <TrendingUp className="mr-1 h-3 w-3 text-green-500" />
-            {formatPercent(position.supplyApy)}
+      </div>
+
+      {/* APY badges - in a row below header for better mobile layout */}
+      <div className="flex gap-1.5 flex-wrap mb-3">
+        <Badge variant="secondary" className="text-xs">
+          <TrendingUp className="mr-1 h-3 w-3 text-green-500" />
+          {formatPercent(position.supplyApy)}
+        </Badge>
+        {position.blndApy > 0 && (
+          <Badge variant="outline" className="text-xs">
+            <Flame className="mr-1 h-3 w-3" />
+            +{formatPercent(position.blndApy)}
           </Badge>
-          {position.blndApy > 0 && (
-            <Badge variant="outline" className="text-xs">
-              <Flame className="mr-1 h-3 w-3" />
-              +{formatPercent(position.blndApy)}
-            </Badge>
-          )}
-          {hasBorrow && (
-            <Badge variant="secondary" className="text-xs">
-              <TrendingDown className="mr-1 h-3 w-3 text-red-500" />
-              {formatPercent(position.borrowApy)}
-            </Badge>
-          )}
-          {hasBorrow && position.borrowBlndApy > 0 && (
-            <Badge variant="outline" className="text-xs">
-              <Flame className="mr-1 h-3 w-3" />
-              +{formatPercent(position.borrowBlndApy)}
-            </Badge>
-          )}
-        </div>
+        )}
+        {hasBorrow && (
+          <Badge variant="secondary" className="text-xs">
+            <TrendingDown className="mr-1 h-3 w-3 text-red-500" />
+            {formatPercent(position.borrowApy)}
+          </Badge>
+        )}
+        {hasBorrow && position.borrowBlndApy > 0 && (
+          <Badge variant="outline" className="text-xs">
+            <Flame className="mr-1 h-3 w-3" />
+            +{formatPercent(position.borrowBlndApy)}
+          </Badge>
+        )}
       </div>
 
       {/* APY Sparkline - 6 month history - full width */}
@@ -665,9 +667,9 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
 
         {/* Pool Q4W Risk Indicator */}
         <div className="mt-4 pt-4 border-t">
-          <div className={`flex items-center justify-between p-3 rounded-lg ${q4wRiskBgColor}`}>
+          <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg ${q4wRiskBgColor}`}>
             <div className="flex items-center gap-2">
-              {isHighRisk && <AlertTriangle className="h-4 w-4 text-red-500" />}
+              {isHighRisk && <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />}
               <div>
                 <p className="text-xs text-muted-foreground">Pool Q4W</p>
                 <p className={`font-mono font-semibold ${q4wRiskColor}`}>
@@ -675,11 +677,11 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
                 </p>
               </div>
             </div>
-            <div className="text-right">
+            <div className="sm:text-right">
               <p className="text-xs text-muted-foreground">Capital queued for withdrawal</p>
               <p className={`text-xs ${q4wRiskColor}`}>
-                {isHighRisk ? 'High risk - reduced insurance coverage' :
-                 isMediumRisk ? 'Moderate risk - watch this metric' :
+                {isHighRisk ? 'High risk - reduced coverage' :
+                 isMediumRisk ? 'Moderate risk - monitor' :
                  'Low risk - healthy backstop'}
               </p>
             </div>
@@ -689,8 +691,8 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
         {/* User Q4W Status */}
         {hasQ4w && (
           <div className="mt-4 pt-4 border-t">
-            <div className="flex items-center gap-2">
-              <Clock className={`h-4 w-4 ${isQ4wExpired ? 'text-green-500' : 'text-amber-500'}`} />
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Clock className={`h-4 w-4 shrink-0 ${isQ4wExpired ? 'text-green-500' : 'text-amber-500'}`} />
               <span className={`text-sm ${isQ4wExpired ? 'text-green-500' : 'text-amber-500'}`}>
                 {isQ4wExpired
                   ? `${formatNumber(position.q4wLpTokens, 2)} LP ready to withdraw`
