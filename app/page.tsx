@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo, useEffect, Suspense } from "react"
+import { useState, useMemo, useEffect, Suspense, useCallback } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { usePostHog } from "@/hooks/use-posthog"
 import { generateChartData } from "@/lib/chart-utils"
 import { useWalletState } from "@/hooks/use-wallet-state"
@@ -18,6 +19,7 @@ import { SupplyPositions } from "@/components/supply-positions"
 import { BorrowPositions } from "@/components/borrow-positions"
 
 function HomeContent() {
+  const queryClient = useQueryClient()
   const {
     wallets,
     activeWallet,
@@ -27,6 +29,22 @@ function HomeContent() {
   } = useWalletState()
   const [isDemoMode, setIsDemoMode] = useState(false)
   const { capture } = usePostHog()
+
+  // Handle pull-to-refresh
+  const handleRefresh = useCallback(async () => {
+    if (!activeWallet?.publicKey) return
+
+    capture('pull_to_refresh')
+
+    // Invalidate all queries related to wallet data to trigger refetch
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["blend-wallet-snapshot", activeWallet.publicKey] }),
+      queryClient.invalidateQueries({ queryKey: ["backstop-cost-basis", activeWallet.publicKey] }),
+      queryClient.invalidateQueries({ queryKey: ["balance-history-batch", activeWallet.publicKey] }),
+      queryClient.invalidateQueries({ queryKey: ["backstop-balance-history", activeWallet.publicKey] }),
+      queryClient.invalidateQueries({ queryKey: ["transactions", activeWallet.publicKey] }),
+    ])
+  }, [activeWallet?.publicKey, queryClient, capture])
 
   // Track page view
   useEffect(() => {
@@ -96,6 +114,7 @@ function HomeContent() {
       onSelectWallet={handleSelectWallet}
       onConnectWallet={handleConnectWallet}
       onDisconnect={handleDisconnect}
+      onRefresh={handleRefresh}
       error={error}
     >
       {isEmptyAccount ? (

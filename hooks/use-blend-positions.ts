@@ -40,7 +40,7 @@ const ASSET_LOGO_MAP: Record<string, string> = {
   CETES: "/tokens/cetes.png",
   USDGLO: "/tokens/usdglo.png",
   USTRY: "/tokens/ustry.png",
-  BLND: "/tokens/xlm.png",
+  BLND: "/tokens/blnd.png",
 }
 
 function resolveAssetLogo(symbol: string | undefined): string {

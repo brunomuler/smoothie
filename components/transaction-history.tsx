@@ -336,10 +336,10 @@ function getAmountDisplay(action: UserAction, currentUserAddress?: string): Reac
     return (
       <div className={`flex items-center gap-0.5 font-mono text-xs font-medium ${textColor}`}>
         <div
-          className="flex items-center justify-center mx-0.5 rounded-full bg-purple-500/10 shrink-0"
+          className="flex items-center justify-center mx-0.5 rounded-full bg-purple-500/20 shrink-0"
           style={{ width: 16, height: 16 }}
         >
-          <Shield className="h-2.5 w-2.5 text-purple-500" />
+          <Shield className="h-3 w-3 text-purple-500" />
         </div>
         <span>{sign}{formattedLp}</span>
         <span>LP</span>
@@ -356,10 +356,15 @@ function getAmountDisplay(action: UserAction, currentUserAddress?: string): Reac
                        action.action_type === "borrow"
     const sign = isNegative ? "-" : ""
     const textColor = isNegative ? "text-red-400" : "text-white"
+    const isBlnd = symbol === "BLND"
     return (
       <div className={`flex items-center gap-0.5 font-mono text-xs font-medium ${textColor}`}>
         {symbol && (
-          <TokenLogo src={iconUrl} symbol={symbol} size={16} noPadding className="mx-0.5" />
+          isBlnd ? (
+            <TokenLogo src={iconUrl} symbol={symbol} size={16} noPadding className="mx-0.5 !bg-zinc-800" />
+          ) : (
+            <TokenLogo src={iconUrl} symbol={symbol} size={16} noPadding className="mx-0.5" />
+          )
         )}
         <span>{sign}{formatAmount(amount, action.asset_decimals || 7)}</span>
         <span>{symbol || ""}</span>
