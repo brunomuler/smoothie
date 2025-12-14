@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import {
   BarChart,
   Bar,
@@ -20,15 +20,32 @@ import {
   AlertTriangle,
   Circle,
   Shield,
+  Settings,
 } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type { ChartDataPoint, TimePeriod, BarChartDataPoint } from "@/types/balance-history"
 import type { UserAction } from "@/lib/db/types"
 import {
   aggregateDataByPeriod,
   getDateRangeForPeriod,
   getActionColor,
+  type ProjectionSettings,
+  DEFAULT_PROJECTION_SETTINGS,
 } from "@/lib/chart-utils"
 import {
   EVENT_ICON_PATHS,
@@ -42,6 +59,7 @@ interface BalanceBarChartProps {
   userActions: UserAction[]
   currentBalance: number
   apy: number
+  blndApy?: number // BLND APY for projection calculations
   firstEventDate: string | null
   isLoading?: boolean
   selectedPeriod?: TimePeriod
@@ -55,6 +73,16 @@ const TIME_PERIODS: { value: TimePeriod; label: string }[] = [
   { value: "1Y", label: "1Y" },
   { value: "All", label: "All" },
   { value: "Projection", label: "Projection" },
+]
+
+const PROJECTION_SETTINGS_KEY = "smoothie-projection-settings"
+
+const COMPOUND_FREQUENCY_OPTIONS: { value: string; label: string }[] = [
+  { value: "52", label: "Weekly" },
+  { value: "26", label: "Bi-weekly" },
+  { value: "12", label: "Monthly" },
+  { value: "4", label: "Quarterly" },
+  { value: "2", label: "Semi-annually" },
 ]
 
 // Icon components for events
@@ -167,6 +195,15 @@ function CustomTooltip({
             {yieldFormatter.format(data.yieldEarned)}
           </span>
         </div>
+
+        {data.blndYield !== undefined && data.blndYield > 0 && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">BLND Yield:</span>
+            <span className="font-medium text-purple-600 dark:text-purple-400">
+              {yieldFormatter.format(data.blndYield)}
+            </span>
+          </div>
+        )}
 
         {data.events.length > 0 && (
           <div className="pt-2 border-t mt-2">
@@ -405,6 +442,7 @@ export function BalanceBarChart({
   userActions,
   currentBalance,
   apy,
+  blndApy = 0,
   firstEventDate,
   isLoading = false,
   selectedPeriod: controlledPeriod,
@@ -413,6 +451,35 @@ export function BalanceBarChart({
 }: BalanceBarChartProps) {
   const [internalPeriod, setInternalPeriod] = useState<TimePeriod>("1M")
   const [error, setError] = useState<Error | null>(null)
+
+  // Projection settings state with localStorage persistence
+  const [projectionSettings, setProjectionSettings] = useState<ProjectionSettings>(DEFAULT_PROJECTION_SETTINGS)
+
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(PROJECTION_SETTINGS_KEY)
+        if (saved) {
+          const parsed = JSON.parse(saved) as ProjectionSettings
+          setProjectionSettings(parsed)
+        }
+      } catch {
+        // Ignore parse errors, use defaults
+      }
+    }
+  }, [])
+
+  // Save settings to localStorage when they change
+  const updateProjectionSettings = useCallback((newSettings: Partial<ProjectionSettings>) => {
+    setProjectionSettings(prev => {
+      const updated = { ...prev, ...newSettings }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(PROJECTION_SETTINGS_KEY, JSON.stringify(updated))
+      }
+      return updated
+    })
+  }, [])
 
   // Use controlled or internal state
   const selectedPeriod = controlledPeriod ?? internalPeriod
@@ -432,6 +499,7 @@ export function BalanceBarChart({
   }, [historyData])
 
   // Aggregate data based on selected period with error handling
+  // Note: We explicitly include projectionSettings properties in deps to ensure React detects changes
   const chartData = useMemo(() => {
     try {
       return aggregateDataByPeriod(
@@ -441,13 +509,15 @@ export function BalanceBarChart({
         currentBalance,
         apy,
         firstEventDate,
-        currentBorrow
+        currentBorrow,
+        blndApy,
+        projectionSettings
       )
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to aggregate chart data'))
       return []
     }
-  }, [historyData, userActions, selectedPeriod, currentBalance, apy, firstEventDate, currentBorrow])
+  }, [historyData, userActions, selectedPeriod, currentBalance, apy, firstEventDate, currentBorrow, blndApy, projectionSettings.blndReinvestment, projectionSettings.compoundFrequency])
 
   // Calculate max value for Y axis (include balance + borrow for proper scaling)
   const maxBalance = useMemo(() => {
@@ -619,13 +689,17 @@ export function BalanceBarChart({
                   <stop offset="0%" stopColor="hsl(142 76% 46%)" stopOpacity={1} />
                   <stop offset="100%" stopColor="hsl(142 70% 38%)" stopOpacity={0.8} />
                 </linearGradient>
+                <linearGradient id="blndYieldGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(270 70% 60%)" stopOpacity={1} />
+                  <stop offset="100%" stopColor="hsl(270 65% 50%)" stopOpacity={0.8} />
+                </linearGradient>
               </defs>
 
 
               <XAxis dataKey="period" hide />
               <YAxis hide domain={[0, maxBalance * 1.1]} />
 
-              {/* For Projection mode: stacked bars (baseBalance + yieldEarned) */}
+              {/* For Projection mode: stacked bars (baseBalance + yieldEarned + blndYield) */}
               {selectedPeriod === "Projection" && (
                 <Bar
                   dataKey="baseBalance"
@@ -640,9 +714,19 @@ export function BalanceBarChart({
                 <Bar
                   dataKey="yieldEarned"
                   stackId="projection"
-                  radius={[4, 4, 0, 0]}
+                  radius={[0, 0, 0, 0]}
                   maxBarSize={80}
                   fill="url(#yieldGradient)"
+                  isAnimationActive={false}
+                />
+              )}
+              {selectedPeriod === "Projection" && (
+                <Bar
+                  dataKey="blndYield"
+                  stackId="projection"
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={80}
+                  fill="url(#blndYieldGradient)"
                   isAnimationActive={false}
                 />
               )}
@@ -697,8 +781,8 @@ export function BalanceBarChart({
         </div>
       )}
 
-      {/* Time period tabs - centered below chart */}
-      <div className="flex justify-center overflow-x-auto">
+      {/* Time period tabs and settings - below chart */}
+      <div className="flex justify-center items-center overflow-x-auto relative">
         <Tabs
           value={selectedPeriod}
           onValueChange={(v) => handlePeriodChange(v as TimePeriod)}
@@ -711,6 +795,66 @@ export function BalanceBarChart({
             ))}
           </TabsList>
         </Tabs>
+
+        {/* Projection settings button - positioned to the right */}
+        {selectedPeriod === "Projection" && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                className="absolute right-3 p-1.5 rounded-md hover:bg-accent transition-colors"
+                aria-label="Projection settings"
+              >
+                <Settings className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64" align="end">
+              <div className="space-y-4">
+                <h4 className="font-semibold text-base">Projection Settings</h4>
+
+                {/* BLND Reinvestment Toggle */}
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="blnd-reinvest" className="text-sm text-muted-foreground">
+                    Reinvest BLND
+                  </Label>
+                  <Switch
+                    id="blnd-reinvest"
+                    checked={projectionSettings.blndReinvestment}
+                    onCheckedChange={(checked) => updateProjectionSettings({ blndReinvestment: checked })}
+                  />
+                </div>
+
+                {/* Compound Frequency - only visible when reinvestment is on */}
+                {projectionSettings.blndReinvestment && (
+                  <div className="space-y-2">
+                    <Label htmlFor="compound-freq" className="text-sm text-muted-foreground">
+                      Reinvest Frequency
+                    </Label>
+                    <Select
+                      value={projectionSettings.compoundFrequency.toString()}
+                      onValueChange={(value) => updateProjectionSettings({
+                        compoundFrequency: parseInt(value) as 52 | 26 | 12 | 4 | 2
+                      })}
+                    >
+                      <SelectTrigger id="compound-freq" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COMPOUND_FREQUENCY_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      How often BLND rewards are claimed and reinvested
+                    </p>
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
 
     </div>

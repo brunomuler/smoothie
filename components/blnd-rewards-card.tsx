@@ -244,9 +244,14 @@ export function BlndRewardsCard({
         className="cursor-pointer select-none flex items-center justify-between px-4 py-3"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <div className="flex items-center gap-2 text-base font-semibold">
+        <div className="flex items-center gap-2">
           <Flame className="h-5 w-5 text-muted-foreground" />
-          {formatNumber(totalPendingBlnd, 2)} BLND
+          <div>
+            <div className="text-base font-semibold">{formatNumber(totalPendingBlnd, 2)} BLND</div>
+            {blndPrice && totalPendingBlnd > 0 && (
+              <div className="text-sm text-muted-foreground">{formatUsd(totalPendingBlnd * blndPrice)}</div>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {blndApy > 0 && (
@@ -254,7 +259,7 @@ export function BlndRewardsCard({
               <Tooltip>
                 <TooltipTrigger onClick={(e) => e.stopPropagation()}>
                   <Badge variant="outline" className="text-xs">
-                    +{blndApy.toFixed(2)}% APY
+                    {blndApy.toFixed(2)}% APY
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -263,7 +268,7 @@ export function BlndRewardsCard({
               </Tooltip>
             </TooltipProvider>
           )}
-          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`h-4 w-4 mx-2 text-muted-foreground transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
         </div>
       </div>
       <div

@@ -336,6 +336,33 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     "Projection": "total",
   }[selectedPeriod]
 
+  // Calculate actual period days for tooltip (limited by first activity date)
+  const actualPeriodDays = useMemo(() => {
+    // Get the days since first activity
+    const totalDays = balanceHistoryData?.earningsStats?.dayCount || 0
+    if (totalDays === 0) return 0
+
+    // Get the period days based on selection
+    let periodDays: number
+    switch (selectedPeriod) {
+      case "1W":
+        periodDays = 7
+        break
+      case "1M":
+        periodDays = 30
+        break
+      case "1Y":
+        periodDays = 365
+        break
+      default:
+        // For All and Projection, use total days
+        return totalDays
+    }
+
+    // Return the minimum of period days and total days since first activity
+    return Math.min(periodDays, totalDays)
+  }, [selectedPeriod, balanceHistoryData?.earningsStats?.dayCount])
+
   const liveBalanceFormatter = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -461,7 +488,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Realized APY: {formatPercentage(balanceHistoryData.earningsStats.currentAPY)}%</p>
-                  <p className="text-xs opacity-75">Over {balanceHistoryData.earningsStats.dayCount} days</p>
+                  <p className="text-xs opacity-75">Over {actualPeriodDays} days</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -484,6 +511,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           userActions={userActions}
           currentBalance={displayBalance}
           apy={activeData.apyPercentage}
+          blndApy={activeData.blndApy}
           firstEventDate={firstEventDate}
           isLoading={loading}
           selectedPeriod={selectedPeriod}

@@ -25,6 +25,9 @@ export interface BarChartDataPoint {
   deposit: number             // Principal/cost basis
   borrow: number              // Borrowed amount at end of period
 
+  // BLND rewards (for projections)
+  blndYield?: number          // Cumulative BLND yield in USD (with compounding)
+
   // Events for this period
   events: BarChartEvent[]
 

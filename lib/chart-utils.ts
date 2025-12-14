@@ -311,21 +311,68 @@ function generateMonthlyBars(
 
 /**
  * Generate projection bars for 20 years
+ * @param currentBalance - Current balance in USD
+ * @param apy - Regular APY percentage (e.g., 8 for 8%)
+ * @param years - Number of years to project
+ * @param currentBorrow - Current borrow amount
+ * @param blndApy - BLND APY percentage (e.g., 0.91 for 0.91%)
+ * @param blndReinvest - Whether BLND is reinvested (compounded) or just added as simple interest
+ * @param blndCompoundFrequency - How many times per year BLND is compounded/reinvested (52 = weekly)
  */
 export function generateProjectionData(
   currentBalance: number,
   apy: number,
   years: number = 20,
-  currentBorrow: number = 0
+  currentBorrow: number = 0,
+  blndApy: number = 0,
+  blndReinvest: boolean = true,
+  blndCompoundFrequency: number = 52 // Weekly compounding by default
 ): BarChartDataPoint[] {
   const bars: BarChartDataPoint[] = []
   const today = new Date()
-  let projectedBalance = currentBalance
   const deposit = currentBalance // Initial deposit is current balance for projections
 
+  // Regular APY always compounds weekly (52 times/year)
+  const REGULAR_COMPOUND_FREQUENCY = 52
+  const regularWeeklyRate = apy / 100 / REGULAR_COMPOUND_FREQUENCY
+
+  // Track balance with only regular APY (for comparison)
+  let regularOnlyBalance = currentBalance
+  // Track actual balance with both regular APY and BLND
+  let actualBalance = currentBalance
+  // Track cumulative simple BLND yield (when not reinvesting)
+  let cumulativeSimpleBlnd = 0
+
+  // Calculate total periods over all years for compound calculation
+  const totalPeriods = years * blndCompoundFrequency
+  const blndPeriodRate = blndApy / 100 / blndCompoundFrequency
+  // Regular APY rate per BLND period
+  const regularPerBlndPeriod = Math.pow(1 + regularWeeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
+
   for (let year = 1; year <= years; year++) {
-    // Apply compound interest annually
-    projectedBalance = projectedBalance * (1 + apy / 100)
+    // Regular APY compounds weekly (for the "regular only" comparison)
+    for (let week = 0; week < REGULAR_COMPOUND_FREQUENCY; week++) {
+      regularOnlyBalance = regularOnlyBalance * (1 + regularWeeklyRate)
+    }
+
+    if (blndReinvest) {
+      // BLND reinvested: compound at selected frequency
+      // Apply one year's worth of periods
+      for (let period = 0; period < blndCompoundFrequency; period++) {
+        actualBalance = actualBalance * (1 + regularPerBlndPeriod + blndPeriodRate)
+      }
+    } else {
+      // BLND not reinvested: simple interest based on current balance each year
+      // BLND yield = balance at start of year * blndApy (no compounding of BLND)
+      const startOfYearBalance = year === 1 ? currentBalance : bars[year - 2].balance
+      const yearlyBlnd = startOfYearBalance * (blndApy / 100)
+      cumulativeSimpleBlnd += yearlyBlnd
+      actualBalance = regularOnlyBalance + cumulativeSimpleBlnd
+    }
+
+    // Calculate yield components
+    const regularYield = regularOnlyBalance - deposit
+    const blndYield = actualBalance - regularOnlyBalance // Pure BLND contribution
 
     const futureDate = new Date(today)
     futureDate.setFullYear(futureDate.getFullYear() + year)
@@ -337,13 +384,14 @@ export function generateProjectionData(
       period: futureDate.getFullYear().toString(),
       periodStart: periodStart.toISOString(),
       periodEnd: periodEnd.toISOString(),
-      balance: projectedBalance,
-      yieldEarned: projectedBalance - deposit,
+      balance: actualBalance,
+      yieldEarned: regularYield, // Regular APY yield (weekly compounded)
+      blndYield: blndYield, // Pure BLND contribution
       deposit,
       borrow: currentBorrow, // Keep borrow constant in projections
       events: [],
       isProjected: true,
-      baseBalance: currentBalance, // Initial balance for overlay (constant)
+      baseBalance: deposit, // Initial balance for overlay (constant)
     })
   }
 
@@ -353,6 +401,19 @@ export function generateProjectionData(
 /**
  * Main function to aggregate data by period
  */
+/**
+ * Projection settings for BLND reinvestment
+ */
+export interface ProjectionSettings {
+  blndReinvestment: boolean
+  compoundFrequency: 52 | 26 | 12 | 4 | 2 // weekly, bi-weekly, monthly, quarterly, semi-annually
+}
+
+export const DEFAULT_PROJECTION_SETTINGS: ProjectionSettings = {
+  blndReinvestment: true,
+  compoundFrequency: 52, // weekly
+}
+
 export function aggregateDataByPeriod(
   chartData: ChartDataPoint[],
   userActions: UserAction[],
@@ -360,7 +421,9 @@ export function aggregateDataByPeriod(
   currentBalance: number,
   apy: number,
   firstEventDate: string | null,
-  currentBorrow: number = 0
+  currentBorrow: number = 0,
+  blndApy: number = 0,
+  projectionSettings: ProjectionSettings = DEFAULT_PROJECTION_SETTINGS
 ): BarChartDataPoint[] {
   const { start, end } = getDateRangeForPeriod(period, firstEventDate)
 
@@ -378,7 +441,15 @@ export function aggregateDataByPeriod(
       return generateMonthlyBars(chartData, userActions, start, end, currentBalance, currentBorrow)
 
     case 'Projection':
-      return generateProjectionData(currentBalance, apy, 20, currentBorrow)
+      return generateProjectionData(
+        currentBalance,
+        apy,
+        20,
+        currentBorrow,
+        blndApy,
+        projectionSettings.blndReinvestment,
+        projectionSettings.compoundFrequency
+      )
 
     default:
       return generateDailyBars(chartData, userActions, 30, currentBalance, currentBorrow)
