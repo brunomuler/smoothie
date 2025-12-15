@@ -399,14 +399,14 @@ export function generateProjectionData(
 
       if (blndReinvest) {
         // BLND reinvested: compound at selected frequency
-        // Apply the proportional BLND periods for this month
-        for (let i = 0; i < blndPeriodsPerMonth; i++) {
-          actualBalance = actualBalance * (1 + regularPerBlndPeriod + blndPeriodRate)
-          // Update per-pool trackers
-          for (const tracker of poolTrackers) {
-            const poolRegularPerBlndPeriod = Math.pow(1 + tracker.weeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
-            tracker.actualBalance = tracker.actualBalance * (1 + poolRegularPerBlndPeriod + tracker.blndPeriodRate)
-          }
+        // Use fractional exponent for proper compounding with any frequency
+        // This handles cases where blndPeriodsPerMonth < 1 (e.g., semi-annually = 0.167)
+        const combinedPeriodRate = regularPerBlndPeriod + blndPeriodRate
+        actualBalance = actualBalance * Math.pow(1 + combinedPeriodRate, blndPeriodsPerMonth)
+        // Update per-pool trackers
+        for (const tracker of poolTrackers) {
+          const poolRegularPerBlndPeriod = Math.pow(1 + tracker.weeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
+          tracker.actualBalance = tracker.actualBalance * Math.pow(1 + poolRegularPerBlndPeriod + tracker.blndPeriodRate, blndPeriodsPerMonth)
         }
       } else {
         // BLND not reinvested: simple interest based on balance at start of year
