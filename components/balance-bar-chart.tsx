@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
 import type { ChartDataPoint, TimePeriod, BarChartDataPoint } from "@/types/balance-history"
 import type { UserAction } from "@/lib/db/types"
 import {
@@ -45,6 +46,7 @@ import {
   getDateRangeForPeriod,
   getActionColor,
   type ProjectionSettings,
+  type PoolProjectionInput,
   DEFAULT_PROJECTION_SETTINGS,
 } from "@/lib/chart-utils"
 import {
@@ -65,6 +67,7 @@ interface BalanceBarChartProps {
   selectedPeriod?: TimePeriod
   onPeriodChange?: (period: TimePeriod) => void
   onPeriodYieldChange?: (periodYield: number) => void
+  poolInputs?: PoolProjectionInput[] // Per-pool data for projection breakdown
 }
 
 const TIME_PERIODS: { value: TimePeriod; label: string }[] = [
@@ -159,8 +162,11 @@ function CustomTooltip({
     signDisplay: "always",
   })
 
+  // Check if we have per-pool breakdown data
+  const hasPoolBreakdown = data.poolBreakdown && data.poolBreakdown.length > 0
+
   return (
-    <div className="bg-background border rounded-lg shadow-lg p-3 min-w-[200px] select-none">
+    <div className="bg-background border rounded-lg shadow-lg p-3 min-w-[220px] max-w-[320px] select-none z-50">
       <div className="font-medium mb-2">
         {data.period}
         {data.isProjected && (
@@ -174,7 +180,8 @@ function CustomTooltip({
           <span className="font-medium">{formatter.format(data.balance)}</span>
         </div>
 
-        {data.borrow > 0 && (
+        {/* Only show borrowed in non-projection views */}
+        {!data.isProjected && data.borrow > 0 && (
           <div className="flex justify-between">
             <span className="text-muted-foreground">Borrowed:</span>
             <span className="font-medium text-orange-600 dark:text-orange-400">
@@ -183,26 +190,89 @@ function CustomTooltip({
           </div>
         )}
 
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Yield:</span>
-          <span
-            className={
-              data.yieldEarned >= 0
-                ? "font-medium text-emerald-600 dark:text-emerald-400"
-                : "font-medium text-red-600 dark:text-red-400"
-            }
-          >
-            {yieldFormatter.format(data.yieldEarned)}
-          </span>
-        </div>
+        {/* Show per-pool breakdown for projections */}
+        {hasPoolBreakdown && data.isProjected ? (
+          <>
+            {/* Per-pool yield breakdown */}
+            <div className="pt-2 border-t mt-2">
+              <div className="space-y-1.5">
+                {data.poolBreakdown!
+                  .filter((pool) => pool.yieldEarned !== 0 || pool.blndYield !== 0)
+                  .map((pool) => (
+                  <div key={pool.poolId} className="space-y-0.5">
+                    <div className="text-xs font-medium text-muted-foreground">{pool.poolName}</div>
+                    {pool.yieldEarned !== 0 && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground pl-2">Yield:</span>
+                        <span className="text-emerald-600 dark:text-emerald-400">
+                          {yieldFormatter.format(pool.yieldEarned)}
+                        </span>
+                      </div>
+                    )}
+                    {pool.blndYield !== 0 && (
+                      <div className="flex justify-between text-xs">
+                        <span className="text-muted-foreground pl-2">BLND:</span>
+                        <span className="text-purple-600 dark:text-purple-400">
+                          {yieldFormatter.format(pool.blndYield)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
 
-        {data.blndYield !== undefined && data.blndYield > 0 && (
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">BLND Yield:</span>
-            <span className="font-medium text-purple-600 dark:text-purple-400">
-              {yieldFormatter.format(data.blndYield)}
-            </span>
-          </div>
+            {/* Totals */}
+            <div className="pt-2 border-t mt-2">
+              {data.yieldEarned !== 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Yield:</span>
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    {yieldFormatter.format(data.yieldEarned)}
+                  </span>
+                </div>
+              )}
+              {data.blndYield !== undefined && data.blndYield !== 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total BLND:</span>
+                  <span className="font-medium text-purple-600 dark:text-purple-400">
+                    {yieldFormatter.format(data.blndYield)}
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between mt-1 pt-1 border-t">
+                <span className="text-muted-foreground font-medium">Combined:</span>
+                <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                  {yieldFormatter.format(data.yieldEarned + (data.blndYield || 0))}
+                </span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Standard view without per-pool breakdown */}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Yield:</span>
+              <span
+                className={
+                  data.yieldEarned >= 0
+                    ? "font-medium text-emerald-600 dark:text-emerald-400"
+                    : "font-medium text-red-600 dark:text-red-400"
+                }
+              >
+                {yieldFormatter.format(data.yieldEarned)}
+              </span>
+            </div>
+
+            {data.blndYield !== undefined && data.blndYield > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">BLND Yield:</span>
+                <span className="font-medium text-purple-600 dark:text-purple-400">
+                  {yieldFormatter.format(data.blndYield)}
+                </span>
+              </div>
+            )}
+          </>
         )}
 
         {data.events.length > 0 && (
@@ -448,6 +518,7 @@ export function BalanceBarChart({
   selectedPeriod: controlledPeriod,
   onPeriodChange,
   onPeriodYieldChange,
+  poolInputs = [],
 }: BalanceBarChartProps) {
   const [internalPeriod, setInternalPeriod] = useState<TimePeriod>("1M")
   const [error, setError] = useState<Error | null>(null)
@@ -461,8 +532,9 @@ export function BalanceBarChart({
       try {
         const saved = localStorage.getItem(PROJECTION_SETTINGS_KEY)
         if (saved) {
-          const parsed = JSON.parse(saved) as ProjectionSettings
-          setProjectionSettings(parsed)
+          const parsed = JSON.parse(saved) as Partial<ProjectionSettings>
+          // Merge with defaults to handle new properties for existing users
+          setProjectionSettings({ ...DEFAULT_PROJECTION_SETTINGS, ...parsed })
         }
       } catch {
         // Ignore parse errors, use defaults
@@ -511,13 +583,14 @@ export function BalanceBarChart({
         firstEventDate,
         currentBorrow,
         blndApy,
-        projectionSettings
+        projectionSettings,
+        poolInputs
       )
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to aggregate chart data'))
       return []
     }
-  }, [historyData, userActions, selectedPeriod, currentBalance, apy, firstEventDate, currentBorrow, blndApy, projectionSettings.blndReinvestment, projectionSettings.compoundFrequency])
+  }, [historyData, userActions, selectedPeriod, currentBalance, apy, firstEventDate, currentBorrow, blndApy, projectionSettings.blndReinvestment, projectionSettings.compoundFrequency, projectionSettings.projectionYears, poolInputs])
 
   // Calculate max value for Y axis (include balance + borrow for proper scaling)
   const maxBalance = useMemo(() => {
@@ -775,6 +848,7 @@ export function BalanceBarChart({
               <Tooltip
                 content={<CustomTooltip period={selectedPeriod} />}
                 cursor={{ fill: 'transparent' }}
+                wrapperStyle={{ zIndex: 50 }}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -807,9 +881,33 @@ export function BalanceBarChart({
                 <Settings className="h-4 w-4 text-muted-foreground" />
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-64" align="end">
+            <PopoverContent className="w-72" align="end">
               <div className="space-y-4">
                 <h4 className="font-semibold text-base">Projection Settings</h4>
+
+                {/* Projection Years Slider */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="projection-years" className="text-sm text-muted-foreground">
+                      Projection Period
+                    </Label>
+                    <span className="text-sm font-medium">
+                      {projectionSettings.projectionYears} {projectionSettings.projectionYears === 1 ? 'year' : 'years'}
+                    </span>
+                  </div>
+                  <Slider
+                    id="projection-years"
+                    min={1}
+                    max={25}
+                    step={1}
+                    value={[projectionSettings.projectionYears]}
+                    onValueChange={([value]) => updateProjectionSettings({ projectionYears: value })}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {projectionSettings.projectionYears <= 3 ? 'Showing monthly bars' : 'Showing yearly bars'}
+                  </p>
+                </div>
 
                 {/* BLND Reinvestment Toggle */}
                 <div className="flex items-center justify-between">

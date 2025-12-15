@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { BalanceData, ChartDataPoint as WalletChartDataPoint } from "@/types/wallet-balance"
 import type { ChartDataPoint, EarningsStats, PositionChange, TimePeriod } from "@/types/balance-history"
+import type { PoolProjectionInput } from "@/lib/chart-utils"
 import { useLiveBalance } from "@/hooks/use-live-balance"
 import { useUserActions } from "@/hooks/use-user-actions"
 import { FormattedBalance } from "@/components/formatted-balance"
@@ -41,6 +42,7 @@ interface WalletBalanceProps {
   isDemoMode?: boolean
   onToggleDemoMode?: () => void
   usdcPrice?: number // USDC price from SDK oracle for normalizing historical data
+  poolInputs?: PoolProjectionInput[] // Per-pool data for projection breakdown
 }
 
 function formatPercentage(value: number): string {
@@ -156,7 +158,7 @@ const DUMMY_CHART_DATA: WalletChartDataPoint[] = [
   { date: "2025-11-01", balance: 13040, deposit: 10000, yield: 3040, type: 'historical' },
 ]
 
-const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, isDemoMode = false, onToggleDemoMode, usdcPrice = 1 }: WalletBalanceProps) => {
+const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, isDemoMode = false, onToggleDemoMode, usdcPrice = 1, poolInputs = [] }: WalletBalanceProps) => {
   // State for time period selection
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>("1M")
 
@@ -516,6 +518,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           isLoading={loading}
           selectedPeriod={selectedPeriod}
           onPeriodChange={setSelectedPeriod}
+          poolInputs={poolInputs}
         />
       </div>
 
@@ -564,6 +567,7 @@ export const WalletBalance = React.memo(WalletBalanceComponent, (prevProps, next
     prevProps.balanceHistoryData === nextProps.balanceHistoryData &&
     prevProps.loading === nextProps.loading &&
     prevProps.isDemoMode === nextProps.isDemoMode &&
-    prevProps.usdcPrice === nextProps.usdcPrice
+    prevProps.usdcPrice === nextProps.usdcPrice &&
+    prevProps.poolInputs === nextProps.poolInputs
   )
 })

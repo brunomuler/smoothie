@@ -11,6 +11,17 @@ import type { ActionType } from '@/lib/db/types'
 export type TimePeriod = '1W' | '1M' | '1Y' | 'All' | 'Projection'
 
 /**
+ * Per-pool yield breakdown for projections
+ */
+export interface PoolYieldBreakdown {
+  poolId: string
+  poolName: string
+  balance: number           // Pool's portion of total balance
+  yieldEarned: number       // Regular APY yield for this pool
+  blndYield: number         // BLND emissions yield for this pool
+}
+
+/**
  * Data point for the bar chart
  */
 export interface BarChartDataPoint {
@@ -27,6 +38,9 @@ export interface BarChartDataPoint {
 
   // BLND rewards (for projections)
   blndYield?: number          // Cumulative BLND yield in USD (with compounding)
+
+  // Per-pool breakdown (for projection tooltips)
+  poolBreakdown?: PoolYieldBreakdown[]
 
   // Events for this period
   events: BarChartEvent[]

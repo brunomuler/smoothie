@@ -3,7 +3,7 @@
  * Functions for aggregating and transforming data for the bar chart
  */
 
-import type { ChartDataPoint, BarChartDataPoint, BarChartEvent, TimePeriod } from '@/types/balance-history'
+import type { ChartDataPoint, BarChartDataPoint, BarChartEvent, TimePeriod, PoolYieldBreakdown } from '@/types/balance-history'
 import type { ChartDataPoint as WalletChartDataPoint } from "@/types/wallet-balance"
 import type { UserAction } from '@/lib/db/types'
 
@@ -310,14 +310,28 @@ function generateMonthlyBars(
 }
 
 /**
- * Generate projection bars for 20 years
+ * Per-pool input data for projections
+ */
+export interface PoolProjectionInput {
+  poolId: string
+  poolName: string
+  balance: number       // Current balance in this pool (USD)
+  supplyApy: number     // Supply APY for this pool (percentage, e.g., 8 for 8%)
+  blndApy: number       // BLND emission APY for this pool (percentage)
+}
+
+/**
+ * Generate projection bars for N years
+ * For 1-3 years: generates monthly bars
+ * For 4+ years: generates yearly bars
  * @param currentBalance - Current balance in USD
  * @param apy - Regular APY percentage (e.g., 8 for 8%)
- * @param years - Number of years to project
+ * @param years - Number of years to project (1-25)
  * @param currentBorrow - Current borrow amount
  * @param blndApy - BLND APY percentage (e.g., 0.91 for 0.91%)
  * @param blndReinvest - Whether BLND is reinvested (compounded) or just added as simple interest
  * @param blndCompoundFrequency - How many times per year BLND is compounded/reinvested (52 = weekly)
+ * @param poolInputs - Per-pool data for breakdown calculations (optional)
  */
 export function generateProjectionData(
   currentBalance: number,
@@ -326,7 +340,8 @@ export function generateProjectionData(
   currentBorrow: number = 0,
   blndApy: number = 0,
   blndReinvest: boolean = true,
-  blndCompoundFrequency: number = 52 // Weekly compounding by default
+  blndCompoundFrequency: number = 52, // Weekly compounding by default
+  poolInputs: PoolProjectionInput[] = []
 ): BarChartDataPoint[] {
   const bars: BarChartDataPoint[] = []
   const today = new Date()
@@ -336,63 +351,212 @@ export function generateProjectionData(
   const REGULAR_COMPOUND_FREQUENCY = 52
   const regularWeeklyRate = apy / 100 / REGULAR_COMPOUND_FREQUENCY
 
-  // Track balance with only regular APY (for comparison)
-  let regularOnlyBalance = currentBalance
-  // Track actual balance with both regular APY and BLND
-  let actualBalance = currentBalance
-  // Track cumulative simple BLND yield (when not reinvesting)
-  let cumulativeSimpleBlnd = 0
+  // Determine if we should show monthly or yearly bars
+  const showMonthly = years <= 3
+  const totalMonths = years * 12
 
-  // Calculate total periods over all years for compound calculation
-  const totalPeriods = years * blndCompoundFrequency
-  const blndPeriodRate = blndApy / 100 / blndCompoundFrequency
-  // Regular APY rate per BLND period
-  const regularPerBlndPeriod = Math.pow(1 + regularWeeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
+  // Initialize per-pool tracking if pool inputs provided
+  const hasPoolData = poolInputs.length > 0
+  const poolTrackers = poolInputs.map(pool => ({
+    poolId: pool.poolId,
+    poolName: pool.poolName,
+    initialBalance: pool.balance,
+    regularOnlyBalance: pool.balance,
+    actualBalance: pool.balance,
+    cumulativeSimpleBlnd: 0,
+    supplyApy: pool.supplyApy,
+    blndApy: pool.blndApy,
+    weeklyRate: pool.supplyApy / 100 / REGULAR_COMPOUND_FREQUENCY,
+    blndPeriodRate: pool.blndApy / 100 / blndCompoundFrequency,
+  }))
 
-  for (let year = 1; year <= years; year++) {
-    // Regular APY compounds weekly (for the "regular only" comparison)
-    for (let week = 0; week < REGULAR_COMPOUND_FREQUENCY; week++) {
-      regularOnlyBalance = regularOnlyBalance * (1 + regularWeeklyRate)
-    }
+  if (showMonthly) {
+    // Generate monthly bars for 1-3 years
+    // Track balance with only regular APY (for comparison)
+    let regularOnlyBalance = currentBalance
+    // Track actual balance with both regular APY and BLND
+    let actualBalance = currentBalance
+    // Track cumulative simple BLND yield (when not reinvesting)
+    let cumulativeSimpleBlnd = 0
 
-    if (blndReinvest) {
-      // BLND reinvested: compound at selected frequency
-      // Apply one year's worth of periods
-      for (let period = 0; period < blndCompoundFrequency; period++) {
-        actualBalance = actualBalance * (1 + regularPerBlndPeriod + blndPeriodRate)
+    // Monthly rates
+    const weeksPerMonth = REGULAR_COMPOUND_FREQUENCY / 12 // ~4.33 weeks per month
+    const blndPeriodsPerMonth = blndCompoundFrequency / 12
+    const blndPeriodRate = blndApy / 100 / blndCompoundFrequency
+    // Regular APY rate per BLND period
+    const regularPerBlndPeriod = Math.pow(1 + regularWeeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
+
+    for (let month = 1; month <= totalMonths; month++) {
+      // Regular APY compounds weekly (for the "regular only" comparison)
+      // Apply ~4.33 weeks of compounding per month
+      for (let i = 0; i < weeksPerMonth; i++) {
+        regularOnlyBalance = regularOnlyBalance * (1 + regularWeeklyRate)
+        // Update per-pool trackers
+        for (const tracker of poolTrackers) {
+          tracker.regularOnlyBalance = tracker.regularOnlyBalance * (1 + tracker.weeklyRate)
+        }
       }
-    } else {
-      // BLND not reinvested: simple interest based on current balance each year
-      // BLND yield = balance at start of year * blndApy (no compounding of BLND)
-      const startOfYearBalance = year === 1 ? currentBalance : bars[year - 2].balance
-      const yearlyBlnd = startOfYearBalance * (blndApy / 100)
-      cumulativeSimpleBlnd += yearlyBlnd
-      actualBalance = regularOnlyBalance + cumulativeSimpleBlnd
+
+      if (blndReinvest) {
+        // BLND reinvested: compound at selected frequency
+        // Apply the proportional BLND periods for this month
+        for (let i = 0; i < blndPeriodsPerMonth; i++) {
+          actualBalance = actualBalance * (1 + regularPerBlndPeriod + blndPeriodRate)
+          // Update per-pool trackers
+          for (const tracker of poolTrackers) {
+            const poolRegularPerBlndPeriod = Math.pow(1 + tracker.weeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
+            tracker.actualBalance = tracker.actualBalance * (1 + poolRegularPerBlndPeriod + tracker.blndPeriodRate)
+          }
+        }
+      } else {
+        // BLND not reinvested: simple interest based on balance at start of year
+        // BLND yield = balance at start of year * blndApy / 12 (monthly portion)
+        const monthInYear = ((month - 1) % 12) + 1
+
+        if (monthInYear === 1) {
+          // First month of a new year - calculate this year's BLND contribution
+          const startOfYearBalance = month === 1 ? currentBalance : bars[month - 2].balance
+          const yearlyBlnd = startOfYearBalance * (blndApy / 100)
+          cumulativeSimpleBlnd += yearlyBlnd / 12 // Add monthly portion
+          // Update per-pool trackers
+          for (const tracker of poolTrackers) {
+            const poolStartBalance = month === 1 ? tracker.initialBalance : tracker.actualBalance
+            tracker.cumulativeSimpleBlnd += poolStartBalance * (tracker.blndApy / 100) / 12
+          }
+        } else {
+          // Calculate monthly BLND based on start of year balance
+          const startOfYearBar = bars[Math.floor((month - 1) / 12) * 12]
+          const startOfYearBalance = startOfYearBar ? startOfYearBar.balance : currentBalance
+          cumulativeSimpleBlnd += startOfYearBalance * (blndApy / 100) / 12
+          // Update per-pool trackers (use their current balance for simplicity)
+          for (const tracker of poolTrackers) {
+            tracker.cumulativeSimpleBlnd += tracker.regularOnlyBalance * (tracker.blndApy / 100) / 12
+          }
+        }
+        actualBalance = regularOnlyBalance + cumulativeSimpleBlnd
+        // Update per-pool actual balances
+        for (const tracker of poolTrackers) {
+          tracker.actualBalance = tracker.regularOnlyBalance + tracker.cumulativeSimpleBlnd
+        }
+      }
+
+      // Calculate yield components
+      const regularYield = regularOnlyBalance - deposit
+      const blndYield = actualBalance - regularOnlyBalance // Pure BLND contribution
+
+      // Calculate per-pool breakdown
+      const poolBreakdown: PoolYieldBreakdown[] = hasPoolData ? poolTrackers.map(tracker => ({
+        poolId: tracker.poolId,
+        poolName: tracker.poolName,
+        balance: tracker.actualBalance,
+        yieldEarned: tracker.regularOnlyBalance - tracker.initialBalance,
+        blndYield: tracker.actualBalance - tracker.regularOnlyBalance,
+      })) : undefined as any
+
+      const futureDate = new Date(today)
+      futureDate.setMonth(futureDate.getMonth() + month)
+
+      const periodStart = new Date(futureDate.getFullYear(), futureDate.getMonth(), 1)
+      const periodEnd = new Date(futureDate.getFullYear(), futureDate.getMonth() + 1, 0, 23, 59, 59, 999)
+
+      bars.push({
+        period: futureDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        periodStart: periodStart.toISOString(),
+        periodEnd: periodEnd.toISOString(),
+        balance: actualBalance,
+        yieldEarned: regularYield, // Regular APY yield (weekly compounded)
+        blndYield: blndYield, // Pure BLND contribution
+        poolBreakdown: hasPoolData ? poolBreakdown : undefined,
+        deposit,
+        borrow: currentBorrow, // Keep borrow constant in projections
+        events: [],
+        isProjected: true,
+        baseBalance: deposit, // Initial balance for overlay (constant)
+      })
     }
+  } else {
+    // Generate yearly bars for 4+ years
+    // Track balance with only regular APY (for comparison)
+    let regularOnlyBalance = currentBalance
+    // Track actual balance with both regular APY and BLND
+    let actualBalance = currentBalance
+    // Track cumulative simple BLND yield (when not reinvesting)
+    let cumulativeSimpleBlnd = 0
 
-    // Calculate yield components
-    const regularYield = regularOnlyBalance - deposit
-    const blndYield = actualBalance - regularOnlyBalance // Pure BLND contribution
+    const blndPeriodRate = blndApy / 100 / blndCompoundFrequency
+    // Regular APY rate per BLND period
+    const regularPerBlndPeriod = Math.pow(1 + regularWeeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
 
-    const futureDate = new Date(today)
-    futureDate.setFullYear(futureDate.getFullYear() + year)
+    for (let year = 1; year <= years; year++) {
+      // Regular APY compounds weekly (for the "regular only" comparison)
+      for (let week = 0; week < REGULAR_COMPOUND_FREQUENCY; week++) {
+        regularOnlyBalance = regularOnlyBalance * (1 + regularWeeklyRate)
+        // Update per-pool trackers
+        for (const tracker of poolTrackers) {
+          tracker.regularOnlyBalance = tracker.regularOnlyBalance * (1 + tracker.weeklyRate)
+        }
+      }
 
-    const periodStart = new Date(futureDate.getFullYear(), 0, 1)
-    const periodEnd = new Date(futureDate.getFullYear(), 11, 31, 23, 59, 59, 999)
+      if (blndReinvest) {
+        // BLND reinvested: compound at selected frequency
+        // Apply one year's worth of periods
+        for (let period = 0; period < blndCompoundFrequency; period++) {
+          actualBalance = actualBalance * (1 + regularPerBlndPeriod + blndPeriodRate)
+          // Update per-pool trackers
+          for (const tracker of poolTrackers) {
+            const poolRegularPerBlndPeriod = Math.pow(1 + tracker.weeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
+            tracker.actualBalance = tracker.actualBalance * (1 + poolRegularPerBlndPeriod + tracker.blndPeriodRate)
+          }
+        }
+      } else {
+        // BLND not reinvested: simple interest based on current balance each year
+        // BLND yield = balance at start of year * blndApy (no compounding of BLND)
+        const startOfYearBalance = year === 1 ? currentBalance : bars[year - 2].balance
+        const yearlyBlnd = startOfYearBalance * (blndApy / 100)
+        cumulativeSimpleBlnd += yearlyBlnd
+        actualBalance = regularOnlyBalance + cumulativeSimpleBlnd
+        // Update per-pool trackers
+        for (const tracker of poolTrackers) {
+          const poolStartBalance = year === 1 ? tracker.initialBalance : tracker.actualBalance
+          tracker.cumulativeSimpleBlnd += poolStartBalance * (tracker.blndApy / 100)
+          tracker.actualBalance = tracker.regularOnlyBalance + tracker.cumulativeSimpleBlnd
+        }
+      }
 
-    bars.push({
-      period: futureDate.getFullYear().toString(),
-      periodStart: periodStart.toISOString(),
-      periodEnd: periodEnd.toISOString(),
-      balance: actualBalance,
-      yieldEarned: regularYield, // Regular APY yield (weekly compounded)
-      blndYield: blndYield, // Pure BLND contribution
-      deposit,
-      borrow: currentBorrow, // Keep borrow constant in projections
-      events: [],
-      isProjected: true,
-      baseBalance: deposit, // Initial balance for overlay (constant)
-    })
+      // Calculate yield components
+      const regularYield = regularOnlyBalance - deposit
+      const blndYield = actualBalance - regularOnlyBalance // Pure BLND contribution
+
+      // Calculate per-pool breakdown
+      const poolBreakdown: PoolYieldBreakdown[] = hasPoolData ? poolTrackers.map(tracker => ({
+        poolId: tracker.poolId,
+        poolName: tracker.poolName,
+        balance: tracker.actualBalance,
+        yieldEarned: tracker.regularOnlyBalance - tracker.initialBalance,
+        blndYield: tracker.actualBalance - tracker.regularOnlyBalance,
+      })) : undefined as any
+
+      const futureDate = new Date(today)
+      futureDate.setFullYear(futureDate.getFullYear() + year)
+
+      const periodStart = new Date(futureDate.getFullYear(), 0, 1)
+      const periodEnd = new Date(futureDate.getFullYear(), 11, 31, 23, 59, 59, 999)
+
+      bars.push({
+        period: futureDate.getFullYear().toString(),
+        periodStart: periodStart.toISOString(),
+        periodEnd: periodEnd.toISOString(),
+        balance: actualBalance,
+        yieldEarned: regularYield, // Regular APY yield (weekly compounded)
+        blndYield: blndYield, // Pure BLND contribution
+        poolBreakdown: hasPoolData ? poolBreakdown : undefined,
+        deposit,
+        borrow: currentBorrow, // Keep borrow constant in projections
+        events: [],
+        isProjected: true,
+        baseBalance: deposit, // Initial balance for overlay (constant)
+      })
+    }
   }
 
   return bars
@@ -407,11 +571,13 @@ export function generateProjectionData(
 export interface ProjectionSettings {
   blndReinvestment: boolean
   compoundFrequency: 52 | 26 | 12 | 4 | 2 // weekly, bi-weekly, monthly, quarterly, semi-annually
+  projectionYears: number // 1-25 years
 }
 
 export const DEFAULT_PROJECTION_SETTINGS: ProjectionSettings = {
   blndReinvestment: true,
   compoundFrequency: 52, // weekly
+  projectionYears: 3,
 }
 
 export function aggregateDataByPeriod(
@@ -423,7 +589,8 @@ export function aggregateDataByPeriod(
   firstEventDate: string | null,
   currentBorrow: number = 0,
   blndApy: number = 0,
-  projectionSettings: ProjectionSettings = DEFAULT_PROJECTION_SETTINGS
+  projectionSettings: ProjectionSettings = DEFAULT_PROJECTION_SETTINGS,
+  poolInputs: PoolProjectionInput[] = []
 ): BarChartDataPoint[] {
   const { start, end } = getDateRangeForPeriod(period, firstEventDate)
 
@@ -444,11 +611,12 @@ export function aggregateDataByPeriod(
       return generateProjectionData(
         currentBalance,
         apy,
-        20,
+        projectionSettings.projectionYears,
         currentBorrow,
         blndApy,
         projectionSettings.blndReinvestment,
-        projectionSettings.compoundFrequency
+        projectionSettings.compoundFrequency,
+        poolInputs
       )
 
     default:

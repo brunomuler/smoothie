@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, Suspense, useCallback } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { usePostHog } from "@/hooks/use-posthog"
-import { generateChartData } from "@/lib/chart-utils"
+import { generateChartData, type PoolProjectionInput } from "@/lib/chart-utils"
 import { useWalletState } from "@/hooks/use-wallet-state"
 import { useBalanceHistoryData } from "@/hooks/use-balance-history-data"
 import { useComputedBalance } from "@/hooks/use-computed-balance"
@@ -89,6 +89,48 @@ function HomeContent() {
     uniqueAssetAddresses
   )
 
+  // Build per-pool data for projection breakdown
+  // This must be before conditional returns to follow Rules of Hooks
+  const poolInputs = useMemo((): PoolProjectionInput[] => {
+    if (!blendSnapshot?.poolEstimates || blendSnapshot.poolEstimates.length === 0) {
+      return []
+    }
+
+    // Get per-pool BLND APY from positions (weighted by supply value in each pool)
+    const poolBlndApyMap = new Map<string, number>()
+    if (blendSnapshot.positions) {
+      // Group positions by pool and calculate weighted BLND APY
+      const poolSupplyTotals = new Map<string, number>()
+      const poolBlndWeighted = new Map<string, number>()
+
+      for (const pos of blendSnapshot.positions) {
+        const poolId = pos.poolId
+        const supplyValue = pos.supplyUsdValue || 0
+        const blndApyValue = pos.blndApy || 0
+
+        poolSupplyTotals.set(poolId, (poolSupplyTotals.get(poolId) || 0) + supplyValue)
+        poolBlndWeighted.set(poolId, (poolBlndWeighted.get(poolId) || 0) + supplyValue * blndApyValue)
+      }
+
+      // Calculate weighted average BLND APY per pool
+      for (const [poolId, total] of poolSupplyTotals) {
+        if (total > 0) {
+          poolBlndApyMap.set(poolId, (poolBlndWeighted.get(poolId) || 0) / total)
+        }
+      }
+    }
+
+    return blendSnapshot.poolEstimates
+      .filter(pe => pe.totalSupplied > 0) // Only include pools with positions
+      .map(pe => ({
+        poolId: pe.poolId,
+        poolName: pe.poolName,
+        balance: pe.totalSupplied,
+        supplyApy: pe.supplyApy || 0,
+        blndApy: poolBlndApyMap.get(pe.poolId) || 0,
+      }))
+  }, [blendSnapshot?.poolEstimates, blendSnapshot?.positions])
+
   // Show landing page for non-logged-in users
   if (!activeWallet) {
     return (
@@ -135,6 +177,7 @@ function HomeContent() {
             isDemoMode={isDemoMode}
             onToggleDemoMode={() => setIsDemoMode(!isDemoMode)}
             usdcPrice={1}
+            poolInputs={poolInputs}
           />
 
           <Tabs defaultValue="positions" className="w-full" onValueChange={(tab) => capture('tab_changed', { tab })}>
