@@ -561,13 +561,6 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
   const isQ4wExpired = q4wExpDate && q4wExpDate <= new Date()
   const timeRemaining = q4wExpDate ? formatTimeRemaining(q4wExpDate) : ""
 
-  // Pool-level Q4W risk assessment
-  const poolQ4w = position.poolQ4wPercent
-  const isHighRisk = poolQ4w >= 15
-  const isMediumRisk = poolQ4w >= 5 && poolQ4w < 15
-  const q4wRiskColor = isHighRisk ? 'text-red-500' : isMediumRisk ? 'text-amber-500' : 'text-green-500'
-  const q4wRiskBgColor = isHighRisk ? 'bg-red-500/10' : isMediumRisk ? 'bg-amber-500/10' : 'bg-green-500/10'
-
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -663,29 +656,6 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
                 </>
               )
             })()}
-          </div>
-        </div>
-
-        {/* Pool Q4W Risk Indicator */}
-        <div className="mt-4 pt-4 border-t">
-          <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 rounded-lg ${q4wRiskBgColor}`}>
-            <div className="flex items-center gap-2">
-              {isHighRisk && <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />}
-              <div>
-                <p className="text-xs text-muted-foreground">Pool Q4W</p>
-                <p className={`font-mono font-semibold ${q4wRiskColor}`}>
-                  {formatPercent(poolQ4w)}
-                </p>
-              </div>
-            </div>
-            <div className="sm:text-right">
-              <p className="text-xs text-muted-foreground">Capital queued for withdrawal</p>
-              <p className={`text-xs ${q4wRiskColor}`}>
-                {isHighRisk ? 'High risk - reduced coverage' :
-                 isMediumRisk ? 'Moderate risk - monitor' :
-                 'Low risk - healthy backstop'}
-              </p>
-            </div>
           </div>
         </div>
 
