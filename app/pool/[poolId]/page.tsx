@@ -561,6 +561,9 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
   const isQ4wExpired = q4wExpDate && q4wExpDate <= new Date()
   const timeRemaining = q4wExpDate ? formatTimeRemaining(q4wExpDate) : ""
 
+  // Pool-level Q4W percentage
+  const poolQ4w = position.poolQ4wPercent
+
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -656,6 +659,18 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
                 </>
               )
             })()}
+          </div>
+        </div>
+
+        {/* Pool Q4W Percentage */}
+        <div className="mt-4 pt-4 border-t">
+          <div className="flex items-center gap-2">
+            <div>
+              <p className="text-xs text-muted-foreground">Pool Q4W</p>
+              <p className="font-mono font-semibold">
+                {formatPercent(poolQ4w)}
+              </p>
+            </div>
           </div>
         </div>
 
