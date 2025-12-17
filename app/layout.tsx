@@ -18,14 +18,14 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "https://smoothie.app"),
-  title: "Smoothie",
-  description: "Your Blend positions, smoothly tracked",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "https://smoothie.capital"),
+  title: "Smoothie – Track Your Stellar Blend DeFi Positions",
+  description: "Track your Stellar Blend DeFi positions, monitor your yields, and stay on top of your lending and borrowing portfolio.",
   keywords: ["Stellar", "Blend", "DeFi", "yield", "lending", "borrowing", "crypto", "wallet", "BLND"],
   authors: [{ name: "Smoothie" }],
   openGraph: {
-    title: "Smoothie",
-    description: "Your Blend positions, smoothly tracked",
+    title: "Smoothie – Track Your Stellar Blend DeFi Positions",
+    description: "Track your Stellar Blend DeFi positions, monitor your yields, and stay on top of your lending and borrowing portfolio.",
     type: "website",
     siteName: "Smoothie",
     images: [
@@ -39,8 +39,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Smoothie",
-    description: "Your Blend positions, smoothly tracked",
+    title: "Smoothie – Track Your Stellar Blend DeFi Positions",
+    description: "Track your Stellar Blend DeFi positions, monitor your yields, and stay on top of your lending and borrowing portfolio.",
     images: ["/share.png"],
   },
   icons: {
