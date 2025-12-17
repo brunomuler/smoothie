@@ -17,6 +17,7 @@ import {
   Shield,
   Clock,
   XCircle,
+  Download,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -33,6 +34,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { useInfiniteUserActions } from "@/hooks/use-user-actions"
@@ -422,6 +428,7 @@ export function TransactionHistory({
   const [selectedActionTypes, setSelectedActionTypes] = useState<ActionType[]>([])
   const [startDate, setStartDate] = useState<Date | undefined>(undefined)
   const [endDate, setEndDate] = useState<Date | undefined>(undefined)
+  const [isExporting, setIsExporting] = useState(false)
   const mobileLoadMoreRef = useRef<HTMLDivElement>(null)
   const desktopLoadMoreRef = useRef<HTMLDivElement>(null)
 
@@ -504,6 +511,47 @@ export function TransactionHistory({
     )
   }
 
+  const handleExport = async () => {
+    if (isExporting || !publicKey) return
+
+    setIsExporting(true)
+    try {
+      const params = new URLSearchParams({ user: publicKey })
+      if (startDateStr) params.set('startDate', startDateStr)
+      if (endDateStr) params.set('endDate', endDateStr)
+      if (actionTypes?.length) params.set('actionTypes', actionTypes.join(','))
+      if (poolId) params.set('pool', poolId)
+      if (assetAddress) params.set('asset', assetAddress)
+
+      const response = await fetch(`/api/export/transactions?${params.toString()}`)
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Export failed')
+      }
+
+      // Get filename from Content-Disposition header or generate one
+      const contentDisposition = response.headers.get('Content-Disposition')
+      const filenameMatch = contentDisposition?.match(/filename="(.+)"/)
+      const filename = filenameMatch?.[1] || `transactions_${publicKey.slice(0, 8)}.csv`
+
+      // Download the file
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+    } catch (error) {
+      console.error('Export failed:', error)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   return (
     <Card className="py-2 gap-0">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 py-3 px-4">
@@ -511,6 +559,28 @@ export function TransactionHistory({
           Transaction History
         </CardTitle>
         <div className="flex items-center gap-2">
+          {/* Export Button */}
+          {(hideToggle || isOpen) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={handleExport}
+                  disabled={isExporting || actions.length === 0}
+                >
+                  {isExporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="bg-black text-white border-black" arrowClassName="bg-black fill-black">Download CSV</TooltipContent>
+            </Tooltip>
+          )}
+
           {/* Filter Button with Popover */}
           {(hideToggle || isOpen) && (
             <Popover>
