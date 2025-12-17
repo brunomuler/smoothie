@@ -200,7 +200,7 @@ function HomeContent() {
             </TabsList>
 
             <TabsContent value="positions" className="space-y-4">
-              {(totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0) || !isLoading || isDemoMode) && (
+              {(isLoading || totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0) || isDemoMode) && (
                 <BlndRewardsCard
                   publicKey={activeWallet.publicKey}
                   pendingEmissions={isDemoMode ? 156.75 : totalEmissions}

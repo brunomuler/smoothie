@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { fetchWalletBlendSnapshot, type BlendReservePosition, type BlendPoolEstimate, type BlendBackstopPosition } from "@/lib/blend/positions"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
 import type { BackstopCostBasis } from "@/lib/db/types"
@@ -679,12 +680,34 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
           <div className="mt-4 pt-4 border-t">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <Clock className={`h-4 w-4 shrink-0 ${isQ4wExpired ? 'text-green-500' : 'text-amber-500'}`} />
-              <span className={`text-sm ${isQ4wExpired ? 'text-green-500' : 'text-amber-500'}`}>
-                {isQ4wExpired
-                  ? `${formatNumber(position.q4wLpTokens, 2)} LP ready to withdraw`
-                  : `${formatNumber(position.q4wLpTokens, 2)} LP unlocks in ${timeRemaining}`
-                }
-              </span>
+              {isQ4wExpired ? (
+                <span className="text-sm text-green-500">
+                  {formatNumber(position.q4wLpTokens, 2)} LP ready to withdraw
+                </span>
+              ) : position.q4wChunks.length > 1 ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-sm text-amber-500 underline decoration-dotted cursor-pointer">
+                      {formatNumber(position.q4wLpTokens, 2)} LP in {position.q4wChunks.length} unlocks
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-black text-white border-zinc-800 p-3" arrowClassName="bg-black fill-black">
+                    <p className="font-medium text-xs text-zinc-400 mb-2">Unlock Schedule</p>
+                    <div className="space-y-1.5">
+                      {position.q4wChunks.map((chunk, i) => (
+                        <div key={i} className="flex justify-between gap-6 text-sm">
+                          <span className="font-mono">{formatNumber(chunk.lpTokens, 2)} LP</span>
+                          <span className="text-zinc-400">{formatTimeRemaining(new Date(chunk.expiration * 1000))}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <span className="text-sm text-amber-500">
+                  {formatNumber(position.q4wLpTokens, 2)} LP unlocks in {timeRemaining}
+                </span>
+              )}
               <span className="text-xs text-muted-foreground">
                 ({formatUsd(position.q4wLpTokensUsd)})
               </span>

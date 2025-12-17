@@ -2,6 +2,7 @@
 
 import { useMemo } from "react"
 import { Card } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip,
   TooltipContent,
@@ -144,7 +145,21 @@ export function PortfolioAllocationBar({
     return { poolAllocations: allocations, totalValue: total }
   }, [positions, backstopPositions])
 
-  if (isLoading || poolAllocations.length === 0) {
+  // Show skeleton while loading
+  if (isLoading) {
+    return (
+      <Card className="p-4 gap-0">
+        <Skeleton className="h-4 w-32 mb-2" />
+        <Skeleton className="h-2 w-full rounded-sm" />
+      </Card>
+    )
+  }
+
+  // Don't show if empty or only a single token in a single pool
+  // (allocation bar is only useful when there's diversity to show)
+  const hasSingleTokenInSinglePool = poolAllocations.length === 1 && poolAllocations[0].tokens.length === 1
+
+  if (poolAllocations.length === 0 || hasSingleTokenInSinglePool) {
     return null
   }
 

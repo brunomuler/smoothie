@@ -6,9 +6,15 @@ import { formatAmount, formatUsdAmount } from "@/lib/format-utils"
 import { DEMO_SUPPLY_POSITIONS } from "@/lib/demo-data"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TrendingUp, ChevronRight, Flame, Shield, Clock } from "lucide-react"
 import type { AssetCardData } from "@/types/asset-card"
+
+interface Q4WChunkData {
+  lpTokens: number
+  expiration: number
+}
 
 interface BackstopPositionData {
   poolId: string
@@ -22,6 +28,7 @@ interface BackstopPositionData {
   q4wShares: bigint
   q4wLpTokens: number
   q4wExpiration: number | null
+  q4wChunks: Q4WChunkData[]
   unlockedQ4wShares: bigint
 }
 
@@ -389,12 +396,39 @@ export function SupplyPositions({
                             {hasQ4w && (
                               <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {isQ4wExpired || allQ4wUnlocked
-                                  ? `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP ready to withdraw`
-                                  : timeRemaining
-                                    ? `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP unlocks in ${timeRemaining}`
-                                    : `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP queued for withdrawal`
-                                }
+                                {isQ4wExpired || allQ4wUnlocked ? (
+                                  `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP ready to withdraw`
+                                ) : backstopPosition.q4wChunks.length > 1 ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="underline decoration-dotted cursor-pointer">
+                                        {formatAmount(backstopPosition.q4wLpTokens, 2)} LP in {backstopPosition.q4wChunks.length} unlocks
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="bg-black text-white border-zinc-800 p-3" arrowClassName="bg-black fill-black">
+                                      <p className="font-medium text-xs text-zinc-400 mb-2">Unlock Schedule</p>
+                                      <div className="space-y-1.5">
+                                        {backstopPosition.q4wChunks.map((chunk, i) => {
+                                          const chunkExpDate = new Date(chunk.expiration * 1000)
+                                          const diff = chunkExpDate.getTime() - Date.now()
+                                          const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+                                          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+                                          const chunkTime = days > 0 ? `${days}d ${hours}h` : `${hours}h`
+                                          return (
+                                            <div key={i} className="flex justify-between gap-6 text-sm">
+                                              <span className="font-mono">{formatAmount(chunk.lpTokens, 2)} LP</span>
+                                              <span className="text-zinc-400">{chunkTime}</span>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : timeRemaining ? (
+                                  `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP unlocks in ${timeRemaining}`
+                                ) : (
+                                  `${formatAmount(backstopPosition.q4wLpTokens, 2)} LP queued for withdrawal`
+                                )}
                               </p>
                             )}
                           </div>

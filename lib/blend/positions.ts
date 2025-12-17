@@ -63,6 +63,14 @@ export interface BlendReservePosition {
   claimableBlnd: number; // BLND waiting to be claimed for this position
 }
 
+// Individual Q4W (queued withdrawal) chunk with its own amount and expiration
+export interface Q4WChunk {
+  shares: bigint;
+  lpTokens: number;
+  lpTokensUsd: number;
+  expiration: number; // Unix timestamp
+}
+
 // Backstop position for a specific pool
 export interface BlendBackstopPosition {
   id: string; // Format: backstop-{poolId}
@@ -76,10 +84,11 @@ export interface BlendBackstopPosition {
   blndAmount: number; // BLND portion of LP (80%)
   usdcAmount: number; // USDC portion of LP (20%)
   // Queued withdrawal (Q4W) - 21-day lock
-  q4wShares: bigint; // Shares queued for withdrawal
-  q4wLpTokens: number; // LP tokens value of queued shares
-  q4wLpTokensUsd: number; // USD value of queued shares
-  q4wExpiration: number | null; // Unix timestamp when Q4W unlocks
+  q4wShares: bigint; // Shares queued for withdrawal (total across all chunks)
+  q4wLpTokens: number; // LP tokens value of queued shares (total)
+  q4wLpTokensUsd: number; // USD value of queued shares (total)
+  q4wExpiration: number | null; // Unix timestamp when closest Q4W unlocks
+  q4wChunks: Q4WChunk[]; // Individual Q4W chunks with their own amounts and expirations
   unlockedQ4wShares: bigint; // Shares ready to withdraw (past expiration)
   // APR/APY
   interestApr: number; // APR from pool interest (backstop's share of borrower interest)
@@ -975,16 +984,24 @@ export async function fetchWalletBlendSnapshot(
       const blndAmount = lpTokens * blndPerLp;
       const usdcAmount = lpTokens * usdcPerLp;
 
-      // Get Q4W expiration (use the first one if multiple exist)
-      // exp is u64 from SDK - convert safely handling both BigInt and string formats
+      // Parse all Q4W chunks with individual amounts and expirations
       // Note: When q4w array is empty but totalQ4W > 0, it means all Q4W has unlocked
       // (the entries are removed from q4w array once unlocked, moved to unlockedQ4W)
-      const q4wExpiration = backstopUser.balance.q4w.length > 0
-        ? (() => {
-            const exp = backstopUser.balance.q4w[0].exp;
-            const expNum = typeof exp === 'bigint' ? Number(exp) : Number(exp);
-            return expNum > 0 ? expNum : null;
-          })()
+      const q4wChunks: Q4WChunk[] = backstopUser.balance.q4w.map(q4wEntry => {
+        const chunkShares = q4wEntry.amount;
+        const chunkLpTokens = backstopPool.sharesToBackstopTokensFloat(chunkShares);
+        const expNum = typeof q4wEntry.exp === 'bigint' ? Number(q4wEntry.exp) : Number(q4wEntry.exp);
+        return {
+          shares: chunkShares,
+          lpTokens: chunkLpTokens,
+          lpTokensUsd: chunkLpTokens * tokenPrice,
+          expiration: expNum,
+        };
+      }).sort((a, b) => a.expiration - b.expiration); // Sort by expiration (closest first)
+
+      // Get closest Q4W expiration for backwards compatibility
+      const q4wExpiration = q4wChunks.length > 0 && q4wChunks[0].expiration > 0
+        ? q4wChunks[0].expiration
         : null;
 
       // Calculate emission APY for this pool's backstop
@@ -1056,6 +1073,7 @@ export async function fetchWalletBlendSnapshot(
         q4wLpTokens,
         q4wLpTokensUsd,
         q4wExpiration,
+        q4wChunks,
         unlockedQ4wShares: backstopUser.balance.unlockedQ4W,
         interestApr: Number.isFinite(interestApr) ? interestApr : 0,
         emissionApy: Number.isFinite(emissionApy) ? emissionApy : 0,
