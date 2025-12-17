@@ -10,6 +10,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { BlendReservePosition, BlendBackstopPosition } from "@/lib/blend/positions"
+import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 
 // Token colors - consistent color scheme for each token
 const TOKEN_COLORS: Record<string, string> = {
@@ -51,20 +52,18 @@ function formatPercentage(value: number): string {
   return `${Math.round(value)}%`
 }
 
-function formatUsd(value: number): string {
-  return value.toLocaleString("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
 export function PortfolioAllocationBar({
   positions,
   backstopPositions,
   isLoading = false,
 }: PortfolioAllocationBarProps) {
+  // Currency preference for multi-currency display
+  const { format: formatInCurrency } = useCurrencyPreference()
+
+  const formatUsd = (value: number) => formatInCurrency(value, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
   const { poolAllocations, totalValue } = useMemo(() => {
     // Group positions by pool
     const poolMap = new Map<string, PoolAllocation>()

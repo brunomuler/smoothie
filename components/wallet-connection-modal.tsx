@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { Eye, ChevronRight, Loader2, Download } from "lucide-react"
 import {
   Dialog,
@@ -19,6 +20,7 @@ interface WalletConnectionModalProps {
   onWalletSelect: (wallet: SupportedWallet) => void
   wallets: SupportedWallet[]
   isLoadingWallets: boolean
+  isFirstWallet?: boolean
 }
 
 export function WalletConnectionModal({
@@ -28,6 +30,7 @@ export function WalletConnectionModal({
   onWalletSelect,
   wallets,
   isLoadingWallets,
+  isFirstWallet = false,
 }: WalletConnectionModalProps) {
   const handleFollowAddressClick = () => {
     onFollowAddress()
@@ -128,6 +131,28 @@ export function WalletConnectionModal({
             )}
           </div>
         </div>
+
+        {/* Footer disclaimer - only shown for first wallet */}
+        {isFirstWallet && (
+          <p className="text-[11px] text-center text-muted-foreground/75 pt-2">
+            By continuing, you agree to our{" "}
+            <Link
+              href="/privacy"
+              className="underline hover:text-muted-foreground transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Privacy Policy
+            </Link>{" "}
+            and{" "}
+            <Link
+              href="/terms"
+              className="underline hover:text-muted-foreground transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Terms of Use
+            </Link>
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   )

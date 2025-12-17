@@ -22,11 +22,32 @@ export function FormattedBalance({
     return <span className={className}>--</span>
   }
 
-  // If value is already a formatted string (like "$1,234.56"), extract the number part
+  // If value is already a formatted string (like "$1,234.56" or "€1.234,56"), extract the number part
   let numValue: number
+  let prefix = ""
+
   if (typeof value === "string") {
-    // Remove $ and commas, parse as float
-    const cleaned = value.replace(/[$,]/g, "")
+    // Extract currency symbol/prefix (any non-digit, non-decimal characters at the start)
+    const prefixMatch = value.match(/^[^\d\-]*/)
+    prefix = prefixMatch ? prefixMatch[0] : ""
+
+    // Remove all non-numeric characters except decimal point, comma, and minus sign
+    // Then normalize: replace comma with dot if it's used as decimal separator
+    let cleaned = value.replace(/[^\d.,-]/g, "")
+
+    // Handle European format (1.234,56) vs US format (1,234.56)
+    // If there's both comma and dot, the last one is the decimal separator
+    const lastComma = cleaned.lastIndexOf(",")
+    const lastDot = cleaned.lastIndexOf(".")
+
+    if (lastComma > lastDot) {
+      // European format: 1.234,56 -> remove dots, replace comma with dot
+      cleaned = cleaned.replace(/\./g, "").replace(",", ".")
+    } else {
+      // US format: 1,234.56 -> just remove commas
+      cleaned = cleaned.replace(/,/g, "")
+    }
+
     numValue = parseFloat(cleaned)
     if (isNaN(numValue)) {
       return <span className={className}>{value}</span>
@@ -45,9 +66,6 @@ export function FormattedBalance({
 
   // Add thousand separators to integer part
   const integerWithCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-
-  // If original was a string with $, include it
-  const prefix = typeof value === "string" && value.startsWith("$") ? "$" : ""
 
   return (
     <span className={className}>
@@ -72,8 +90,26 @@ export function formatBalanceWithSmallDecimals(
   }
 
   let numValue: number
+  let prefix = ""
+
   if (typeof value === "string") {
-    const cleaned = value.replace(/[$,]/g, "")
+    // Extract currency symbol/prefix (any non-digit, non-decimal characters at the start)
+    const prefixMatch = value.match(/^[^\d\-]*/)
+    prefix = prefixMatch ? prefixMatch[0] : ""
+
+    // Remove all non-numeric characters except decimal point, comma, and minus sign
+    let cleaned = value.replace(/[^\d.,-]/g, "")
+
+    // Handle European format (1.234,56) vs US format (1,234.56)
+    const lastComma = cleaned.lastIndexOf(",")
+    const lastDot = cleaned.lastIndexOf(".")
+
+    if (lastComma > lastDot) {
+      cleaned = cleaned.replace(/\./g, "").replace(",", ".")
+    } else {
+      cleaned = cleaned.replace(/,/g, "")
+    }
+
     numValue = parseFloat(cleaned)
     if (isNaN(numValue)) {
       return <span className={className}>{value}</span>
@@ -88,7 +124,6 @@ export function formatBalanceWithSmallDecimals(
   const decimalPart = parts[1] || ""
 
   const integerWithCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-  const prefix = typeof value === "string" && value.startsWith("$") ? "$" : ""
 
   return (
     <span className={className}>

@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useMemo, useState } from "react"
 import dynamic from "next/dynamic"
-import { TrendingUp, TrendingDown, Eye, EyeOff } from "lucide-react"
+import { TrendingUp, TrendingDown } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import {
   Tooltip,
@@ -12,7 +12,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Separator } from "@/components/ui/separator"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { BalanceData, ChartDataPoint as WalletChartDataPoint } from "@/types/wallet-balance"
 import type { ChartDataPoint, EarningsStats, PositionChange, TimePeriod } from "@/types/balance-history"
@@ -20,6 +19,8 @@ import type { PoolProjectionInput } from "@/lib/chart-utils"
 import { useLiveBalance } from "@/hooks/use-live-balance"
 import { useUserActions } from "@/hooks/use-user-actions"
 import { FormattedBalance } from "@/components/formatted-balance"
+import { CurrencySelector } from "@/components/currency-selector"
+import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 
 const BalanceBarChart = dynamic(
   () => import("@/components/balance-bar-chart").then(mod => ({ default: mod.BalanceBarChart })),
@@ -161,6 +162,9 @@ const DUMMY_CHART_DATA: WalletChartDataPoint[] = [
 const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, isDemoMode = false, onToggleDemoMode, usdcPrice = 1, poolInputs = [] }: WalletBalanceProps) => {
   // State for time period selection
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>("1M")
+
+  // Currency preference for multi-currency display
+  const { currency, setCurrency, format: formatInCurrency, convert: convertToCurrency } = useCurrencyPreference()
 
   // Use dummy data when in demo mode
   const activeData = isDemoMode ? DUMMY_DATA : data
@@ -365,23 +369,15 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     return Math.min(periodDays, totalDays)
   }, [selectedPeriod, balanceHistoryData?.earningsStats?.dayCount])
 
-  const liveBalanceFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  const formattedLiveBalance = formatInCurrency(displayBalance, {
     minimumFractionDigits: 7,
     maximumFractionDigits: 7,
   })
-
-  const liveDeltaFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  const formattedLiveGrowth = formatInCurrency(displayYield, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-    signDisplay: "always",
+    showSign: true,
   })
-
-  const formattedLiveBalance = liveBalanceFormatter.format(displayBalance)
-  const formattedLiveGrowth = liveDeltaFormatter.format(displayYield)
 
   // Use period-specific percentage gain instead of total percentage
   const percentageGain = periodPercentageGain
@@ -399,9 +395,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
   // Annual yield: Balance × APY (APY is already the annual compound rate)
   const annualYieldCompound = initialBalance * apyDecimalRate
 
-  const yieldFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  const formatYield = (value: number) => formatInCurrency(value, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
@@ -448,21 +442,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
               </TooltipProvider>
             )}
           </div>
-          {onToggleDemoMode && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onToggleDemoMode}
-              className="h-8 w-8 p-0"
-              title={isDemoMode ? "Show real data" : "Show demo data"}
-            >
-              {isDemoMode ? (
-                <Eye className="h-4 w-4" />
-              ) : (
-                <EyeOff className="h-4 w-4" />
-              )}
-            </Button>
-          )}
+          <CurrencySelector value={currency} onChange={setCurrency} />
         </div>
         <div className="flex items-end gap-2 flex-wrap">
           <h3 className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl @[400px]/card:text-4xl">
@@ -471,7 +451,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           {!isDemoMode && currentBorrow > 0 && (
             <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800">
               <TrendingDown className="mr-1 h-3 w-3" />
-              ${currentBorrow.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} borrowed
+              {formatYield(currentBorrow)} borrowed
             </Badge>
           )}
         </div>
@@ -527,7 +507,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
         <div className="flex flex-1 flex-row @[350px]/card:flex-col @[350px]/card:items-center gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <div className="text-[10px] @[250px]/card:text-xs text-muted-foreground">Daily Yield</div>
           <div className="text-sm @[250px]/card:text-base font-semibold tabular-nums">
-            {yieldFormatter.format(dailyYield)}
+            {formatYield(dailyYield)}
           </div>
         </div>
 
@@ -537,7 +517,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
         <div className="flex flex-1 flex-row @[350px]/card:flex-col @[350px]/card:items-center gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <div className="text-[10px] @[250px]/card:text-xs text-muted-foreground">Monthly Yield</div>
           <div className="text-sm @[250px]/card:text-base font-semibold tabular-nums">
-            {yieldFormatter.format(monthlyYield)}
+            {formatYield(monthlyYield)}
           </div>
         </div>
 
@@ -547,7 +527,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
         <div className="flex flex-1 flex-row @[350px]/card:flex-col @[350px]/card:items-center gap-2 @[350px]/card:gap-0.5 py-2 justify-between @[350px]/card:justify-start">
           <div className="text-[10px] @[250px]/card:text-xs text-muted-foreground">Annual Yield</div>
           <div className="text-sm @[250px]/card:text-base font-semibold tabular-nums">
-            {yieldFormatter.format(annualYieldCompound)}
+            {formatYield(annualYieldCompound)}
           </div>
         </div>
       </div>

@@ -174,6 +174,7 @@ export function WalletSelector({
           onWalletSelect={handleWalletSelect}
           wallets={supportedWallets}
           isLoadingWallets={isLoadingWallets}
+          isFirstWallet={wallets.length === 0}
         />
 
         <FollowAddressModal
@@ -372,6 +373,7 @@ export function WalletSelector({
         onWalletSelect={handleWalletSelect}
         wallets={supportedWallets}
         isLoadingWallets={isLoadingWallets}
+        isFirstWallet={wallets.length === 0}
       />
 
       <FollowAddressModal

@@ -24,6 +24,7 @@ import {
 import type { AssetCardData, AssetAction } from "@/types/asset-card"
 import { FormattedBalance } from "@/components/formatted-balance"
 import { useLiveBalance } from "@/hooks/use-live-balance"
+import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 
 interface AssetCardProps {
   data: AssetCardData
@@ -86,26 +87,21 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
 
   const { displayBalance } = useLiveBalance(initialBalance, apyDecimal, null, 0)
 
-  const balanceFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  // Currency preference for multi-currency display
+  const { format: formatInCurrency } = useCurrencyPreference()
+
+  const formattedLiveBalance = formatInCurrency(displayBalance, {
     minimumFractionDigits: 7,
     maximumFractionDigits: 7,
   })
 
-  const yieldFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-    signDisplay: "always",
-  })
-
-  const formattedLiveBalance = balanceFormatter.format(displayBalance)
-
   // Use yield calculated as: SDK Balance - Dune Cost Basis
   const yieldToShow = activeData.earnedYield ?? 0
-  const formattedYield = yieldFormatter.format(yieldToShow)
+  const formattedYield = formatInCurrency(yieldToShow, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    showSign: true,
+  })
   const hasSignificantYield = Math.abs(yieldToShow) >= 0.01
 
   // Use yield percentage: (Yield / Cost Basis) * 100

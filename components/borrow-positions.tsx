@@ -2,8 +2,9 @@
 
 import Link from "next/link"
 import { TokenLogo } from "@/components/token-logo"
-import { formatAmount, formatUsdAmount } from "@/lib/format-utils"
+import { formatAmount } from "@/lib/format-utils"
 import { DEMO_BORROW_POSITIONS } from "@/lib/demo-data"
+import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TrendingDown, ChevronRight, Flame } from "lucide-react"
@@ -36,6 +37,23 @@ export function BorrowPositions({
   poolAssetBorrowCostBasisMap,
   onPoolClick,
 }: BorrowPositionsProps) {
+  const { format: formatInCurrency } = useCurrencyPreference()
+
+  const formatUsdAmount = (value: number) => {
+    return formatInCurrency(value, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  }
+
+  const formatInterestValue = (value: number) => {
+    return formatInCurrency(value, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      signDisplay: "always",
+    })
+  }
+
   if (isDemoMode) {
     return (
       <div className="grid gap-4 grid-cols-1">
@@ -55,14 +73,7 @@ export function BorrowPositions({
               <div className="space-y-1">
                 {pool.positions.map((position) => {
                   const isUSDC = position.symbol === 'USDC'
-                  const interestFormatter = new Intl.NumberFormat("en-US", {
-                    style: "currency",
-                    currency: "USD",
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                    signDisplay: "always",
-                  })
-                  const formattedInterest = interestFormatter.format(position.interestAccrued)
+                  const formattedInterest = formatInterestValue(position.interestAccrued)
                   const hasSignificantInterest = Math.abs(position.interestAccrued) >= 0.01
                   const formattedInterestPercentage = position.interestPercentage !== 0 ? ` (${position.interestPercentage >= 0 ? '+' : ''}${position.interestPercentage.toFixed(2)}%)` : ''
 
@@ -170,15 +181,8 @@ export function BorrowPositions({
                       ? (interestAccrued / borrowCostBasisUsd) * 100
                       : 0
 
-                    // Format interest like yield is formatted
-                    const interestFormatter = new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                      signDisplay: "always",
-                    })
-                    const formattedInterest = interestFormatter.format(interestAccrued)
+                    // Format interest using currency preference
+                    const formattedInterest = formatInterestValue(interestAccrued)
                     const hasSignificantInterest = Math.abs(interestAccrued) >= 0.01
                     const formattedInterestPercentage = interestPercentage !== 0 ? ` (${interestPercentage >= 0 ? '+' : ''}${interestPercentage.toFixed(2)}%)` : ''
 

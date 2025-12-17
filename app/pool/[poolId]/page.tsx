@@ -17,6 +17,7 @@ import type { BackstopCostBasis } from "@/lib/db/types"
 import { toTrackedPools } from "@/lib/blend/pools"
 import { usePoolsOnly } from "@/hooks/use-metadata"
 import { TokenLogo } from "@/components/token-logo"
+import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 
 // Extended position type with yield data
 interface PositionWithYield extends BlendReservePosition {
@@ -51,25 +52,6 @@ interface Wallet {
   isActive: boolean
 }
 
-function formatUsd(value: number, decimals = 2): string {
-  if (!Number.isFinite(value)) return "$0.00"
-  // Show more decimals for dust amounts
-  if (value > 0 && value < 0.01) {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: 6,
-      maximumFractionDigits: 6,
-    }).format(value)
-  }
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value)
-}
-
 function formatNumber(value: number, decimals = 2): string {
   if (!Number.isFinite(value)) return "0"
   if (value >= 1000000) {
@@ -100,7 +82,7 @@ function formatPercent(value: number, decimals = 2): string {
 }
 
 // Summary stats at top
-function PoolSummary({ estimate }: { estimate: BlendPoolEstimate }) {
+function PoolSummary({ estimate, formatUsd }: { estimate: BlendPoolEstimate; formatUsd: (value: number, decimals?: number) => string }) {
   const healthPercent = Math.min(estimate.borrowLimit * 100, 100)
   const isDanger = estimate.borrowLimit >= 0.8
   const isWarning = estimate.borrowLimit >= 0.5 && estimate.borrowLimit < 0.8
@@ -167,19 +149,16 @@ function PoolSummary({ estimate }: { estimate: BlendPoolEstimate }) {
 }
 
 // Asset row for the positions table
-function AssetRow({ position, blndPrice }: { position: PositionWithYield; blndPrice: number | null }) {
+function AssetRow({ position, blndPrice, formatUsd, formatYield }: {
+  position: PositionWithYield
+  blndPrice: number | null
+  formatUsd: (value: number, decimals?: number) => string
+  formatYield: (value: number) => string
+}) {
   const hasCollateral = position.collateralAmount > 0
   const hasNonCollateral = position.nonCollateralAmount > 0
   const hasBorrow = position.borrowAmount > 0
   const hasYield = position.earnedYield !== 0
-
-  const yieldFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-    signDisplay: "always",
-  })
 
   return (
     <div className="py-4 border-b last:border-0">
@@ -287,7 +266,7 @@ function AssetRow({ position, blndPrice }: { position: PositionWithYield; blndPr
           {hasYield ? (
             <>
               <p className={`font-mono ${position.earnedYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {yieldFormatter.format(position.earnedYield)}
+                {formatYield(position.earnedYield)}
               </p>
               <p className={`text-xs ${position.earnedYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                 {position.yieldPercentage >= 0 ? '+' : ''}{formatPercent(position.yieldPercentage)}
@@ -352,19 +331,16 @@ function AssetRow({ position, blndPrice }: { position: PositionWithYield; blndPr
 }
 
 // Mobile asset card
-function MobileAssetCard({ position, blndPrice }: { position: PositionWithYield; blndPrice: number | null }) {
+function MobileAssetCard({ position, blndPrice, formatUsd, formatYield }: {
+  position: PositionWithYield
+  blndPrice: number | null
+  formatUsd: (value: number, decimals?: number) => string
+  formatYield: (value: number) => string
+}) {
   const hasCollateral = position.collateralAmount > 0
   const hasNonCollateral = position.nonCollateralAmount > 0
   const hasBorrow = position.borrowAmount > 0
   const hasYield = position.earnedYield !== 0
-
-  const yieldFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-    signDisplay: "always",
-  })
 
   return (
     <div className="py-4 border-b last:border-0">
@@ -458,7 +434,7 @@ function MobileAssetCard({ position, blndPrice }: { position: PositionWithYield;
           <div>
             <p className="text-xs text-muted-foreground mb-1">Yield Earned</p>
             <p className={`font-mono ${position.earnedYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {yieldFormatter.format(position.earnedYield)}
+              {formatYield(position.earnedYield)}
             </p>
             <p className={`text-xs ${position.earnedYield >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
               {position.yieldPercentage >= 0 ? '+' : ''}{formatPercent(position.yieldPercentage)}
@@ -552,9 +528,11 @@ interface BackstopSectionProps {
   claimedLp?: number // Total LP tokens claimed from emissions
   blndPerLpToken?: number // BLND per LP token for conversion
   blndPrice?: number | null // BLND price in USD for displaying value
+  formatUsd: (value: number, decimals?: number) => string
+  formatYield: (value: number) => string
 }
 
-function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPrice }: BackstopSectionProps) {
+function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPrice, formatUsd, formatYield }: BackstopSectionProps) {
   const hasQ4w = position.q4wShares > BigInt(0)
   const q4wExpDate = position.q4wExpiration
     ? new Date(position.q4wExpiration * 1000)
@@ -617,13 +595,6 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
                 ? position.lpTokensUsd / position.lpTokens
                 : 0
               const yieldUsd = position.yieldLp * lpTokenPrice
-              const yieldFormatter = new Intl.NumberFormat("en-US", {
-                style: "currency",
-                currency: "USD",
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-                signDisplay: "always",
-              })
 
               // Convert claimed LP to BLND (approximate based on current LP composition)
               const claimedBlndApprox = claimedLp * blndPerLpToken
@@ -631,7 +602,7 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
               return (
                 <>
                   <p className={`font-mono ${position.yieldLp >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-                    {yieldFormatter.format(yieldUsd)}
+                    {formatYield(yieldUsd)}
                   </p>
                   <p className={`text-xs ${position.yieldLp >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
                     {position.yieldPercent >= 0 ? '+' : ''}{formatPercent(position.yieldPercent)}
@@ -757,6 +728,33 @@ export default function PoolDetailsPage() {
   const params = useParams()
   const poolId = decodeURIComponent(params.poolId as string)
   const [activeWallet, setActiveWallet] = useState<Wallet | null>(null)
+
+  // Currency preference hook
+  const { format: formatInCurrency } = useCurrencyPreference()
+
+  // Create format functions using the currency preference
+  const formatUsd = (value: number, decimals = 2): string => {
+    if (!Number.isFinite(value)) return formatInCurrency(0)
+    // Show more decimals for dust amounts
+    if (value > 0 && value < 0.01) {
+      return formatInCurrency(value, {
+        minimumFractionDigits: 6,
+        maximumFractionDigits: 6,
+      })
+    }
+    return formatInCurrency(value, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })
+  }
+
+  const formatYield = (value: number): string => {
+    return formatInCurrency(value, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      signDisplay: "always",
+    })
+  }
 
   const { pools: dbPools } = usePoolsOnly()
   const trackedPools = useMemo(() => toTrackedPools(dbPools), [dbPools])
@@ -1078,7 +1076,7 @@ export default function PoolDetailsPage() {
       <main className="container mx-auto px-4 py-6">
         <div className="space-y-6">
           {/* Summary Stats */}
-          <PoolSummary estimate={poolData.estimate} />
+          <PoolSummary estimate={poolData.estimate} formatUsd={formatUsd} />
 
           {/* Supply/Borrow Positions */}
           {poolData.positions.length > 0 && (
@@ -1090,14 +1088,14 @@ export default function PoolDetailsPage() {
                 {/* Desktop */}
                 <div className="hidden md:block">
                   {poolData.positions.map((position) => (
-                    <AssetRow key={position.id} position={position} blndPrice={poolData.blndPrice} />
+                    <AssetRow key={position.id} position={position} blndPrice={poolData.blndPrice} formatUsd={formatUsd} formatYield={formatYield} />
                   ))}
                 </div>
 
                 {/* Mobile */}
                 <div className="md:hidden">
                   {poolData.positions.map((position) => (
-                    <MobileAssetCard key={position.id} position={position} blndPrice={poolData.blndPrice} />
+                    <MobileAssetCard key={position.id} position={position} blndPrice={poolData.blndPrice} formatUsd={formatUsd} formatYield={formatYield} />
                   ))}
                 </div>
               </CardContent>
@@ -1111,6 +1109,8 @@ export default function PoolDetailsPage() {
               claimedLp={poolData.backstopClaimedLp}
               blndPerLpToken={poolData.blndPerLpToken}
               blndPrice={poolData.blndPrice}
+              formatUsd={formatUsd}
+              formatYield={formatYield}
             />
           )}
         </div>

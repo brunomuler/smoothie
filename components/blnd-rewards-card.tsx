@@ -15,6 +15,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { useUserActions } from "@/hooks/use-user-actions"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
+import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 
 interface BackstopPositionData {
   poolId: string
@@ -44,11 +45,6 @@ function formatNumber(value: number, decimals = 2): string {
   })
 }
 
-function formatUsd(value: number): string {
-  if (!Number.isFinite(value)) return "$0.00"
-  return `$${formatNumber(value)}`
-}
-
 export function BlndRewardsCard({
   publicKey,
   pendingEmissions,
@@ -62,6 +58,17 @@ export function BlndRewardsCard({
   poolNames = {},
 }: BlndRewardsCardProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+
+  // Currency preference for multi-currency display
+  const { format: formatInCurrency } = useCurrencyPreference()
+
+  const formatUsd = (value: number) => {
+    if (!Number.isFinite(value)) return formatInCurrency(0)
+    return formatInCurrency(value, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  }
 
   // Fetch claim actions to calculate total claimed BLND from supply/borrow positions
   const { actions: claimActions, isLoading: actionsLoading } = useUserActions({

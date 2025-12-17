@@ -55,6 +55,8 @@ import {
   FALLBACK_ICON,
   type IconPathData,
 } from "@/lib/icon-paths"
+import { useCurrencyPreference } from "@/hooks/use-currency-preference"
+import type { FormatCurrencyOptions } from "@/lib/currency/format"
 
 interface BalanceBarChartProps {
   historyData: ChartDataPoint[]
@@ -137,29 +139,27 @@ function CustomTooltip({
   active,
   payload,
   period,
+  formatCurrency,
 }: {
   active?: boolean
   payload?: any[]
   period: TimePeriod
+  formatCurrency: (amount: number, options?: FormatCurrencyOptions) => string
 }) {
   if (!active || !payload || !payload.length) {
     return null
   }
 
   const data = payload[0].payload as BarChartDataPoint
-  const formatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  const formatter = (value: number) => formatCurrency(value, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })
 
-  const yieldFormatter = new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  const yieldFormatter = (value: number) => formatCurrency(value, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-    signDisplay: "always",
+    showSign: true,
   })
 
   // Check if we have per-pool breakdown data
@@ -177,7 +177,7 @@ function CustomTooltip({
       <div className="space-y-1 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">Balance:</span>
-          <span className="font-medium">{formatter.format(data.balance)}</span>
+          <span className="font-medium">{formatter(data.balance)}</span>
         </div>
 
         {/* Only show borrowed in non-projection views */}
@@ -185,7 +185,7 @@ function CustomTooltip({
           <div className="flex justify-between">
             <span className="text-muted-foreground">Borrowed:</span>
             <span className="font-medium text-orange-600 dark:text-orange-400">
-              {formatter.format(data.borrow)}
+              {formatter(data.borrow)}
             </span>
           </div>
         )}
@@ -205,7 +205,7 @@ function CustomTooltip({
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground pl-2">Yield:</span>
                           <span className="text-emerald-600 dark:text-emerald-400">
-                            {yieldFormatter.format(pool.yieldEarned)}
+                            {yieldFormatter(pool.yieldEarned)}
                           </span>
                         </div>
                       )}
@@ -213,7 +213,7 @@ function CustomTooltip({
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground pl-2">BLND:</span>
                           <span className="text-purple-600 dark:text-purple-400">
-                            {yieldFormatter.format(pool.blndYield)}
+                            {yieldFormatter(pool.blndYield)}
                           </span>
                         </div>
                       )}
@@ -228,7 +228,7 @@ function CustomTooltip({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Yield:</span>
                   <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                    {yieldFormatter.format(data.yieldEarned)}
+                    {yieldFormatter(data.yieldEarned)}
                   </span>
                 </div>
               )}
@@ -236,14 +236,14 @@ function CustomTooltip({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Total BLND:</span>
                   <span className="font-medium text-purple-600 dark:text-purple-400">
-                    {yieldFormatter.format(data.blndYield)}
+                    {yieldFormatter(data.blndYield)}
                   </span>
                 </div>
               )}
               <div className="flex justify-between mt-1 pt-1 border-t">
                 <span className="text-muted-foreground font-medium">Combined:</span>
                 <span className="font-medium text-emerald-600 dark:text-emerald-400">
-                  {yieldFormatter.format(data.yieldEarned + (data.blndYield || 0))}
+                  {yieldFormatter(data.yieldEarned + (data.blndYield || 0))}
                 </span>
               </div>
             </div>
@@ -260,7 +260,7 @@ function CustomTooltip({
                     : "font-medium text-red-600 dark:text-red-400"
                 }
               >
-                {yieldFormatter.format(data.yieldEarned)}
+                {yieldFormatter(data.yieldEarned)}
               </span>
             </div>
 
@@ -268,7 +268,7 @@ function CustomTooltip({
               <div className="flex justify-between">
                 <span className="text-muted-foreground">BLND Yield:</span>
                 <span className="font-medium text-purple-600 dark:text-purple-400">
-                  {yieldFormatter.format(data.blndYield)}
+                  {yieldFormatter(data.blndYield)}
                 </span>
               </div>
             )}
@@ -522,6 +522,9 @@ export function BalanceBarChart({
 }: BalanceBarChartProps) {
   const [internalPeriod, setInternalPeriod] = useState<TimePeriod>("1M")
   const [error, setError] = useState<Error | null>(null)
+
+  // Currency preference for multi-currency display
+  const { format: formatCurrency } = useCurrencyPreference()
 
   // Projection settings state with localStorage persistence
   const [projectionSettings, setProjectionSettings] = useState<ProjectionSettings>(DEFAULT_PROJECTION_SETTINGS)
@@ -846,7 +849,7 @@ export function BalanceBarChart({
 
               {/* Tooltip - using default hover trigger which works on mobile touch */}
               <Tooltip
-                content={<CustomTooltip period={selectedPeriod} />}
+                content={<CustomTooltip period={selectedPeriod} formatCurrency={formatCurrency} />}
                 cursor={{ fill: 'transparent' }}
                 wrapperStyle={{ zIndex: 50 }}
               />

@@ -2,8 +2,9 @@
 
 import Link from "next/link"
 import { TokenLogo } from "@/components/token-logo"
-import { formatAmount, formatUsdAmount } from "@/lib/format-utils"
+import { formatAmount } from "@/lib/format-utils"
 import { DEMO_SUPPLY_POSITIONS } from "@/lib/demo-data"
+import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -57,6 +58,23 @@ export function SupplyPositions({
   blendSnapshot,
   onPoolClick,
 }: SupplyPositionsProps) {
+  // Currency preference for multi-currency display
+  const { format: formatInCurrency } = useCurrencyPreference()
+
+  const formatUsdAmount = (value: number) => {
+    if (!Number.isFinite(value)) return formatInCurrency(0)
+    if (value > 0 && value < 0.01) {
+      return formatInCurrency(value, { minimumFractionDigits: 6, maximumFractionDigits: 6 })
+    }
+    return formatInCurrency(value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+
+  const formatYieldValue = (value: number) => formatInCurrency(value, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    showSign: true,
+  })
+
   if (isLoading && !isDemoMode) {
     return (
       <div className="grid gap-4 grid-cols-1">
@@ -105,14 +123,7 @@ export function SupplyPositions({
             <CardContent className="px-4 pt-0 pb-1">
               <div className="space-y-1">
                 {pool.assets.map((asset) => {
-                  const yieldFormatter = new Intl.NumberFormat("en-US", {
-                    style: "currency",
-                    currency: "USD",
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                    signDisplay: "always",
-                  })
-                  const formattedYield = yieldFormatter.format(asset.earnedYield)
+                  const formattedYield = formatYieldValue(asset.earnedYield)
                   const hasSignificantYield = Math.abs(asset.earnedYield) >= 0.01
                   const formattedYieldPercentage = asset.yieldPercentage !== 0 ? ` (${asset.yieldPercentage >= 0 ? '+' : ''}${asset.yieldPercentage.toFixed(2)}%)` : ''
                   const isUSDC = asset.symbol === 'USDC'
@@ -182,19 +193,12 @@ export function SupplyPositions({
                             ? pool.backstop.lpTokensUsd / pool.backstop.lpTokens
                             : 0
                           const yieldUsd = pool.backstop.yieldLp * lpTokenPrice
-                          const yieldFormatter = new Intl.NumberFormat("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                            signDisplay: "always",
-                          })
                           const formattedYieldPercentage = pool.backstop.yieldPercent !== 0
                             ? ` (${pool.backstop.yieldPercent >= 0 ? '+' : ''}${pool.backstop.yieldPercent.toFixed(2)}%)`
                             : ''
                           return (
                             <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                              {yieldFormatter.format(yieldUsd)} yield{formattedYieldPercentage}
+                              {formatYieldValue(yieldUsd)} yield{formattedYieldPercentage}
                             </p>
                           )
                         })()}
@@ -269,15 +273,8 @@ export function SupplyPositions({
               <CardContent className="px-4 pt-0 pb-1">
                 <div className="space-y-1">
                   {assets.map((asset) => {
-                    const yieldFormatter = new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                      signDisplay: "always",
-                    })
                     const yieldToShow = asset.earnedYield ?? 0
-                    const formattedYield = yieldFormatter.format(yieldToShow)
+                    const formattedYield = formatYieldValue(yieldToShow)
                     const hasSignificantYield = Math.abs(yieldToShow) >= 0.01
                     const yieldPercentage = asset.yieldPercentage ?? 0
                     const formattedYieldPercentage = yieldPercentage !== 0 ? ` (${yieldPercentage >= 0 ? '+' : ''}${yieldPercentage.toFixed(2)}%)` : ''
@@ -377,19 +374,12 @@ export function SupplyPositions({
                                 ? backstopPosition.lpTokensUsd / backstopPosition.lpTokens
                                 : 0
                               const yieldUsd = backstopPosition.yieldLp * lpTokenPrice
-                              const yieldFormatter = new Intl.NumberFormat("en-US", {
-                                style: "currency",
-                                currency: "USD",
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                                signDisplay: "always",
-                              })
                               const formattedYieldPercentage = backstopPosition.yieldPercent !== 0
                                 ? ` (${backstopPosition.yieldPercent >= 0 ? '+' : ''}${backstopPosition.yieldPercent.toFixed(2)}%)`
                                 : ''
                               return (
                                 <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                                  {yieldFormatter.format(yieldUsd)} yield{formattedYieldPercentage}
+                                  {formatYieldValue(yieldUsd)} yield{formattedYieldPercentage}
                                 </p>
                               )
                             })()}
