@@ -199,26 +199,26 @@ function CustomTooltip({
                 {data.poolBreakdown!
                   .filter((pool) => pool.yieldEarned !== 0 || pool.blndYield !== 0)
                   .map((pool) => (
-                  <div key={pool.poolId} className="space-y-0.5">
-                    <div className="text-xs font-medium text-muted-foreground">{pool.poolName}</div>
-                    {pool.yieldEarned !== 0 && (
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground pl-2">Yield:</span>
-                        <span className="text-emerald-600 dark:text-emerald-400">
-                          {yieldFormatter.format(pool.yieldEarned)}
-                        </span>
-                      </div>
-                    )}
-                    {pool.blndYield !== 0 && (
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground pl-2">BLND:</span>
-                        <span className="text-purple-600 dark:text-purple-400">
-                          {yieldFormatter.format(pool.blndYield)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                    <div key={pool.poolId} className="space-y-0.5">
+                      <div className="text-xs font-medium text-muted-foreground">{pool.poolName}</div>
+                      {pool.yieldEarned !== 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground pl-2">Yield:</span>
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            {yieldFormatter.format(pool.yieldEarned)}
+                          </span>
+                        </div>
+                      )}
+                      {pool.blndYield !== 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground pl-2">BLND:</span>
+                          <span className="text-purple-600 dark:text-purple-400">
+                            {yieldFormatter.format(pool.blndYield)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
               </div>
             </div>
 
@@ -875,7 +875,7 @@ export function BalanceBarChart({
           <Popover>
             <PopoverTrigger asChild>
               <button
-                className="absolute right-3 p-1.5 rounded-md hover:bg-accent transition-colors"
+                className="right-3 p-1.5 rounded-md hover:bg-accent transition-colors"
                 aria-label="Projection settings"
               >
                 <Settings className="h-4 w-4 text-muted-foreground" />
