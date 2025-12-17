@@ -303,10 +303,10 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
   // Derive cost basis from SDK: costBasis = totalYield / (growthPercentage / 100)
   const costBasis = useMemo(() => {
     if (!Number.isFinite(totalYield) || !Number.isFinite(activeData.growthPercentage) || activeData.growthPercentage === 0) {
-      return displayBalance // Fallback to current balance if we can't derive cost basis
+      return initialBalance // Fallback to current balance if we can't derive cost basis
     }
     return totalYield / (activeData.growthPercentage / 100)
-  }, [totalYield, activeData.growthPercentage, displayBalance])
+  }, [totalYield, activeData.growthPercentage, initialBalance])
 
   // Calculate period-specific percentage gain
   // All periods use: periodYield / costBasis * 100
@@ -390,13 +390,14 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
   // Calculate yield projections based on current APY
   // APY is already the effective annual rate (accounts for compounding)
   // To get sub-annual yields, we extract the equivalent periodic rate from the APY
+  // Use initialBalance (stable SDK value) for calculations, not displayBalance (animated)
   const apyDecimalRate = activeData.apyPercentage / 100
   // Daily yield: Balance × ((1 + APY)^(1/365) - 1)
-  const dailyYield = displayBalance * (Math.pow(1 + apyDecimalRate, 1 / 365) - 1)
+  const dailyYield = initialBalance * (Math.pow(1 + apyDecimalRate, 1 / 365) - 1)
   // Monthly yield: Balance × ((1 + APY)^(1/12) - 1)
-  const monthlyYield = displayBalance * (Math.pow(1 + apyDecimalRate, 1 / 12) - 1)
+  const monthlyYield = initialBalance * (Math.pow(1 + apyDecimalRate, 1 / 12) - 1)
   // Annual yield: Balance × APY (APY is already the annual compound rate)
-  const annualYieldCompound = displayBalance * apyDecimalRate
+  const annualYieldCompound = initialBalance * apyDecimalRate
 
   const yieldFormatter = new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -511,7 +512,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
         <BalanceBarChart
           historyData={displayChartData}
           userActions={userActions}
-          currentBalance={displayBalance}
+          currentBalance={initialBalance}
           apy={activeData.apyPercentage}
           blndApy={activeData.blndApy}
           firstEventDate={firstEventDate}
