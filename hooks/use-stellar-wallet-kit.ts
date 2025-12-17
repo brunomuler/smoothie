@@ -5,7 +5,7 @@ import { Buffer } from "buffer"
 import { StellarWalletsKit } from "@creit-tech/stellar-wallets-kit/sdk"
 import { Networks } from "@creit-tech/stellar-wallets-kit/types"
 import { defaultModules } from "@creit-tech/stellar-wallets-kit/modules/utils"
-import { WalletConnectModule, WalletConnectTargetChain } from "@creit-tech/stellar-wallets-kit/modules/wallet-connect"
+// WalletConnect is imported dynamically to avoid SSR issues with Node.js-only dependencies
 // import { LedgerModule } from "@creit-tech/stellar-wallets-kit/modules/ledger"
 // import { HotWalletModule } from "@creit-tech/stellar-wallets-kit/modules/hotwallet"
 
@@ -59,15 +59,19 @@ async function ensureInitialized(network: Networks): Promise<void> {
       const modules = defaultModules()
 
       // Add WalletConnect module if project ID is available
+      // Dynamic import to avoid SSR issues with Node.js-only dependencies
       const wcProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
       if (wcProjectId) {
+        const { WalletConnectModule, WalletConnectTargetChain } = await import(
+          "@creit-tech/stellar-wallets-kit/modules/wallet-connect"
+        )
         const walletConnectModule = new WalletConnectModule({
           projectId: wcProjectId,
           metadata: {
             name: "Smoothie",
             description: "Stellar Portfolio Manager",
-            url: typeof window !== "undefined" ? window.location.origin : "https://smoothie.app",
-            icons: [typeof window !== "undefined" ? `${window.location.origin}/icon.png` : "https://smoothie.app/icon.png"],
+            url: window.location.origin,
+            icons: [`${window.location.origin}/icon.png`],
           },
           allowedChains: network === Networks.PUBLIC
             ? [WalletConnectTargetChain.PUBLIC]
