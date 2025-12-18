@@ -91,7 +91,7 @@ export function useUserActions({
     select: selectActionsOnly ? (data) => ({ ...data, actions: data.actions }) : undefined,
     enabled: enabled && !!publicKey,
     staleTime: 30 * 1000, // 30 seconds - actions update more frequently
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // Disabled to reduce unnecessary refetches
     retry: 2,
   })
 
@@ -198,7 +198,7 @@ export function useInfiniteUserActions({
     },
     enabled: enabled && !!publicKey,
     staleTime: 30 * 1000,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false, // Disabled to reduce unnecessary refetches
     retry: 2,
   })
 

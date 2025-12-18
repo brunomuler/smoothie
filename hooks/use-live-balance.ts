@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 type FetchActualBalance = () => Promise<number | null | undefined>
 
 const SECONDS_PER_YEAR = 31_557_600 // 365.25 days
+const PAUSE_STORAGE_KEY = 'smoothie-live-balance-paused'
 
 function sanitizeNumeric(value: number | null | undefined): number {
   if (!Number.isFinite(value ?? NaN)) {
@@ -24,6 +25,8 @@ export interface LiveBalanceResult {
   warningMessage: string
   lastSync: number
   syncNow: () => Promise<void>
+  isPaused: boolean
+  togglePause: () => void
 }
 
 /**
@@ -50,9 +53,16 @@ export function useLiveBalance(
   const [isWarning, setIsWarning] = useState<boolean>(false)
   const [warningMessage, setWarningMessage] = useState<string>("")
   const [lastSync, setLastSync] = useState<number>(() => Date.now())
+  const [isPaused, setIsPaused] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return localStorage.getItem(PAUSE_STORAGE_KEY) === 'true'
+    } catch {
+      return false
+    }
+  })
 
-  const animationFrameRef = useRef<number | null>(null)
-  const lastUpdateTimeRef = useRef<number>(Date.now())
+  const animationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const fetchIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const calculatePerSecondIncrease = useCallback((balance: number, annualYield: number) => {
@@ -62,64 +72,59 @@ export function useLiveBalance(
     return (balance * annualYield) / SECONDS_PER_YEAR
   }, [])
 
-  // Reset and animate when balance or APY changes
-  useEffect(() => {
-    let cancelled = false
+  const togglePause = useCallback(() => {
+    setIsPaused((prev) => {
+      const newValue = !prev
+      try {
+        localStorage.setItem(PAUSE_STORAGE_KEY, String(newValue))
+      } catch {
+        // Ignore localStorage errors
+      }
+      return newValue
+    })
+  }, [])
 
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
+  // Reset and animate when balance or APY changes
+  // Uses throttled interval (66ms = 15 updates/sec) instead of RAF (60/sec) for performance
+  const ANIMATION_INTERVAL_MS = 66
+
+  useEffect(() => {
+    if (animationIntervalRef.current) {
+      clearInterval(animationIntervalRef.current)
+      animationIntervalRef.current = null
     }
 
-    Promise.resolve().then(() => {
-      if (cancelled) {
+    setDisplayBalance(initialBalance)
+    setActualBalance(initialBalance)
+    setLastSync(Date.now())
+    setIsWarning(false)
+    setWarningMessage("")
+
+    if (!apyDecimal || isPaused) {
+      return
+    }
+
+    // Use setInterval at 66ms (15 updates/sec) instead of RAF (60/sec)
+    // This reduces CPU usage by 4x while appearing smooth
+    animationIntervalRef.current = setInterval(() => {
+      // Skip updates when tab is hidden
+      if (document.visibilityState === 'hidden') {
         return
       }
 
-      setDisplayBalance(initialBalance)
-      setActualBalance(initialBalance)
-      setLastSync(Date.now())
-      setIsWarning(false)
-      setWarningMessage("")
-      lastUpdateTimeRef.current = Date.now()
-
-      if (!apyDecimal) {
-        return
-      }
-
-      // Use requestAnimationFrame for smoother, more efficient animations
-      const animate = () => {
-        // Only animate when tab is visible
-        if (document.visibilityState === 'hidden') {
-          animationFrameRef.current = requestAnimationFrame(animate)
-          return
-        }
-
-        const now = Date.now()
-        const deltaTime = (now - lastUpdateTimeRef.current) / 1000 // Convert to seconds
-        lastUpdateTimeRef.current = now
-
-        setDisplayBalance((prev) => {
-          const perSecond = calculatePerSecondIncrease(prev, apyDecimal)
-          return prev + perSecond * deltaTime
-        })
-
-        if (!cancelled) {
-          animationFrameRef.current = requestAnimationFrame(animate)
-        }
-      }
-
-      animationFrameRef.current = requestAnimationFrame(animate)
-    })
+      setDisplayBalance((prev) => {
+        const perSecond = calculatePerSecondIncrease(prev, apyDecimal)
+        return prev + perSecond * (ANIMATION_INTERVAL_MS / 1000)
+      })
+    }, ANIMATION_INTERVAL_MS)
 
     return () => {
-      cancelled = true
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-        animationFrameRef.current = null
+      if (animationIntervalRef.current) {
+        clearInterval(animationIntervalRef.current)
+        animationIntervalRef.current = null
       }
     }
-  }, [initialBalance, apyDecimal, calculatePerSecondIncrease])
+  }, [initialBalance, apyDecimal, isPaused, calculatePerSecondIncrease])
 
   // Periodic sync with actual balance source
   useEffect(() => {
@@ -202,5 +207,7 @@ export function useLiveBalance(
     warningMessage,
     lastSync,
     syncNow,
+    isPaused,
+    togglePause,
   }
 }

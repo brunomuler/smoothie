@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useState, useMemo, useEffect, useCallback, memo } from "react"
 import {
   BarChart,
   Bar,
@@ -507,7 +507,7 @@ function renderEventMarkers(props: any) {
   )
 }
 
-export function BalanceBarChart({
+export const BalanceBarChart = memo(function BalanceBarChart({
   historyData,
   userActions,
   currentBalance,
@@ -960,4 +960,4 @@ export function BalanceBarChart({
 
     </div>
   )
-}
+})

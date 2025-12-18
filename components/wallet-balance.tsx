@@ -229,7 +229,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     return latestData.borrow || 0
   }, [displayChartData])
 
-  const { displayBalance } = useLiveBalance(initialBalance, apyDecimal, null, 0)
+  const { displayBalance, isPaused, togglePause } = useLiveBalance(initialBalance, apyDecimal, null, 0)
 
   // Fetch user actions for event markers
   const { actions: userActions } = useUserActions({
@@ -445,7 +445,11 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           <CurrencySelector value={currency} onChange={setCurrency} />
         </div>
         <div className="flex items-end gap-2 flex-wrap">
-          <h3 className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl @[400px]/card:text-4xl">
+          <h3
+            className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl @[400px]/card:text-4xl cursor-pointer select-none"
+            onDoubleClick={togglePause}
+            title={isPaused ? "Double-click to resume live updates" : "Double-click to pause live updates"}
+          >
             <FormattedBalance value={formattedLiveBalance} />
           </h3>
           {!isDemoMode && currentBorrow > 0 && (
