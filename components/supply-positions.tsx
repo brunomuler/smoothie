@@ -1,12 +1,10 @@
 "use client"
 
-import { useMemo } from "react"
 import Link from "next/link"
 import { TokenLogo } from "@/components/token-logo"
 import { formatAmount } from "@/lib/format-utils"
 import { DEMO_SUPPLY_POSITIONS } from "@/lib/demo-data"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
-import { useTokensOnly } from "@/hooks/use-metadata"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -70,25 +68,7 @@ export function SupplyPositions({
   onPoolClick,
 }: SupplyPositionsProps) {
   // Currency preference for multi-currency display
-  const { format: formatInCurrency, currency } = useCurrencyPreference()
-
-  // Get token metadata for pegged currency lookup
-  const { tokens } = useTokensOnly()
-
-  // Build a map from symbol to pegged currency
-  const symbolToPeggedCurrency = useMemo(() => {
-    const map = new Map<string, string | null>()
-    tokens.forEach(token => {
-      map.set(token.symbol, token.pegged_currency)
-    })
-    return map
-  }, [tokens])
-
-  // Check if a token's pegged currency matches the user's selected currency
-  const isPeggedToSelectedCurrency = (symbol: string): boolean => {
-    const peggedCurrency = symbolToPeggedCurrency.get(symbol)
-    return peggedCurrency === currency
-  }
+  const { format: formatInCurrency } = useCurrencyPreference()
 
   const formatUsdAmount = (value: number) => {
     if (!Number.isFinite(value)) return formatInCurrency(0)
@@ -155,8 +135,6 @@ export function SupplyPositions({
                   const formattedYield = formatYieldValue(asset.earnedYield)
                   const hasSignificantYield = Math.abs(asset.earnedYield) >= 0.01
                   const formattedYieldPercentage = asset.yieldPercentage !== 0 ? ` (${asset.yieldPercentage >= 0 ? '+' : ''}${asset.yieldPercentage.toFixed(2)}%)` : ''
-                  const hideTokenAmount = isPeggedToSelectedCurrency(asset.symbol)
-
                   return (
                     <div key={asset.id} className="flex items-center justify-between py-2 gap-3">
                       <div className="flex items-center gap-3 min-w-0">
@@ -168,16 +146,10 @@ export function SupplyPositions({
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{asset.assetName}</p>
                           <p className="text-sm text-muted-foreground truncate">
-                            {hideTokenAmount ? (
-                              formatUsdAmount(asset.rawBalance)
-                            ) : (
-                              <>
-                                {formatUsdAmount(asset.rawBalance)}
-                                <span className="text-xs ml-1">
-                                  ({formatAmount(asset.tokenAmount)} {asset.symbol})
-                                </span>
-                              </>
-                            )}
+                            {formatUsdAmount(asset.rawBalance)}
+                            <span className="text-xs ml-1">
+                              ({formatAmount(asset.tokenAmount)} {asset.symbol})
+                            </span>
                           </p>
                           {hasSignificantYield && (
                             <p className={`text-xs ${asset.earnedYield >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
@@ -312,7 +284,6 @@ export function SupplyPositions({
                     const position = blendSnapshot?.positions.find(p => p.id === asset.id)
                     const tokenAmount = position?.supplyAmount || 0
                     const symbol = position?.symbol || asset.assetName
-                    const hideTokenAmount = isPeggedToSelectedCurrency(symbol)
 
                     return (
                       <div key={asset.id} className="flex items-center justify-between py-2 gap-3">
@@ -325,16 +296,10 @@ export function SupplyPositions({
                           <div className="min-w-0 flex-1">
                             <p className="font-medium truncate">{asset.assetName}</p>
                             <p className="text-sm text-muted-foreground truncate">
-                              {hideTokenAmount ? (
-                                formatUsdAmount(asset.rawBalance)
-                              ) : (
-                                <>
-                                  {formatUsdAmount(asset.rawBalance)}
-                                  <span className="text-xs ml-1">
-                                    ({formatAmount(tokenAmount)} {symbol})
-                                  </span>
-                                </>
-                              )}
+                              {formatUsdAmount(asset.rawBalance)}
+                              <span className="text-xs ml-1">
+                                ({formatAmount(tokenAmount)} {symbol})
+                              </span>
                             </p>
                             {hasSignificantYield && (
                               asset.yieldBreakdown ? (() => {
