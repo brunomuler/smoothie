@@ -68,40 +68,71 @@ export interface PeriodYieldBreakdownResponse {
 }
 
 /**
- * Calculate period start date based on period type
+ * Calculate period start date based on period type.
+ * Uses user's timezone to ensure dates match the chart display.
+ *
+ * @param period - Time period type
+ * @param timezone - User's IANA timezone (e.g., 'America/New_York', 'Europe/London')
+ * @returns Date string in YYYY-MM-DD format in user's timezone
  */
-function getPeriodStartDate(period: PeriodType): string {
-  const today = new Date()
-  let periodStart: Date
+function getPeriodStartDate(period: PeriodType, timezone: string = 'UTC'): string {
+  // Get current date/time in user's timezone
+  const now = new Date()
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+
+  // Parse today's date in user's timezone
+  const todayStr = formatter.format(now) // Returns YYYY-MM-DD format
+  const [year, month, day] = todayStr.split('-').map(Number)
+
+  let periodStartYear = year
+  let periodStartMonth = month
+  let periodStartDay = day
 
   switch (period) {
     case '1W':
-      periodStart = new Date(today)
-      periodStart.setDate(periodStart.getDate() - 7)
+      // Subtract 7 days
+      const weekAgo = new Date(year, month - 1, day - 7)
+      periodStartYear = weekAgo.getFullYear()
+      periodStartMonth = weekAgo.getMonth() + 1
+      periodStartDay = weekAgo.getDate()
       break
     case '1M':
-      periodStart = new Date(today)
-      periodStart.setDate(periodStart.getDate() - 30)
+      // Subtract 30 days
+      const monthAgo = new Date(year, month - 1, day - 30)
+      periodStartYear = monthAgo.getFullYear()
+      periodStartMonth = monthAgo.getMonth() + 1
+      periodStartDay = monthAgo.getDate()
       break
     case '1Y':
-      periodStart = new Date(today)
-      periodStart.setFullYear(periodStart.getFullYear() - 1)
+      // Subtract 1 year
+      periodStartYear = year - 1
       break
     case 'All':
     default:
       // For "All", use a very old date
-      periodStart = new Date('2020-01-01')
-      break
+      return '2020-01-01'
   }
 
-  return periodStart.toISOString().split('T')[0]
+  // Format as YYYY-MM-DD
+  return `${periodStartYear}-${String(periodStartMonth).padStart(2, '0')}-${String(periodStartDay).padStart(2, '0')}`
 }
 
 /**
- * Find token balance at a specific date from balance history
- * Returns supply_balance + collateral_balance at or before the target date
+ * Find token balance BEFORE a specific date from balance history.
+ *
+ * Since balance history uses END-OF-DAY snapshots:
+ * - To get balance at START of Nov 19, we need Nov 18 EOD (strictly < Nov 19)
+ * - This represents what the user had BEFORE any events on the target date
+ *
+ * @param targetDate - The period start date (e.g., "2024-11-19")
+ * @returns Balance from the day BEFORE targetDate (end-of-day snapshot)
  */
-function findTokenBalanceAtDate(
+function findTokenBalanceBeforeDate(
   history: Array<{ snapshot_date: string; supply_balance: number; collateral_balance: number; pool_id: string }>,
   targetDate: string,
   poolId: string,
@@ -113,13 +144,13 @@ function findTokenBalanceAtDate(
     .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
 
   if (debug) {
-    console.log(`[findTokenBalanceAtDate] Looking for ${poolId.slice(0, 8)}... at ${targetDate}`)
-    console.log(`[findTokenBalanceAtDate] Total records for pool: ${sorted.length}`)
+    console.log(`[findTokenBalanceBeforeDate] Looking for balance BEFORE ${targetDate} for pool ${poolId.slice(0, 8)}...`)
+    console.log(`[findTokenBalanceBeforeDate] Total records for pool: ${sorted.length}`)
     // Show records around target date
     const nearbyRecords = sorted.filter(r =>
       r.snapshot_date >= targetDate.slice(0, 7) // Same month or later
     ).slice(0, 5)
-    console.log(`[findTokenBalanceAtDate] Nearby records:`, nearbyRecords.map(r => ({
+    console.log(`[findTokenBalanceBeforeDate] Nearby records:`, nearbyRecords.map(r => ({
       date: r.snapshot_date,
       supply: r.supply_balance?.toFixed(2),
       collateral: r.collateral_balance?.toFixed(2),
@@ -127,21 +158,22 @@ function findTokenBalanceAtDate(
     })))
   }
 
-  // Find the first record on or before the target date
+  // Find the first record STRICTLY BEFORE the target date
+  // This gives us the end-of-day balance from the day before the period starts
   for (const record of sorted) {
-    if (record.snapshot_date <= targetDate) {
+    if (record.snapshot_date < targetDate) {
       const balance = (record.supply_balance || 0) + (record.collateral_balance || 0)
       if (debug) {
-        console.log(`[findTokenBalanceAtDate] Found record at ${record.snapshot_date}: supply=${record.supply_balance}, collateral=${record.collateral_balance}, total=${balance}`)
+        console.log(`[findTokenBalanceBeforeDate] Found record at ${record.snapshot_date}: supply=${record.supply_balance}, collateral=${record.collateral_balance}, total=${balance}`)
       }
       return balance
     }
   }
 
   if (debug) {
-    console.log(`[findTokenBalanceAtDate] No record found on or before ${targetDate}`)
+    console.log(`[findTokenBalanceBeforeDate] No record found before ${targetDate}`)
   }
-  // If no record found before target date, user didn't have position
+  // If no record found before target date, user didn't have position before this period
   return 0
 }
 
@@ -228,8 +260,15 @@ export async function GET(request: NextRequest) {
   })
 
   try {
-    const periodStartDate = getPeriodStartDate(period)
-    const todayStr = new Date().toISOString().split('T')[0]
+    const periodStartDate = getPeriodStartDate(period, timezone)
+    // Get today's date in user's timezone
+    const todayFormatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    const todayStr = todayFormatter.format(new Date())
 
     // Get all unique assets the user has interacted with
     const userActions = await eventsRepository.getUserActions(userAddress, {
@@ -292,11 +331,12 @@ export async function GET(request: NextRequest) {
       const sdkPrice = sdkPrices[assetAddress] || 0
       const tokensNow = currentBalances[compositeKey] || 0
 
-      // Step 1: Get actual token balance at period start from DATABASE
-      // This is the REAL balance (including interest earned before period)
-      // We need to check this FIRST because positions may have been closed during the period
+      // Step 1: Get actual token balance BEFORE period start from DATABASE
+      // Since balance history is END-OF-DAY snapshots, we look for balance STRICTLY BEFORE
+      // periodStartDate to get what the user had at the START of the period.
+      // Example: For period starting Nov 19, we get Nov 18 EOD balance
       const history = balanceHistoryByAsset.get(assetAddress) || []
-      const tokensAtStart = findTokenBalanceAtDate(history, periodStartDate, poolId, true)
+      const tokensAtStart = findTokenBalanceBeforeDate(history, periodStartDate, poolId, true)
 
       // Skip only if BOTH current AND start balances are zero (never had position in this period)
       if (tokensNow <= 0 && tokensAtStart <= 0) {
@@ -324,22 +364,19 @@ export async function GET(request: NextRequest) {
         continue
       }
 
-      // Step 2: Get events AFTER period start (to calculate net deposited in period)
-      // Use day AFTER period start because:
-      // 1. Balance history is END-OF-DAY, so tokensAtStart includes all events on periodStartDate
-      // 2. Events query uses UTC which may differ from user timezone
-      // Using > periodStartDate avoids double-counting regardless of timezone edge cases
-      const dayAfterPeriodStart = new Date(periodStartDate)
-      dayAfterPeriodStart.setDate(dayAfterPeriodStart.getDate() + 1)
-      const eventsStartDate = dayAfterPeriodStart.toISOString().split('T')[0]
-
+      // Step 2: Get events FROM period start (to calculate net deposited in period)
+      // Since tokensAtStart is now the balance BEFORE periodStartDate,
+      // we include events ON periodStartDate in netDepositedInPeriod.
+      // Example: Period starts Nov 19, tokensAtStart is Nov 18 EOD,
+      //          so Nov 19 deposits should count in netDepositedInPeriod
       const eventsInPeriod = await eventsRepository.getDepositEventsWithPrices(
         userAddress,
         assetAddress,
         poolId,
         effectivePrice,
-        eventsStartDate, // startDate = day after period start (to avoid double-counting)
-        undefined        // no endDate (up to now)
+        periodStartDate, // startDate = period start (includes all events in period)
+        undefined,       // no endDate (up to now)
+        timezone         // Use user's timezone for consistent date handling
       )
 
       const depositsInPeriod = eventsInPeriod.deposits
@@ -347,6 +384,16 @@ export async function GET(request: NextRequest) {
       const depositsInPeriodTokens = depositsInPeriod.reduce((sum, d) => sum + d.tokens, 0)
       const withdrawalsInPeriodTokens = withdrawalsInPeriod.reduce((sum, w) => sum + w.tokens, 0)
       const netDepositedInPeriod = depositsInPeriodTokens - withdrawalsInPeriodTokens
+
+      // Debug: log each deposit event
+      console.log(`[Period Yield API] Deposit events for ${compositeKey.slice(0, 24)}:`, {
+        periodStartDate,
+        timezone,
+        deposits: depositsInPeriod.map(d => ({ date: d.date, tokens: d.tokens.toFixed(2) })),
+        totalDeposits: depositsInPeriodTokens.toFixed(2),
+        totalWithdrawals: withdrawalsInPeriodTokens.toFixed(2),
+        netDeposited: netDepositedInPeriod.toFixed(2),
+      })
 
       // Step 3: Get ACTUAL market price at period start from daily_token_prices
       // This is different from all-time which uses weighted average deposit price.
@@ -360,7 +407,6 @@ export async function GET(request: NextRequest) {
 
       console.log(`[Period Yield API] Asset ${assetAddress.slice(0, 8)}... in pool ${poolId.slice(0, 8)}...`, {
         periodStartDate,
-        eventsStartDate,
         priceAtStart: priceAtStart.toFixed(6),
         priceSource,
         priceNow: effectivePrice.toFixed(6),
@@ -487,8 +533,9 @@ export async function GET(request: NextRequest) {
       for (const poolAddress of backstopPoolAddresses) {
         const lpTokensNow = backstopPositions[poolAddress] || 0
 
-        // Find LP tokens at period start from history
-        // Filter history for this pool and find the record at or before period start
+        // Find LP tokens BEFORE period start from history
+        // Since balance history is END-OF-DAY snapshots, we look for balance STRICTLY BEFORE
+        // periodStartDate to get what the user had at the START of the period.
         const poolHistory = backstopHistory.filter(h => h.pool_address === poolAddress)
         let lpTokensAtStart = 0
 
@@ -502,10 +549,10 @@ export async function GET(request: NextRequest) {
           sampleRecords: poolHistory.slice(0, 3).map(h => ({ date: h.date, lp_tokens_value: h.lp_tokens_value })),
         })
 
-        // Sort by date descending and find first record on or before period start
+        // Sort by date descending and find first record STRICTLY BEFORE period start
         const sortedHistory = poolHistory.sort((a, b) => b.date.localeCompare(a.date))
         for (const record of sortedHistory) {
-          if (record.date <= periodStartDate) {
+          if (record.date < periodStartDate) {
             lpTokensAtStart = record.lp_tokens_value || 0
             break
           }
@@ -518,12 +565,11 @@ export async function GET(request: NextRequest) {
         }
 
         // Calculate net deposited in period from events
-        // Use > periodStartDate because balance history is END-OF-DAY, so lpTokensAtStart
-        // already includes all events on periodStartDate
+        // Since lpTokensAtStart is now BEFORE periodStartDate, we include events ON periodStartDate
         const poolDepositsInPeriod = backstopEventsData.deposits
-          .filter(d => d.poolAddress === poolAddress && d.date > periodStartDate)
+          .filter(d => d.poolAddress === poolAddress && d.date >= periodStartDate)
         const poolWithdrawalsInPeriod = backstopEventsData.withdrawals
-          .filter(w => w.poolAddress === poolAddress && w.date > periodStartDate)
+          .filter(w => w.poolAddress === poolAddress && w.date >= periodStartDate)
 
         const poolDepositsTokens = poolDepositsInPeriod.reduce((sum, d) => sum + d.lpTokens, 0)
         const poolWithdrawalsTokens = poolWithdrawalsInPeriod.reduce((sum, w) => sum + w.lpTokens, 0)

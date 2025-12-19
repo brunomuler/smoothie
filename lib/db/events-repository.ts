@@ -287,6 +287,9 @@ export class EventsRepository {
 
     // First, get the earliest event date for this user/asset (including auction events)
     // Convert timestamps to user's timezone before extracting date
+    // NOTE: ledger_closed_at is stored as "timestamp without time zone" but contains UTC values.
+    // We must use double AT TIME ZONE: first interpret as UTC, then convert to user's timezone.
+    // Single AT TIME ZONE would incorrectly interpret the UTC value as already being in the target timezone.
     const firstEventResult = await pool.query(
       `
       SELECT MIN((ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $3)::date)::text AS first_event_date
@@ -858,7 +861,7 @@ export class EventsRepository {
         SELECT generate_series(
           GREATEST(
             (CURRENT_TIMESTAMP AT TIME ZONE $4)::date - $3::integer,
-            (SELECT MIN((ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date) FROM backstop_events
+            (SELECT MIN((ledger_closed_at AT TIME ZONE $4)::date) FROM backstop_events
              WHERE user_address = $1 AND pool_address = $2)
           ),
           (CURRENT_TIMESTAMP AT TIME ZONE $4)::date,
@@ -868,7 +871,7 @@ export class EventsRepository {
       -- User's cumulative shares over time
       user_events AS (
         SELECT
-          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
+          (ledger_closed_at AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type = 'deposit' THEN shares::numeric
             WHEN action_type = 'withdraw' THEN -shares::numeric
@@ -877,7 +880,7 @@ export class EventsRepository {
         FROM backstop_events
         WHERE user_address = $1
           AND pool_address = $2
-        GROUP BY (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
+        GROUP BY (ledger_closed_at AT TIME ZONE $4)::date
       ),
       user_cumulative AS (
         SELECT
@@ -896,7 +899,7 @@ export class EventsRepository {
       --   - SDK calculates user value directly from on-chain state, not shares × rate
       pool_events AS (
         SELECT
-          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
+          (ledger_closed_at AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
             WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
@@ -909,7 +912,7 @@ export class EventsRepository {
           END) AS shares_change
         FROM backstop_events
         WHERE pool_address = $2
-        GROUP BY (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
+        GROUP BY (ledger_closed_at AT TIME ZONE $4)::date
       ),
       pool_cumulative AS (
         SELECT
@@ -984,7 +987,7 @@ export class EventsRepository {
         SELECT generate_series(
           GREATEST(
             (CURRENT_TIMESTAMP AT TIME ZONE $4)::date - $3::integer,
-            (SELECT MIN((ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date) FROM backstop_events
+            (SELECT MIN((ledger_closed_at AT TIME ZONE $4)::date) FROM backstop_events
              WHERE user_address = $1 AND pool_address = ANY($2))
           ),
           (CURRENT_TIMESTAMP AT TIME ZONE $4)::date,
@@ -999,7 +1002,7 @@ export class EventsRepository {
       user_events AS (
         SELECT
           pool_address,
-          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
+          (ledger_closed_at AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type = 'deposit' THEN shares::numeric
             WHEN action_type = 'withdraw' THEN -shares::numeric
@@ -1008,7 +1011,7 @@ export class EventsRepository {
         FROM backstop_events
         WHERE user_address = $1
           AND pool_address = ANY($2)
-        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
+        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE $4)::date
       ),
       user_cumulative AS (
         SELECT
@@ -1021,7 +1024,7 @@ export class EventsRepository {
       pool_events AS (
         SELECT
           pool_address,
-          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
+          (ledger_closed_at AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
             WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
@@ -1034,7 +1037,7 @@ export class EventsRepository {
           END) AS shares_change
         FROM backstop_events
         WHERE pool_address = ANY($2)
-        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
+        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE $4)::date
       ),
       pool_cumulative AS (
         SELECT
@@ -1321,7 +1324,8 @@ export class EventsRepository {
     poolId?: string,
     sdkPrice: number = 0,
     startDate?: string,
-    endDate?: string
+    endDate?: string,
+    timezone: string = 'UTC'
   ): Promise<{
     deposits: Array<{
       date: string
@@ -1356,14 +1360,19 @@ export class EventsRepository {
       paramIndex++
     }
 
+    // Add timezone parameter
+    const tzParamIndex = paramIndex
+    params.push(timezone)
+    paramIndex++
+
     if (startDate) {
-      whereClause += ` AND (pe.ledger_closed_at AT TIME ZONE 'UTC')::date >= $${paramIndex}::date`
+      whereClause += ` AND (pe.ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $${tzParamIndex})::date >= $${paramIndex}::date`
       params.push(startDate)
       paramIndex++
     }
 
     if (endDate) {
-      whereClause += ` AND (pe.ledger_closed_at AT TIME ZONE 'UTC')::date < $${paramIndex}::date`
+      whereClause += ` AND (pe.ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $${tzParamIndex})::date < $${paramIndex}::date`
       params.push(endDate)
       paramIndex++
     }
@@ -1374,7 +1383,7 @@ export class EventsRepository {
         SELECT
           pe.pool_id,
           pe.action_type,
-          (pe.ledger_closed_at AT TIME ZONE 'UTC')::date::text AS event_date,
+          (pe.ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $${tzParamIndex})::date::text AS event_date,
           pe.amount_underlying / 1e7 AS tokens
         FROM parsed_events pe
         ${whereClause}
@@ -1498,34 +1507,45 @@ export class EventsRepository {
       dbPrices.set(row.price_date, parseFloat(row.usd_price))
     }
 
-    // Generate all dates in range
+    // Generate all dates in range using string-based iteration
+    // This avoids timezone issues with Date object manipulation
     const prices = new Map<string, { price: number; source: 'daily_token_prices' | 'forward_fill' | 'sdk_fallback' }>()
-    const start = new Date(startDate)
-    const end = new Date(endDate)
 
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().split('T')[0]
+    // Parse start and end dates as components
+    const [startYear, startMonth, startDay] = startDate.split('-').map(Number)
+    const [endYear, endMonth, endDay] = endDate.split('-').map(Number)
+    const endDateObj = new Date(endYear, endMonth - 1, endDay)
+
+    // Iterate through dates using local date arithmetic
+    let currentDate = new Date(startYear, startMonth - 1, startDay)
+    while (currentDate <= endDateObj) {
+      const year = currentDate.getFullYear()
+      const month = String(currentDate.getMonth() + 1).padStart(2, '0')
+      const day = String(currentDate.getDate()).padStart(2, '0')
+      const dateStr = `${year}-${month}-${day}`
 
       // Check exact match
       if (dbPrices.has(dateStr)) {
         prices.set(dateStr, { price: dbPrices.get(dateStr)!, source: 'daily_token_prices' })
-        continue
-      }
+      } else {
+        // Forward-fill: find most recent price before this date
+        let forwardFillPrice: number | null = null
+        for (const [priceDate, price] of dbPrices) {
+          if (priceDate <= dateStr) {
+            forwardFillPrice = price
+            break // dbPrices is ordered DESC, so first match is most recent
+          }
+        }
 
-      // Forward-fill: find most recent price before this date
-      let forwardFillPrice: number | null = null
-      for (const [priceDate, price] of dbPrices) {
-        if (priceDate <= dateStr) {
-          forwardFillPrice = price
-          break // dbPrices is ordered DESC, so first match is most recent
+        if (forwardFillPrice !== null) {
+          prices.set(dateStr, { price: forwardFillPrice, source: 'forward_fill' })
+        } else {
+          prices.set(dateStr, { price: sdkPrice, source: 'sdk_fallback' })
         }
       }
 
-      if (forwardFillPrice !== null) {
-        prices.set(dateStr, { price: forwardFillPrice, source: 'forward_fill' })
-      } else {
-        prices.set(dateStr, { price: sdkPrice, source: 'sdk_fallback' })
-      }
+      // Move to next day
+      currentDate.setDate(currentDate.getDate() + 1)
     }
 
     return prices

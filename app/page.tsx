@@ -289,8 +289,9 @@ function HomeContent() {
       return aggregatedHistoryData
     }
 
-    // Get today's date string
-    const today = new Date().toISOString().split('T')[0]
+    // Get today's date string in local timezone (matches chart data format)
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
     // Find the latest chart point (should be today or most recent)
     const chartData = [...aggregatedHistoryData.chartData]

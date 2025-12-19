@@ -413,7 +413,8 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
         break
     }
 
-    const periodStartStr = periodStartDate.toISOString().split('T')[0]
+    // Use local date formatting to match chart data format (avoids UTC conversion issues)
+    const periodStartStr = `${periodStartDate.getFullYear()}-${String(periodStartDate.getMonth() + 1).padStart(2, '0')}-${String(periodStartDate.getDate()).padStart(2, '0')}`
 
     // Find the chart point at or before the period start
     const sortedHistory = [...displayChartData].sort((a, b) => a.date.localeCompare(b.date))

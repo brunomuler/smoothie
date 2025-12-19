@@ -95,7 +95,9 @@ export function useChartHistoricalPrices({
   const getPrice = useMemo(() => {
     return (tokenAddress: string, date: string): number => {
       // Today's date should ALWAYS use SDK price (most accurate)
-      const today = new Date().toISOString().split('T')[0]
+      // Use local date to match the user's timezone
+      const now = new Date()
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
       if (date >= today) {
         return sdkPrices.get(tokenAddress) || 1
       }

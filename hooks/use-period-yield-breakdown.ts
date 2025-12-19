@@ -50,7 +50,19 @@ export interface PeriodYieldBreakdownTotals {
 }
 
 /**
- * Get the date string for period start
+ * Format a date to YYYY-MM-DD in local timezone.
+ * Avoids UTC conversion issues with toISOString().
+ */
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * Get the date string for period start in local timezone.
+ * Uses local date to ensure consistency with displayed dates.
  */
 function getPeriodStartDate(period: PeriodType): string {
   const today = new Date()
@@ -76,7 +88,8 @@ function getPeriodStartDate(period: PeriodType): string {
       break
   }
 
-  return periodStart.toISOString().split('T')[0]
+  // Use local date formatting to avoid UTC conversion issues
+  return formatLocalDate(periodStart)
 }
 
 /**

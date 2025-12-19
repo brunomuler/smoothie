@@ -272,7 +272,11 @@ export function fillMissingDates(
       const firstDate = new Date(allDates[0])
       const dayBefore = new Date(firstDate)
       dayBefore.setDate(dayBefore.getDate() - 1)
-      const dayBeforeStr = dayBefore.toISOString().split('T')[0]
+      // Use local date formatting to avoid UTC conversion issues
+      const year = dayBefore.getFullYear()
+      const month = String(dayBefore.getMonth() + 1).padStart(2, '0')
+      const day = String(dayBefore.getDate()).padStart(2, '0')
+      const dayBeforeStr = `${year}-${month}-${day}`
 
       // Add empty pool map for the day before (will show $0)
       datePoolMap.set(dayBeforeStr, new Map())
