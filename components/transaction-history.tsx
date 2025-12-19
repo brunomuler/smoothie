@@ -334,30 +334,30 @@ function getAmountDisplay(action: UserAction, currentUserAddress?: string): Reac
     const bidValue = action.bid_amount / 10000000
     const lotSymbol = action.lot_asset_symbol || "LOT"
     const bidSymbol = action.bid_asset_symbol || "BID"
+    const fmt = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 
     if (isLiquidator) {
       return (
         <div className="flex flex-col text-xs text-right">
-          <span className="text-green-600 dark:text-green-400">+{lotValue.toFixed(2)} {lotSymbol}</span>
-          <span className="text-orange-600 dark:text-orange-400">+{bidValue.toFixed(2)} {bidSymbol} debt</span>
+          <span className="text-green-600 dark:text-green-400">+{fmt(lotValue)} {lotSymbol}</span>
+          <span className="text-orange-600 dark:text-orange-400">+{fmt(bidValue)} {bidSymbol} debt</span>
         </div>
       )
     } else {
       return (
         <div className="flex flex-col text-xs text-right">
-          <span className="text-red-600 dark:text-red-400">-{lotValue.toFixed(2)} {lotSymbol}</span>
-          <span className="text-blue-600 dark:text-blue-400">-{bidValue.toFixed(2)} {bidSymbol} debt</span>
+          <span className="text-red-600 dark:text-red-400">-{fmt(lotValue)} {lotSymbol}</span>
+          <span className="text-blue-600 dark:text-blue-400">-{fmt(bidValue)} {bidSymbol} debt</span>
         </div>
       )
     }
   } else if (isBackstopEvent && action.lp_tokens !== null) {
     const lpValue = action.lp_tokens / 10000000
-    // Format LP amount the same way as tokens (with K/M abbreviations)
-    const formattedLp = lpValue >= 1000000
-      ? `${(lpValue / 1000000).toFixed(2)}M`
-      : lpValue >= 1000
-        ? `${(lpValue / 1000).toFixed(2)}K`
-        : lpValue.toFixed(2)
+    // Format LP amount with 2 decimals max, hide if 0
+    const formattedLp = lpValue.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })
     // Positive: deposit, claim, dequeue (cancel queue returns LP to available)
     // Negative: withdraw, queue_withdrawal (LP moving out or being locked)
     const isPositive = action.action_type === "backstop_deposit" ||
@@ -366,15 +366,14 @@ function getAmountDisplay(action: UserAction, currentUserAddress?: string): Reac
     const sign = isPositive ? "" : "-"
     const textColor = isPositive ? "text-white" : "text-red-400"
     return (
-      <div className={`flex items-center justify-end gap-1 font-mono text-xs font-medium ${textColor}`}>
+      <div className={`flex items-center justify-end gap-2 font-mono text-xs font-medium ${textColor}`}>
         <div
           className="flex items-center justify-center rounded-full bg-purple-500/20 shrink-0"
-          style={{ width: 16, height: 16 }}
+          style={{ width: 20, height: 20 }}
         >
-          <Shield className="h-3 w-3 text-purple-500" />
+          <Shield className="h-3.5 w-3.5 text-purple-500" />
         </div>
-        <span>{sign}{formattedLp}</span>
-        <span>LP</span>
+        <span>{sign}{formattedLp} LP</span>
       </div>
     )
   } else {
@@ -390,16 +389,15 @@ function getAmountDisplay(action: UserAction, currentUserAddress?: string): Reac
     const textColor = isNegative ? "text-red-400" : "text-white"
     const isBlnd = symbol === "BLND"
     return (
-      <div className={`flex items-center justify-end gap-1 font-mono text-xs font-medium ${textColor}`}>
+      <div className={`flex items-center justify-end gap-2 font-mono text-xs font-medium ${textColor}`}>
         {symbol && (
           isBlnd ? (
-            <TokenLogo src={iconUrl} symbol={symbol} size={16} noPadding className="!bg-zinc-800" />
+            <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding className="!bg-zinc-800" />
           ) : (
-            <TokenLogo src={iconUrl} symbol={symbol} size={16} noPadding />
+            <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding />
           )
         )}
-        <span>{sign}{formatAmount(amount, action.asset_decimals || 7)}</span>
-        <span>{symbol || ""}</span>
+        <span>{sign}{formatAmount(amount, action.asset_decimals || 7)} {symbol || ""}</span>
       </div>
     )
   }
@@ -480,12 +478,66 @@ function AmountWithCurrency({
   const tokenAmount = amount / Math.pow(10, decimals)
   const usdValue = tokenAmount * price
 
+  // For regular token events (not backstop), render icon on left with stacked text on right
+  if (!isBackstopEvent) {
+    const symbol = isClaimEvent ? "BLND" : action.asset_symbol
+    const iconUrl = resolveAssetLogo(symbol ?? undefined)
+    const isNegative = action.action_type === "withdraw" ||
+                       action.action_type === "withdraw_collateral" ||
+                       action.action_type === "borrow"
+    const sign = isNegative ? "-" : ""
+    const textColor = isNegative ? "text-red-400" : "text-white"
+    const isBlnd = symbol === "BLND"
+
+    return (
+      <div className="flex items-center gap-2">
+        {symbol && (
+          isBlnd ? (
+            <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding className="!bg-zinc-800" />
+          ) : (
+            <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding />
+          )
+        )}
+        <div className="flex flex-col items-start">
+          <span className={`font-mono text-xs font-medium ${textColor}`}>
+            {sign}{formatAmount(amount, decimals)} {symbol || ""}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {formatCurrency(usdValue)}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
+  // For backstop events, render icon on left with stacked text on right (same as tokens)
+  const lpValue = amount / Math.pow(10, decimals)
+  const formattedLp = lpValue.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })
+  const isPositive = action.action_type === "backstop_deposit" ||
+                     action.action_type === "backstop_claim" ||
+                     action.action_type === "backstop_dequeue_withdrawal"
+  const sign = isPositive ? "" : "-"
+  const textColor = isPositive ? "text-white" : "text-red-400"
+
   return (
-    <div className="flex flex-col items-start">
-      {amountDisplay}
-      <span className="text-[10px] text-muted-foreground">
-        {formatCurrency(usdValue)}
-      </span>
+    <div className="flex items-center gap-2">
+      <div
+        className="flex items-center justify-center rounded-full bg-purple-500/20 shrink-0"
+        style={{ width: 20, height: 20 }}
+      >
+        <Shield className="h-3.5 w-3.5 text-purple-500" />
+      </div>
+      <div className="flex flex-col items-start">
+        <span className={`font-mono text-xs font-medium ${textColor}`}>
+          {sign}{formattedLp} LP
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {formatCurrency(usdValue)}
+        </span>
+      </div>
     </div>
   )
 }

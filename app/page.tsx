@@ -410,6 +410,11 @@ function HomeContent() {
               totalCostBasisHistorical: yieldBreakdown.totalCostBasisHistorical,
               totalEarnedUsd: yieldBreakdown.totalEarnedUsd,
             } : undefined}
+            balanceHistoryDataMap={balanceHistoryDataMap}
+            historicalPrices={historicalPrices}
+            blendPositions={blendSnapshot?.positions}
+            backstopPositions={backstopPositions}
+            lpTokenPrice={lpTokenPrice}
           />
 
           <Tabs defaultValue="positions" className="w-full" onValueChange={(tab) => capture('tab_changed', { tab })}>

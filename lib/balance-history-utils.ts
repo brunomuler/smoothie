@@ -120,6 +120,85 @@ export function calculateHistoricalYieldBreakdown(
 }
 
 /**
+ * Period-specific yield breakdown - calculates yield for a specific time period
+ * rather than all-time.
+ *
+ * Key formulas:
+ * - Protocol Yield (period) = (tokens_now - tokens_at_period_start) × price_now
+ * - Price Change (period) = tokens_at_period_start × (price_now - price_at_period_start)
+ * - Total Earned (period) = Protocol Yield + Price Change
+ */
+export interface PeriodYieldBreakdown {
+  // What you started with at period start
+  tokensAtStart: number
+  valueAtStart: number  // tokens_at_start × price_at_start
+  priceAtStart: number
+
+  // What you have now
+  tokensNow: number
+  valueNow: number  // tokens_now × price_now
+  priceNow: number
+
+  // Period-specific earnings
+  protocolYieldTokens: number  // tokens_now - tokens_at_start
+  protocolYieldUsd: number     // protocol_yield_tokens × price_now
+  priceChangeUsd: number       // tokens_at_start × (price_now - price_at_start)
+  totalEarnedUsd: number       // protocol_yield + price_change
+  totalEarnedPercent: number   // total_earned / value_at_start
+}
+
+/**
+ * Calculate period-specific yield breakdown.
+ *
+ * @param tokensAtStart Token balance at period start (from history)
+ * @param priceAtStart Token price at period start (from historical prices)
+ * @param tokensNow Current token balance (from SDK)
+ * @param priceNow Current token price (from SDK)
+ */
+export function calculatePeriodYieldBreakdown(
+  tokensAtStart: number,
+  priceAtStart: number,
+  tokensNow: number,
+  priceNow: number,
+): PeriodYieldBreakdown {
+  // Value at period start
+  const valueAtStart = tokensAtStart * priceAtStart
+
+  // Value now
+  const valueNow = tokensNow * priceNow
+
+  // Protocol yield: tokens earned during period × current price
+  const protocolYieldTokens = tokensNow - tokensAtStart
+  const protocolYieldUsd = protocolYieldTokens * priceNow
+
+  // Price change: how much the starting tokens changed in value due to price movement
+  const priceChangeUsd = tokensAtStart * (priceNow - priceAtStart)
+
+  // Total earned for the period
+  const totalEarnedUsd = protocolYieldUsd + priceChangeUsd
+  // Note: totalEarnedUsd should equal (valueNow - valueAtStart)
+
+  // Percentage gain
+  const totalEarnedPercent = valueAtStart > 0
+    ? (totalEarnedUsd / valueAtStart) * 100
+    : 0
+
+  return {
+    tokensAtStart,
+    valueAtStart,
+    priceAtStart,
+    tokensNow,
+    valueNow,
+    priceNow,
+    protocolYieldTokens,
+    protocolYieldUsd,
+    priceChangeUsd,
+    totalEarnedUsd,
+    totalEarnedPercent,
+  }
+}
+
+/**
  * Calculate yield breakdown for backstop LP positions.
  * Same logic as regular assets but for LP tokens.
  */

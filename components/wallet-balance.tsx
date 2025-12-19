@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useMemo, useState } from "react"
 import dynamic from "next/dynamic"
-import { TrendingUp, TrendingDown } from "lucide-react"
+import { TrendingUp, TrendingDown, Info } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import {
   Tooltip,
@@ -21,6 +21,9 @@ import { useUserActions } from "@/hooks/use-user-actions"
 import { FormattedBalance } from "@/components/formatted-balance"
 import { CurrencySelector } from "@/components/currency-selector"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
+import { usePeriodYieldBreakdown, type PeriodType } from "@/hooks/use-period-yield-breakdown"
+import type { ChartHistoricalPrices } from "@/hooks/use-chart-historical-prices"
+import type { UserBalance } from "@/lib/db/types"
 
 const BalanceBarChart = dynamic(
   () => import("@/components/balance-bar-chart").then(mod => ({ default: mod.BalanceBarChart })),
@@ -35,6 +38,26 @@ export interface YieldBreakdownTotals {
   totalPriceChangeUsd: number
   totalCostBasisHistorical: number
   totalEarnedUsd: number
+}
+
+// Type for balance history data map entry (rawData is unknown[] from the hook)
+interface BalanceHistoryDataEntry {
+  rawData: unknown[]
+  chartData: Array<{ date: string }>
+}
+
+// Type for blend positions
+interface BlendPosition {
+  id: string
+  supplyAmount: number
+  price?: { usdPrice?: number } | null
+  assetId?: string
+}
+
+// Type for backstop positions
+interface BackstopPosition {
+  poolId: string
+  lpTokens: number
 }
 
 interface WalletBalanceProps {
@@ -52,6 +75,12 @@ interface WalletBalanceProps {
   usdcPrice?: number // USDC price from SDK oracle for normalizing historical data
   poolInputs?: PoolProjectionInput[] // Per-pool data for projection breakdown
   yieldBreakdown?: YieldBreakdownTotals // Historical yield breakdown (protocol yield vs price change)
+  // New props for period-specific breakdown
+  balanceHistoryDataMap?: Map<string, BalanceHistoryDataEntry>
+  historicalPrices?: ChartHistoricalPrices
+  blendPositions?: BlendPosition[]
+  backstopPositions?: BackstopPosition[]
+  lpTokenPrice?: number | null
 }
 
 function formatPercentage(value: number): string {
@@ -167,7 +196,7 @@ const DUMMY_CHART_DATA: WalletChartDataPoint[] = [
   { date: "2025-11-01", balance: 13040, deposit: 10000, yield: 3040, type: 'historical' },
 ]
 
-const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, isDemoMode = false, onToggleDemoMode, usdcPrice = 1, poolInputs = [], yieldBreakdown }: WalletBalanceProps) => {
+const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, isDemoMode = false, onToggleDemoMode, usdcPrice = 1, poolInputs = [], yieldBreakdown, balanceHistoryDataMap, historicalPrices, blendPositions, backstopPositions, lpTokenPrice }: WalletBalanceProps) => {
   // State for time period selection
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>("1M")
 
@@ -185,6 +214,25 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
 
   // Use balance history data from props if available (not in demo mode)
   const historyChartData = isDemoMode ? [] : (balanceHistoryData?.chartData || [])
+
+  // Map TimePeriod to PeriodType for period yield breakdown
+  const periodTypeMap: Record<TimePeriod, PeriodType> = {
+    "1W": "1W",
+    "1M": "1M",
+    "1Y": "1Y",
+    "All": "All",
+    "Projection": "All", // Projection uses all-time data
+  }
+
+  // Calculate period-specific yield breakdown
+  const periodYieldBreakdown = usePeriodYieldBreakdown(
+    periodTypeMap[selectedPeriod],
+    balanceHistoryDataMap || new Map(),
+    historicalPrices || { prices: new Map(), getPrice: () => 0, hasHistoricalData: false, isLoading: true, error: null },
+    blendPositions,
+    backstopPositions,
+    lpTokenPrice,
+  )
 
   // Use balance history chart data if available, otherwise fallback to prop
   // Transform fallback data to have 'total' field for chart compatibility
@@ -308,6 +356,121 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     // Period Yield = SDK Total Yield - Historical Yield at Start
     return totalYield - yieldAtPeriodStart
   }, [displayChartData, selectedPeriod, totalYield])
+
+  // Calculate period breakdown from chart data (matches chart exactly)
+  const chartBasedPeriodBreakdown = useMemo(() => {
+    if (displayChartData.length === 0) {
+      return {
+        valueAtStart: 0,
+        valueNow: initialBalance,
+        protocolYield: totalYield,
+        priceChange: 0,
+        totalEarned: totalYield,
+        netPeriodDeposits: 0,
+        periodStartDate: '',
+        isLoading: true,
+      }
+    }
+
+    // Format date to local YYYY-MM-DD string
+    const formatLocalDate = (date: Date): string => {
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
+    // Get period start date
+    const today = new Date()
+    let periodStartDate: Date
+
+    switch (selectedPeriod) {
+      case "1W":
+        periodStartDate = new Date(today)
+        periodStartDate.setDate(periodStartDate.getDate() - 7)
+        break
+      case "1M":
+        periodStartDate = new Date(today)
+        periodStartDate.setDate(periodStartDate.getDate() - 30)
+        break
+      case "1Y":
+        periodStartDate = new Date(today)
+        periodStartDate.setFullYear(periodStartDate.getFullYear() - 1)
+        break
+      default:
+        // For All and Projection, use first data point
+        periodStartDate = new Date(displayChartData[0].date)
+        break
+    }
+
+    const periodStartStr = formatLocalDate(periodStartDate)
+
+    // Find the chart point at or before the period start
+    const sortedHistory = [...displayChartData].sort((a, b) => a.date.localeCompare(b.date))
+    let chartPointAtStart = sortedHistory[0]
+
+    for (const point of sortedHistory) {
+      if (point.date <= periodStartStr) {
+        chartPointAtStart = point
+      } else {
+        break
+      }
+    }
+
+    // Values from chart data
+    const valueAtStart = chartPointAtStart?.total || 0
+    const yieldAtStart = chartPointAtStart?.yield || 0
+    const depositAtStart = chartPointAtStart?.deposit || 0
+    const valueNow = initialBalance
+
+    // Get current cumulative deposit from latest chart point
+    const latestChartPoint = sortedHistory[sortedHistory.length - 1]
+    const depositNow = latestChartPoint?.deposit || 0
+
+    // Protocol Yield = current total yield - yield at period start
+    const protocolYield = totalYield - yieldAtStart
+
+    // Net Deposits during period = deposits made minus withdrawals
+    // (deposit field tracks cumulative net deposits)
+    const netPeriodDeposits = depositNow - depositAtStart
+
+    // Total Change = Value Now - Value at Start (includes everything)
+    const totalChange = valueNow - valueAtStart
+
+    // Total Earned = Total Change minus net deposits (actual gains only)
+    const totalEarned = totalChange - netPeriodDeposits
+
+    // Price Change = Total Earned - Protocol Yield
+    const priceChange = totalEarned - protocolYield
+
+    console.log('[ChartBasedPeriodBreakdown]', {
+      period: selectedPeriod,
+      periodStartStr,
+      chartPointDate: chartPointAtStart?.date,
+      valueAtStart,
+      yieldAtStart,
+      depositAtStart,
+      depositNow,
+      valueNow,
+      totalYield,
+      protocolYield,
+      netPeriodDeposits,
+      totalChange,
+      totalEarned,
+      priceChange,
+    })
+
+    return {
+      valueAtStart,
+      valueNow,
+      protocolYield,
+      priceChange,
+      totalEarned,
+      netPeriodDeposits,
+      periodStartDate: chartPointAtStart?.date || periodStartStr,
+      isLoading: false,
+    }
+  }, [displayChartData, selectedPeriod, initialBalance, totalYield])
 
   // Display yield based on selected period
   const displayYield = calculatedPeriodYield
@@ -472,19 +635,59 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger>
-                  <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                  <p className={`text-sm font-medium flex items-center gap-1 ${displayYield >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                     {formattedLiveGrowth} {periodLabel}
                     {showPercentageGain && (
                       <span className="ml-1">
                         ({formatSignedPercentage(percentageGain)}%)
                       </span>
                     )}
+                    <Info className="h-3 w-3" />
                   </p>
                 </TooltipTrigger>
                 <TooltipContent className="max-w-xs p-2.5">
-                  {yieldBreakdown && yieldBreakdown.totalCostBasisHistorical > 0 ? (
+                  {!chartBasedPeriodBreakdown.isLoading && chartBasedPeriodBreakdown.valueAtStart > 0 ? (
                     <div className="space-y-1.5 text-[11px]">
-                      <div className="font-medium text-zinc-400 border-b border-zinc-700 pb-1">Yield Breakdown</div>
+                      <div className="font-medium text-zinc-400 border-b border-zinc-700 pb-1">
+                        Yield Breakdown ({selectedPeriod === "All" ? "All Time" : selectedPeriod})
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-zinc-400">Protocol Yield:</span>
+                        <span className={chartBasedPeriodBreakdown.protocolYield >= 0 ? "text-emerald-400" : "text-red-400"}>
+                          {formatInCurrency(chartBasedPeriodBreakdown.protocolYield, { showSign: true })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <span className="text-zinc-400">Price Change:</span>
+                        <span className={chartBasedPeriodBreakdown.priceChange >= 0 ? "text-emerald-400" : "text-red-400"}>
+                          {formatInCurrency(chartBasedPeriodBreakdown.priceChange, { showSign: true })}
+                        </span>
+                      </div>
+                      <div className="border-t border-zinc-700 pt-1 flex justify-between gap-4 font-medium">
+                        <span className="text-zinc-300">Total Earned:</span>
+                        <span className={chartBasedPeriodBreakdown.totalEarned >= 0 ? "text-emerald-400" : "text-red-400"}>
+                          {formatInCurrency(chartBasedPeriodBreakdown.totalEarned, { showSign: true })}
+                        </span>
+                      </div>
+                      <div className="border-t border-zinc-700 pt-1 text-zinc-500">
+                        <div className="flex justify-between gap-4">
+                          <span>Value at Start:</span>
+                          <span className="text-zinc-300">{formatInCurrency(chartBasedPeriodBreakdown.valueAtStart)}</span>
+                        </div>
+                        <div className="flex justify-between gap-4">
+                          <span>Value Now:</span>
+                          <span className="text-zinc-300">{formatInCurrency(chartBasedPeriodBreakdown.valueNow)}</span>
+                        </div>
+                      </div>
+                      {selectedPeriod !== "All" && selectedPeriod !== "Projection" && (
+                        <p className="text-[10px] text-zinc-500 pt-1">
+                          From {chartBasedPeriodBreakdown.periodStartDate}
+                        </p>
+                      )}
+                    </div>
+                  ) : yieldBreakdown && yieldBreakdown.totalCostBasisHistorical > 0 ? (
+                    <div className="space-y-1.5 text-[11px]">
+                      <div className="font-medium text-zinc-400 border-b border-zinc-700 pb-1">Yield Breakdown (All Time)</div>
                       <div className="flex justify-between gap-4">
                         <span className="text-zinc-400">Protocol Yield:</span>
                         <span className={yieldBreakdown.totalProtocolYieldUsd >= 0 ? "text-emerald-400" : "text-red-400"}>
@@ -508,12 +711,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
                           <span>Cost Basis:</span>
                           <span className="text-zinc-300">{formatInCurrency(yieldBreakdown.totalCostBasisHistorical)}</span>
                         </div>
-                        <div className="flex justify-between gap-4">
-                          <span>Realized APY:</span>
-                          <span className="text-zinc-300">{formatPercentage(balanceHistoryData.earningsStats.currentAPY)}%</span>
-                        </div>
                       </div>
-                      <p className="text-[10px] text-zinc-500">Over {actualPeriodDays} days</p>
                     </div>
                   ) : (
                     <>
@@ -525,7 +723,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
               </Tooltip>
             </TooltipProvider>
           ) : (
-            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+            <p className={`text-sm font-medium ${displayYield >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
               {formattedLiveGrowth} {periodLabel}
               {showPercentageGain && (
                 <span className="ml-1">

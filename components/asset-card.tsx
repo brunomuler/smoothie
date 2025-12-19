@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { TrendingUp, Flame, MoreVertical, ArrowDownToLine, ArrowUpFromLine, Eye, Trash2 } from "lucide-react"
+import { TrendingUp, Flame, MoreVertical, ArrowDownToLine, ArrowUpFromLine, Eye, Trash2, Info } from "lucide-react"
 import { TokenLogo } from "@/components/token-logo"
 import {
   Card,
@@ -137,8 +137,9 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400 tabular-nums cursor-help">
+                        <span className={`text-sm font-medium tabular-nums cursor-pointer flex items-center gap-1 ${yieldToShow >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                           {formattedYield} yield{formattedYieldPercentage}
+                          <Info className="h-3 w-3" />
                         </span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom" className="max-w-xs p-2.5">
@@ -181,7 +182,7 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
                     </Tooltip>
                   </TooltipProvider>
                 ) : (
-                  <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">
+                  <span className={`text-sm font-medium tabular-nums ${yieldToShow >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                     {formattedYield} yield{formattedYieldPercentage}
                   </span>
                 )

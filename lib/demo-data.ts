@@ -79,6 +79,8 @@ export const DEMO_BORROW_POSITIONS = [
         logoUrl: "/tokens/xlm.png",
         interestAccrued: 12.50,
         interestPercentage: 2.56,
+        originalBorrowedTokens: 4875,
+        interestTokens: 125,
       },
     ],
   },

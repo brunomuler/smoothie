@@ -11,7 +11,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Skeleton } from "@/components/ui/skeleton"
-import { TrendingUp, ChevronRight, Flame, Shield, Clock } from "lucide-react"
+import { TrendingUp, ChevronRight, Flame, Shield, Clock, Info } from "lucide-react"
 import type { AssetCardData } from "@/types/asset-card"
 
 interface Q4WChunkData {
@@ -180,7 +180,7 @@ export function SupplyPositions({
                             )}
                           </p>
                           {hasSignificantYield && (
-                            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                            <p className={`text-xs ${asset.earnedYield >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                               {formattedYield}{formattedYieldPercentage}
                             </p>
                           )}
@@ -226,7 +226,7 @@ export function SupplyPositions({
                             ? ` (${pool.backstop.yieldPercent >= 0 ? '+' : ''}${pool.backstop.yieldPercent.toFixed(2)}%)`
                             : ''
                           return (
-                            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                            <p className={`text-xs ${yieldUsd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                               {formatYieldValue(yieldUsd)}{formattedYieldPercentage}
                             </p>
                           )
@@ -343,8 +343,9 @@ export function SupplyPositions({
                                 return (
                                 <Tooltip>
                                   <TooltipTrigger asChild>
-                                    <p className="text-xs text-emerald-600 dark:text-emerald-400 cursor-pointer underline decoration-dotted">
+                                    <p className={`text-xs cursor-pointer flex items-center gap-1 ${asset.yieldBreakdown.totalEarnedUsd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                                       {formatYieldValue(asset.yieldBreakdown.totalEarnedUsd)}{formattedPct}
+                                      <Info className="h-3 w-3" />
                                     </p>
                                   </TooltipTrigger>
                                   <TooltipContent className="p-2.5">
@@ -379,7 +380,7 @@ export function SupplyPositions({
                                 </Tooltip>
                                 )
                               })() : (
-                                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                <p className={`text-xs ${yieldToShow >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                                   {formattedYield}{formattedYieldPercentage}
                                 </p>
                               )
@@ -460,8 +461,9 @@ export function SupplyPositions({
                                 return (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <p className="text-xs text-emerald-600 dark:text-emerald-400 cursor-pointer underline decoration-dotted">
+                                      <p className={`text-xs cursor-pointer flex items-center gap-1 ${backstopPosition.yieldBreakdown.totalEarnedUsd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                                         {formatYieldValue(backstopPosition.yieldBreakdown.totalEarnedUsd)}{formattedPct}
+                                        <Info className="h-3 w-3" />
                                       </p>
                                     </TooltipTrigger>
                                     <TooltipContent className="p-2.5">
@@ -500,7 +502,7 @@ export function SupplyPositions({
                               }
 
                               return (
-                                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                <p className={`text-xs ${yieldUsd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
                                   {formatYieldValue(yieldUsd)}{formattedYieldPercentage}
                                 </p>
                               )

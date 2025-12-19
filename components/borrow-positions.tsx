@@ -9,7 +9,8 @@ import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useTokensOnly } from "@/hooks/use-metadata"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { TrendingDown, ChevronRight, Flame } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { TrendingDown, ChevronRight, Flame, Info } from "lucide-react"
 import type { AssetCardData } from "@/types/asset-card"
 
 interface BlendPosition {
@@ -120,9 +121,49 @@ export function BorrowPositions({
                             )}
                           </p>
                           {hasSignificantInterest && (
-                            <p className="text-xs text-orange-600 dark:text-orange-400">
-                              {formattedInterest} interest{formattedInterestPercentage}
-                            </p>
+                            position.originalBorrowedTokens ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <p className="text-xs text-orange-600 dark:text-orange-400 cursor-pointer flex items-center gap-1">
+                                    {formattedInterest} interest{formattedInterestPercentage}
+                                    <Info className="h-3 w-3" />
+                                  </p>
+                                </TooltipTrigger>
+                                <TooltipContent className="p-2.5">
+                                  <p className="font-medium text-zinc-400 mb-1.5">Debt Breakdown</p>
+                                  <div className="space-y-1">
+                                    <div className="flex justify-between gap-6">
+                                      <span className="text-zinc-400">Original Borrowed</span>
+                                      <span className="text-zinc-300">
+                                        {formatAmount(position.originalBorrowedTokens)} {position.symbol}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-6">
+                                      <span className="text-zinc-400">Interest Accrued</span>
+                                      <span className="text-orange-400">
+                                        +{formatAmount(position.interestTokens || 0)} {position.symbol}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-6 border-t border-zinc-700 pt-1 mt-1">
+                                      <span className="text-zinc-300 font-medium">Total Owed</span>
+                                      <span className="text-zinc-300">
+                                        {formatAmount(position.borrowAmount)} {position.symbol}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between gap-6 pt-1">
+                                      <span className="text-zinc-500 text-xs">At current price</span>
+                                      <span className="text-zinc-400 text-xs">
+                                        {formatUsdAmount(position.borrowUsdValue)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <p className="text-xs text-orange-600 dark:text-orange-400">
+                                {formattedInterest} interest{formattedInterestPercentage}
+                              </p>
+                            )
                           )}
                         </div>
                       </div>
@@ -201,10 +242,15 @@ export function BorrowPositions({
                       ? (interestAccrued / borrowCostBasisUsd) * 100
                       : 0
 
+                    // Calculate interest in tokens for tooltip
+                    const currentDebtTokens = position.borrowAmount
+                    const interestTokens = currentDebtTokens - borrowCostBasisTokens
+
                     // Format interest using currency preference
                     const formattedInterest = formatInterestValue(interestAccrued)
                     const hasSignificantInterest = Math.abs(interestAccrued) >= 0.01
                     const formattedInterestPercentage = interestPercentage !== 0 ? ` (${interestPercentage >= 0 ? '+' : ''}${interestPercentage.toFixed(2)}%)` : ''
+                    const hasCostBasisData = borrowCostBasisTokens > 0
 
                     return (
                       <div key={position.id} className="flex items-center justify-between py-2 gap-3">
@@ -229,9 +275,49 @@ export function BorrowPositions({
                               )}
                             </p>
                             {hasSignificantInterest && (
-                              <p className="text-xs text-orange-600 dark:text-orange-400">
-                                {formattedInterest} interest{formattedInterestPercentage}
-                              </p>
+                              hasCostBasisData ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <p className="text-xs text-orange-600 dark:text-orange-400 cursor-pointer flex items-center gap-1">
+                                      {formattedInterest} interest{formattedInterestPercentage}
+                                      <Info className="h-3 w-3" />
+                                    </p>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="p-2.5">
+                                    <p className="font-medium text-zinc-400 mb-1.5">Debt Breakdown</p>
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between gap-6">
+                                        <span className="text-zinc-400">Original Borrowed</span>
+                                        <span className="text-zinc-300">
+                                          {formatAmount(borrowCostBasisTokens)} {position.symbol}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-6">
+                                        <span className="text-zinc-400">Interest Accrued</span>
+                                        <span className="text-orange-400">
+                                          +{formatAmount(interestTokens)} {position.symbol}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-6 border-t border-zinc-700 pt-1 mt-1">
+                                        <span className="text-zinc-300 font-medium">Total Owed</span>
+                                        <span className="text-zinc-300">
+                                          {formatAmount(currentDebtTokens)} {position.symbol}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between gap-6 pt-1">
+                                        <span className="text-zinc-500 text-xs">At current price</span>
+                                        <span className="text-zinc-400 text-xs">
+                                          {formatUsdAmount(currentDebtUsd)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </TooltipContent>
+                                </Tooltip>
+                              ) : (
+                                <p className="text-xs text-orange-600 dark:text-orange-400">
+                                  {formattedInterest} interest{formattedInterestPercentage}
+                                </p>
+                              )
                             )}
                           </div>
                         </div>
