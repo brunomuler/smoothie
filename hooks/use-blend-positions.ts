@@ -108,7 +108,6 @@ function buildAssetCards(snapshot: BlendWalletSnapshot | undefined): AssetCardDa
       earnedYield: 0, // Will be populated from page.tsx using: SDK balance - Dune cost basis
     }))
 
-  console.log('[buildAssetCards] Card IDs:', cards.map(c => c.id))
   return cards
 }
 

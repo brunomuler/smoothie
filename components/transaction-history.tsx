@@ -212,13 +212,11 @@ const ACTION_CONFIG: Record<
 function formatAmount(amount: number | null, decimals: number = 7): string {
   if (amount === null) return "-"
   const value = amount / Math.pow(10, decimals)
-  if (value >= 1000000) {
-    return `${(value / 1000000).toFixed(2)}M`
-  }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(2)}K`
-  }
-  return value.toFixed(2)
+  const isWholeNumber = value % 1 === 0
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: isWholeNumber ? 0 : 2,
+    maximumFractionDigits: 2,
+  })
 }
 
 function formatDate(dateString: string): string {
@@ -366,7 +364,7 @@ function getAmountDisplay(action: UserAction, currentUserAddress?: string): Reac
     const sign = isPositive ? "" : "-"
     const textColor = isPositive ? "text-white" : "text-red-400"
     return (
-      <div className={`flex items-center justify-end gap-2 font-mono text-xs font-medium ${textColor}`}>
+      <div className={`flex items-center gap-2 font-mono text-xs font-medium ${textColor}`}>
         <div
           className="flex items-center justify-center rounded-full bg-purple-500/20 shrink-0"
           style={{ width: 20, height: 20 }}
@@ -389,7 +387,7 @@ function getAmountDisplay(action: UserAction, currentUserAddress?: string): Reac
     const textColor = isNegative ? "text-red-400" : "text-white"
     const isBlnd = symbol === "BLND"
     return (
-      <div className={`flex items-center justify-end gap-2 font-mono text-xs font-medium ${textColor}`}>
+      <div className={`flex items-center gap-2 font-mono text-xs font-medium ${textColor}`}>
         {symbol && (
           isBlnd ? (
             <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding className="!bg-zinc-800" />
@@ -580,7 +578,7 @@ function MobileTransactionCard({ actions, currentUserAddress, historicalPrices, 
       {actions.map((action) => (
         <div key={action.id} className="flex justify-between items-center">
           <ActionBadge action={action} currentUserAddress={currentUserAddress} />
-          <div className="flex justify-end">
+          <div className="flex-1 flex justify-end">
             <AmountWithCurrency
               action={action}
               currentUserAddress={currentUserAddress}

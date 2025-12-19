@@ -360,7 +360,7 @@ export function BlndRewardsCard({
                 <div className="tabular-nums">{formatNumber(totalClaimedBlnd, 2)}</div>
                 {blndPrice && totalClaimedBlnd > 0 && (
                   <div className="text-xs font-normal">
-                    {formatUsd(totalClaimedBlnd * blndPrice)}
+                    {formatUsd(poolClaimedUsdHistorical + (backstopClaimedBlnd * blndPrice))}
                   </div>
                 )}
               </div>
