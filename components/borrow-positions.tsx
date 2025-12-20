@@ -83,7 +83,7 @@ export function BorrowPositions({
                         <TokenLogo
                           src={position.logoUrl}
                           symbol={position.symbol}
-                          size={40}
+                          size={36}
                         />
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{position.symbol}</p>
@@ -230,7 +230,7 @@ export function BorrowPositions({
                           <TokenLogo
                             src={logoUrl}
                             symbol={position.symbol}
-                            size={40}
+                            size={36}
                           />
                           <div className="min-w-0 flex-1">
                             <p className="font-medium truncate">{position.symbol}</p>

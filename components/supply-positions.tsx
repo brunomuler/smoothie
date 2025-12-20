@@ -145,7 +145,7 @@ export function SupplyPositions({
                         <TokenLogo
                           src={asset.logoUrl}
                           symbol={asset.assetName}
-                          size={40}
+                          size={36}
                         />
                         <div className="min-w-0 flex-1">
                           <p className="font-medium truncate">{asset.assetName}</p>
@@ -295,7 +295,7 @@ export function SupplyPositions({
                           <TokenLogo
                             src={asset.logoUrl}
                             symbol={asset.assetName}
-                            size={40}
+                            size={36}
                           />
                           <div className="min-w-0 flex-1">
                             <p className="font-medium truncate">{asset.assetName}</p>

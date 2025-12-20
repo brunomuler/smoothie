@@ -46,7 +46,7 @@ export function TokenLogo({ src, symbol, size = 48, className, noPadding }: Toke
         alt={`${symbol} logo`}
         fill
         sizes={`${size}px`}
-        className={cn("object-contain", noPadding ? "" : "p-0.5")}
+        className={cn("object-contain", noPadding ? "" : "p-px")}
         onError={() => setHasError(true)}
       />
     </div>

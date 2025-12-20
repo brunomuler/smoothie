@@ -118,7 +118,7 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
         <TokenLogo
           src={activeData.logoUrl}
           symbol={activeData.assetName}
-          size={48}
+          size={44}
         />
 
         <div className="flex flex-col gap-1.5 flex-1 min-w-0">
