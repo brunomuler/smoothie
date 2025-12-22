@@ -94,19 +94,24 @@ export function ApySparkline({
     return data
   }, [apyHistory, currentApy])
 
-  // Calculate min/max for better visualization
-  const { minApy, maxApy } = useMemo(() => {
-    if (!chartData?.length) return { minApy: 0, maxApy: 10 }
+  // Calculate min/max for better visualization and 6mo average
+  const { minApy, maxApy, avgApy } = useMemo(() => {
+    if (!chartData?.length) return { minApy: 0, maxApy: 10, avgApy: 0 }
 
     const values = chartData.map((d) => d.apy)
     const min = Math.min(...values)
     const max = Math.max(...values)
+
+    // Calculate average from all valid data points
+    const sum = values.reduce((acc, val) => acc + val, 0)
+    const avg = sum / values.length
 
     // Add some padding
     const padding = (max - min) * 0.1 || 1
     return {
       minApy: Math.max(0, min - padding),
       maxApy: max + padding,
+      avgApy: avg,
     }
   }, [chartData])
 
@@ -128,35 +133,40 @@ export function ApySparkline({
   }
 
   return (
-    <div className={`${defaultSize} ${className}`}>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart
-          data={chartData}
-          margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
-        >
-          <Tooltip
-            content={<CustomTooltip />}
-            cursor={false}
-            allowEscapeViewBox={{ x: true, y: true }}
-            wrapperStyle={{ zIndex: 50 }}
-            offset={-70}
-            position={{ y: -50 }}
-          />
-          <Line
-            type="monotone"
-            dataKey="apy"
-            stroke="#22c55e"
-            strokeWidth={1.5}
-            dot={false}
-            activeDot={{
-              r: 3,
-              fill: "#22c55e",
-              stroke: "#22c55e",
-            }}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+    <div className="flex items-center gap-2">
+      <div className={`${defaultSize} ${className}`}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart
+            data={chartData}
+            margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
+          >
+            <Tooltip
+              content={<CustomTooltip />}
+              cursor={false}
+              allowEscapeViewBox={{ x: true, y: true }}
+              wrapperStyle={{ zIndex: 50 }}
+              offset={-70}
+              position={{ y: -50 }}
+            />
+            <Line
+              type="monotone"
+              dataKey="apy"
+              stroke="#22c55e"
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{
+                r: 3,
+                fill: "#22c55e",
+                stroke: "#22c55e",
+              }}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="text-[10px] text-muted-foreground whitespace-nowrap">
+        6mo avg:<br />{formatPercent(avgApy)}
+      </div>
     </div>
   )
 }
