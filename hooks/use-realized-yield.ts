@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
-import type { RealizedYieldResponse } from "@/app/api/realized-yield/route"
+import type { RealizedYieldResponse } from "@/app/api/performance/route"
 
 export interface UseRealizedYieldOptions {
   publicKey: string | undefined
@@ -35,7 +35,7 @@ export function useRealizedYield({
 }: UseRealizedYieldOptions): UseRealizedYieldResult {
   const query = useQuery({
     // Include SDK prices in query key so we refetch when prices become available
-    queryKey: ["realized-yield", publicKey, sdkBlndPrice, sdkLpPrice],
+    queryKey: ["performance", publicKey, sdkBlndPrice, sdkLpPrice],
     queryFn: async ({ signal }) => {
       if (!publicKey) {
         throw new Error("No public key provided")
@@ -58,7 +58,7 @@ export function useRealizedYield({
       }
 
       const response = await fetchWithTimeout(
-        `/api/realized-yield?${params.toString()}`,
+        `/api/performance?${params.toString()}`,
         { signal }
       )
 

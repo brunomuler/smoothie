@@ -63,7 +63,7 @@ export function RealizedProfitsLink({
   const isPositive = data.realizedPnl >= 0
 
   return (
-    <Link href="/realized-yield">
+    <Link href="/performance">
       <Card className="overflow-hidden p-0 gap-0 hover:bg-accent/50 transition-colors cursor-pointer">
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">

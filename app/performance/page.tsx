@@ -281,7 +281,7 @@ function RealizedYieldContent() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
     a.href = url
-    a.download = `realized-yield-${publicKey?.slice(0, 8)}.csv`
+    a.download = `performance-${publicKey?.slice(0, 8)}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -327,9 +327,9 @@ function RealizedYieldContent() {
             </Button>
           </Link>
           <div>
-            <h1 className="text-xl font-bold">Cash Flow</h1>
+            <h1 className="text-xl font-bold">Performance</h1>
             <p className="text-xs text-muted-foreground">
-              Track deposits and withdrawals over time
+              Track your P&L and activity over time
             </p>
           </div>
         </div>
