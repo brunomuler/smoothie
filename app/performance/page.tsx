@@ -2,7 +2,7 @@
 
 import { useState, useMemo, Suspense } from "react"
 import Link from "next/link"
-import { ArrowLeft, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownLeft, Sparkles, Download, Calendar, Wallet, Info } from "lucide-react"
+import { ArrowLeft, TrendingUp, TrendingDown, Shield, PiggyBank, Flame, Download, Calendar, Wallet, Info } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -109,7 +109,7 @@ function RealizedYieldContent() {
   const publicKey = activeWallet?.publicKey
 
   // Get blend positions for current prices and balances
-  const { blndPrice, lpTokenPrice, data: blendSnapshot, totalBackstopUsd } = useBlendPositions(publicKey)
+  const { blndPrice, lpTokenPrice, data: blendSnapshot, totalBackstopUsd, isLoading: isLoadingPositions } = useBlendPositions(publicKey)
 
   // Build SDK prices map
   const sdkPricesMap = useMemo(() => {
@@ -127,12 +127,16 @@ function RealizedYieldContent() {
     return map
   }, [blendSnapshot?.positions, lpTokenPrice])
 
+  // Wait for SDK prices to be ready before fetching performance data
+  // This prevents a flash of incorrect values when prices load
+  const sdkReady = !isLoadingPositions && blendSnapshot !== undefined
+
   const { data, isLoading } = useRealizedYield({
     publicKey,
     sdkBlndPrice: blndPrice ?? 0,
     sdkLpPrice: lpTokenPrice ?? 0,
     sdkPrices: sdkPricesMap,
-    enabled: !!publicKey,
+    enabled: !!publicKey && sdkReady,
   })
 
   const formatUsd = (value: number) => {
@@ -334,7 +338,7 @@ function RealizedYieldContent() {
           </div>
         </div>
 
-        {isLoading ? (
+        {(isLoading || !sdkReady) ? (
           <div className="space-y-4">
             <Card>
               <CardContent className="pt-6">
@@ -599,7 +603,7 @@ function RealizedYieldContent() {
                   <div className="p-3 rounded-lg bg-muted/50 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 rounded-full bg-blue-500/10">
-                        <ArrowDownLeft className="h-3.5 w-3.5 text-blue-500" />
+                        <PiggyBank className="h-3.5 w-3.5 text-blue-500" />
                       </div>
                       <p className="font-medium text-sm">Lending Pools</p>
                     </div>
@@ -645,7 +649,7 @@ function RealizedYieldContent() {
                   <div className="p-3 rounded-lg bg-muted/50 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 rounded-full bg-purple-500/10">
-                        <ArrowUpRight className="h-3.5 w-3.5 text-purple-500" />
+                        <Shield className="h-3.5 w-3.5 text-purple-500" />
                       </div>
                       <p className="font-medium text-sm">Backstop</p>
                     </div>
@@ -681,7 +685,7 @@ function RealizedYieldContent() {
                   <div className="p-3 rounded-lg bg-muted/50 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 rounded-full bg-yellow-500/10">
-                        <Sparkles className="h-3.5 w-3.5 text-yellow-500" />
+                        <Flame className="h-3.5 w-3.5 text-yellow-500" />
                       </div>
                       <p className="font-medium text-sm">
                         <InfoLabel label="Emissions Claimed" tooltip="BLND and LP tokens received as rewards from pool and backstop positions." />
