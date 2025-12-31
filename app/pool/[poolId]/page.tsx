@@ -556,7 +556,7 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Main Stats Grid */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 text-sm">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5 text-sm">
           {/* LP Tokens */}
           <div>
             <p className="text-xs text-muted-foreground mb-1">LP Tokens</p>
@@ -611,6 +611,12 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
               </p>
             )}
           </div>
+
+          {/* Pool Q4W */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Pool Q4W</p>
+            <p className="font-mono text-white">{formatPercent(poolQ4w)}</p>
+          </div>
         </div>
 
         {/* Charts Section */}
@@ -629,25 +635,6 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
               currentPrice={lpTokenPrice || undefined}
               className="w-full h-10"
             />
-          </div>
-        </div>
-
-        {/* Pool Stats */}
-        <div className="rounded-lg bg-muted/40 p-4">
-          <p className="text-xs font-medium text-muted-foreground mb-3">Pool Info</p>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <div>
-              <p className="text-xs text-muted-foreground">BLND in Pool</p>
-              <p className="font-mono text-sm">{formatNumber(position.blndAmount, 0)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">USDC in Pool</p>
-              <p className="font-mono text-sm">{formatNumber(position.usdcAmount, 0)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Pool Q4W</p>
-              <p className="font-mono text-sm">{formatPercent(poolQ4w)}</p>
-            </div>
           </div>
         </div>
 
