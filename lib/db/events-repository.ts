@@ -837,6 +837,93 @@ export class EventsRepository {
   }
 
   /**
+   * Get daily backstop share rates for APY calculation.
+   * Returns daily share_rate (LP tokens per share) values which can be used
+   * to calculate APY from rate of change, similar to how pool APY uses b_rate.
+   */
+  async getBackstopDailyRates(
+    poolAddress: string,
+    days: number = 180
+  ): Promise<Array<{ rate_date: string; share_rate: number }>> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    // This query generates daily share rates by:
+    // 1. Creating a date range for the requested period
+    // 2. Computing cumulative LP tokens and shares up to each date
+    // 3. Calculating share_rate = total_lp_tokens / total_shares
+    const result = await pool.query(
+      `
+      WITH date_range AS (
+        SELECT generate_series(
+          GREATEST(
+            CURRENT_DATE - $2::integer,
+            (SELECT MIN(ledger_closed_at::date) FROM backstop_events WHERE pool_address = $1)
+          ),
+          CURRENT_DATE,
+          '1 day'::interval
+        )::date AS date
+      ),
+      -- Cumulative pool state by date
+      pool_cumulative AS (
+        SELECT
+          ledger_closed_at::date AS event_date,
+          SUM(CASE
+            WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
+            WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
+            ELSE 0
+          END) OVER (ORDER BY ledger_closed_at::date) / 1e7 as cumulative_lp_tokens,
+          SUM(CASE
+            WHEN action_type = 'deposit' THEN shares::numeric
+            WHEN action_type = 'withdraw' THEN -shares::numeric
+            ELSE 0
+          END) OVER (ORDER BY ledger_closed_at::date) / 1e7 as cumulative_shares
+        FROM backstop_events
+        WHERE pool_address = $1
+      ),
+      -- Get the last state for each date
+      daily_state AS (
+        SELECT DISTINCT ON (event_date)
+          event_date,
+          cumulative_lp_tokens,
+          cumulative_shares
+        FROM pool_cumulative
+        ORDER BY event_date DESC, cumulative_lp_tokens DESC
+      )
+      SELECT
+        d.date::text as rate_date,
+        COALESCE(
+          CASE
+            WHEN ds.cumulative_shares > 0 THEN ds.cumulative_lp_tokens / ds.cumulative_shares
+            ELSE NULL
+          END,
+          -- Forward-fill: use most recent rate if no data for this date
+          (
+            SELECT cumulative_lp_tokens / NULLIF(cumulative_shares, 0)
+            FROM daily_state
+            WHERE event_date <= d.date
+            ORDER BY event_date DESC
+            LIMIT 1
+          )
+        ) as share_rate
+      FROM date_range d
+      LEFT JOIN daily_state ds ON ds.event_date = d.date
+      WHERE d.date <= CURRENT_DATE
+      ORDER BY d.date ASC
+      `,
+      [poolAddress, days]
+    )
+
+    return result.rows
+      .filter((row) => row.share_rate !== null)
+      .map((row) => ({
+        rate_date: row.rate_date,
+        share_rate: parseFloat(row.share_rate) || 0,
+      }))
+  }
+
+  /**
    * Get backstop user balance history - user's LP token value over time.
    * Computes cumulative shares at each event date and converts to LP tokens using pool rate.
    */

@@ -6,6 +6,8 @@ import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Lock, Unlock, Flame, Shield, Clock } from "lucide-react"
 import { ApySparkline } from "@/components/apy-sparkline"
+import { BackstopApySparkline } from "@/components/backstop-apy-sparkline"
+import { LpPriceSparkline } from "@/components/lp-price-sparkline"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -574,13 +576,6 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
             <p className="text-xs text-muted-foreground">{formatUsd(position.lpTokensUsd)}</p>
           </div>
 
-          {/* Breakdown */}
-          <div>
-            <p className="text-xs text-muted-foreground mb-1">LP Breakdown</p>
-            <p className="text-sm">{formatNumber(position.blndAmount, 2)} BLND</p>
-            <p className="text-sm">{formatNumber(position.usdcAmount, 2)} USDC</p>
-          </div>
-
           {/* APR/APY */}
           <div>
             <p className="text-xs text-muted-foreground mb-1">Yield Rates</p>
@@ -610,9 +605,6 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
                 : 0
               const yieldUsd = position.yieldLp * lpTokenPrice
 
-              // Convert claimed LP to BLND (approximate based on current LP composition)
-              const claimedBlndApprox = claimedLp * blndPerLpToken
-
               return (
                 <>
                   <p className={`font-mono ${position.yieldLp >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
@@ -621,39 +613,86 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
                   <p className={`text-xs ${position.yieldLp >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
                     {position.yieldPercent >= 0 ? '+' : ''}{formatPercent(position.yieldPercent)}
                   </p>
-                  {/* BLND Emissions - always show */}
-                  <div className="mt-1 pt-1 border-t border-border/30">
-                    <p className="text-xs text-purple-400">
-                      <Flame className="inline h-3 w-3 mr-1" />
-                      {position.claimableBlnd > 0
-                        ? `${formatNumber(position.claimableBlnd, 4)} BLND to claim`
-                        : '0 BLND to claim'
+                </>
+              )
+            })()}
+          </div>
+
+          {/* BLND Rewards */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+              <Flame className="h-3 w-3 text-purple-500" />
+              BLND Rewards
+            </p>
+            {(() => {
+              const claimedBlndApprox = claimedLp * blndPerLpToken
+              return (
+                <div className="space-y-2">
+                  {/* To Claim */}
+                  <div>
+                    <p className="font-mono text-purple-400">
+                      {formatNumber(position.claimableBlnd, 4)} BLND
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {position.claimableBlnd > 0 && blndPrice
+                        ? `${formatUsd(position.claimableBlnd * blndPrice)} to claim`
+                        : 'to claim'
                       }
                     </p>
-                    {position.claimableBlnd > 0 && blndPrice && (
-                      <p className="text-xs text-muted-foreground">
-                        {formatUsd(position.claimableBlnd * blndPrice)}
-                      </p>
-                    )}
-                    {claimedBlndApprox > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        ~{formatNumber(claimedBlndApprox, 2)} BLND claimed
-                        {blndPrice && ` (${formatUsd(claimedBlndApprox * blndPrice)})`}
-                      </p>
-                    )}
                   </div>
-                </>
+                  {/* Claimed */}
+                  {claimedBlndApprox > 0 && (
+                    <div className="pt-2 border-t border-border/30">
+                      <p className="font-mono text-sm text-muted-foreground">
+                        ~{formatNumber(claimedBlndApprox, 2)} BLND
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {blndPrice ? `${formatUsd(claimedBlndApprox * blndPrice)} claimed` : 'claimed'}
+                      </p>
+                    </div>
+                  )}
+                </div>
               )
             })()}
           </div>
         </div>
 
-        {/* Pool Q4W Percentage */}
+        {/* APY Sparkline - 6 month history (interest only, excludes BLND emissions) */}
         <div className="mt-4 pt-4 border-t">
-          <div className="flex items-center gap-2">
-            <div>
-              <p className="text-xs text-muted-foreground">Pool Q4W</p>
-              <p className="font-mono font-semibold">
+          <p className="text-xs text-muted-foreground mb-2">Interest APR History (6 months)</p>
+          <BackstopApySparkline
+            poolId={position.poolId}
+            currentApy={position.interestApr}
+            className="w-full h-12"
+          />
+        </div>
+
+        {/* LP Token Price History */}
+        <div className="mt-4 pt-4 border-t">
+          <p className="text-xs text-muted-foreground mb-2">LP Token Price (6 months)</p>
+          <LpPriceSparkline
+            currentPrice={position.lpTokens > 0 ? position.lpTokensUsd / position.lpTokens : undefined}
+            className="w-full h-12"
+          />
+        </div>
+
+        {/* Pool Stats (pool-level data, not user-specific) */}
+        <div className="mt-4 pt-4 border-t">
+          <p className="text-xs text-muted-foreground mb-2">Pool Stats</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-muted/30 rounded-md px-3 py-2">
+              <p className="text-xs text-muted-foreground mb-1">LP Composition</p>
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-sm">{formatNumber(position.blndAmount, 2)}</span>
+                <span className="text-xs text-muted-foreground">BLND</span>
+                <span className="text-muted-foreground">/</span>
+                <span className="font-mono text-sm">{formatNumber(position.usdcAmount, 2)}</span>
+                <span className="text-xs text-muted-foreground">USDC</span>
+              </div>
+            </div>
+            <div className="bg-muted/30 rounded-md px-3 py-2">
+              <p className="text-xs text-muted-foreground mb-1">Pool Q4W</p>
+              <p className="font-mono text-sm">
                 {formatPercent(poolQ4w)}
               </p>
             </div>
