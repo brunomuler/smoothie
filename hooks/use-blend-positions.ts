@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { fetchWalletBlendSnapshot, type BlendWalletSnapshot, type BlendBackstopPosition } from "@/lib/blend/positions"
 import { toTrackedPools } from "@/lib/blend/pools"
@@ -9,6 +9,44 @@ import { fetchWithTimeout } from "@/lib/fetch-utils"
 import type { BalanceData } from "@/types/wallet-balance"
 import type { AssetCardData } from "@/types/asset-card"
 import type { BackstopCostBasis } from "@/lib/db/types"
+
+// localStorage cache for instant repeat loads
+const POSITIONS_CACHE_KEY = "blend-positions-cache"
+const POSITIONS_CACHE_MAX_AGE = 24 * 60 * 60 * 1000 // 24 hours
+
+interface PositionsCache {
+  data: BlendWalletSnapshot
+  timestamp: number
+  publicKey: string
+}
+
+function getCachedPositions(publicKey: string): BlendWalletSnapshot | undefined {
+  if (typeof window === "undefined") return undefined
+  try {
+    const cached = localStorage.getItem(POSITIONS_CACHE_KEY)
+    if (!cached) return undefined
+    const parsed: PositionsCache = JSON.parse(cached)
+    // Validate cache: same wallet and not expired
+    if (parsed.publicKey !== publicKey) return undefined
+    if (Date.now() - parsed.timestamp > POSITIONS_CACHE_MAX_AGE) {
+      localStorage.removeItem(POSITIONS_CACHE_KEY)
+      return undefined
+    }
+    return parsed.data
+  } catch {
+    return undefined
+  }
+}
+
+function setCachedPositions(publicKey: string, data: BlendWalletSnapshot): void {
+  if (typeof window === "undefined") return
+  try {
+    const cache: PositionsCache = { data, timestamp: Date.now(), publicKey }
+    localStorage.setItem(POSITIONS_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // localStorage full or unavailable - ignore
+  }
+}
 
 const usdFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 2,
@@ -167,24 +205,38 @@ export function useBlendPositions(walletPublicKey: string | undefined, totalCost
   const { pools: dbPools } = useMetadata()
   const trackedPools = useMemo(() => toTrackedPools(dbPools), [dbPools])
 
+  // Get cached data for instant display on repeat visits
+  const cachedData = useMemo(
+    () => walletPublicKey ? getCachedPositions(walletPublicKey) : undefined,
+    [walletPublicKey]
+  )
+
   // Fetch wallet snapshot from SDK
   const snapshotQuery = useQuery({
     queryKey: ["blend-wallet-snapshot", walletPublicKey, trackedPools.map(p => p.id).join(',')],
     enabled: !!walletPublicKey && trackedPools.length > 0,
     queryFn: () => fetchWalletBlendSnapshot(walletPublicKey, trackedPools),
-    staleTime: 60_000, // Data considered stale after 1 minute (was 30s)
-    refetchInterval: 120_000, // Refetch every 2 minutes (was 60s) - positions don't change frequently
+    staleTime: 5 * 60_000, // Data considered stale after 5 minutes - positions change infrequently
+    refetchInterval: 10 * 60_000, // Refetch every 10 minutes in background
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true, // Refetch when user returns to tab
+    placeholderData: cachedData, // Show cached data instantly while fetching
   })
+
+  // Update localStorage cache when fresh data arrives
+  useEffect(() => {
+    if (walletPublicKey && snapshotQuery.data && !snapshotQuery.isPlaceholderData) {
+      setCachedPositions(walletPublicKey, snapshotQuery.data)
+    }
+  }, [walletPublicKey, snapshotQuery.data, snapshotQuery.isPlaceholderData])
 
   // Fetch backstop cost bases from database
   const costBasisQuery = useQuery({
     queryKey: ["backstop-cost-basis", walletPublicKey],
     enabled: !!walletPublicKey,
     queryFn: () => fetchBackstopCostBases(walletPublicKey!),
-    staleTime: 60_000, // Cost basis changes less frequently
-    refetchInterval: 120_000,
+    staleTime: 5 * 60_000, // Cost basis changes less frequently
+    refetchInterval: 10 * 60_000,
   })
 
   // Combine snapshot and cost basis data

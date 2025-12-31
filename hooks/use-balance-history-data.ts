@@ -1,10 +1,50 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
 import { fillMissingDates, detectPositionChanges, calculateEarningsStats } from "@/lib/balance-history-utils"
 import type { AssetCardData } from "@/types/asset-card"
+
+// localStorage cache for instant repeat loads
+const HISTORY_CACHE_KEY = "balance-history-cache"
+const HISTORY_CACHE_MAX_AGE = 4 * 60 * 60 * 1000 // 4 hours (historical data changes slowly)
+
+interface HistoryCache {
+  data: { results: BalanceHistoryResult[] }
+  timestamp: number
+  publicKey: string
+  assets: string
+}
+
+function getCachedHistory(publicKey: string, assets: string): { results: BalanceHistoryResult[] } | undefined {
+  if (typeof window === "undefined") return undefined
+  try {
+    const cached = localStorage.getItem(HISTORY_CACHE_KEY)
+    if (!cached) return undefined
+    const parsed: HistoryCache = JSON.parse(cached)
+    // Validate cache: same wallet, same assets, and not expired
+    if (parsed.publicKey !== publicKey) return undefined
+    if (parsed.assets !== assets) return undefined
+    if (Date.now() - parsed.timestamp > HISTORY_CACHE_MAX_AGE) {
+      localStorage.removeItem(HISTORY_CACHE_KEY)
+      return undefined
+    }
+    return parsed.data
+  } catch {
+    return undefined
+  }
+}
+
+function setCachedHistory(publicKey: string, assets: string, data: { results: BalanceHistoryResult[] }): void {
+  if (typeof window === "undefined") return
+  try {
+    const cache: HistoryCache = { data, timestamp: Date.now(), publicKey, assets }
+    localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // localStorage full or unavailable - ignore
+  }
+}
 
 interface BalanceHistoryResult {
   asset_address: string
@@ -94,10 +134,19 @@ export function useBalanceHistoryData(
     return Array.from(addresses)
   }, [assetCards, blendSnapshot?.positions])
 
+  // Create stable assets key for caching
+  const assetsKey = uniqueAssetAddresses.join(',')
+
+  // Get cached data for instant display on repeat visits
+  const cachedData = useMemo(
+    () => publicKey && assetsKey ? getCachedHistory(publicKey, assetsKey) : undefined,
+    [publicKey, assetsKey]
+  )
+
   // Batch fetch balance history for all assets in a single request
   // This reduces HTTP overhead by consolidating multiple requests into one
   const balanceHistoryBatchQuery = useQuery({
-    queryKey: ["balance-history-batch", publicKey || '', uniqueAssetAddresses.join(','), 365, userTimezone],
+    queryKey: ["balance-history-batch", publicKey || '', assetsKey, 365, userTimezone],
     queryFn: async ({ signal }) => {
       if (uniqueAssetAddresses.length === 0) {
         return { results: [] }
@@ -105,7 +154,7 @@ export function useBalanceHistoryData(
 
       const params = new URLSearchParams({
         user: publicKey || '',
-        assets: uniqueAssetAddresses.join(','),
+        assets: assetsKey,
         days: '365',
         timezone: userTimezone,
       })
@@ -123,7 +172,15 @@ export function useBalanceHistoryData(
     staleTime: 5 * 60 * 1000, // 5 minutes (historical data doesn't change frequently)
     refetchOnWindowFocus: false,
     retry: 2,
+    placeholderData: cachedData, // Show cached data instantly while fetching
   })
+
+  // Update localStorage cache when fresh data arrives
+  useEffect(() => {
+    if (publicKey && assetsKey && balanceHistoryBatchQuery.data && !balanceHistoryBatchQuery.isPlaceholderData) {
+      setCachedHistory(publicKey, assetsKey, balanceHistoryBatchQuery.data)
+    }
+  }, [publicKey, assetsKey, balanceHistoryBatchQuery.data, balanceHistoryBatchQuery.isPlaceholderData])
 
   // Transform batch results into the same format as the old useQueries result
   // This maintains compatibility with existing code that uses balanceHistoryQueries

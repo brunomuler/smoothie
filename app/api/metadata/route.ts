@@ -6,6 +6,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
 
+// Enable ISR - revalidate every hour (metadata rarely changes)
+export const revalidate = 3600
+
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
