@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { LineChart, Line, Tooltip, ResponsiveContainer } from "recharts"
+import { LineChart, Line, Tooltip, ResponsiveContainer, YAxis } from "recharts"
 import { format } from "date-fns"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
 
@@ -140,6 +140,7 @@ export function ApySparkline({
             data={chartData}
             margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
           >
+            <YAxis domain={['dataMin', 'dataMax']} hide />
             <Tooltip
               content={<CustomTooltip />}
               cursor={false}
