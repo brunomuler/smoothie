@@ -24,6 +24,8 @@ import { Area, AreaChart, Bar, BarChart, XAxis, YAxis } from "recharts"
 import { useRealizedYield } from "@/hooks/use-realized-yield"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
+import { useDisplayPreferences } from "@/contexts/display-preferences-context"
+import { useHistoricalYieldBreakdown } from "@/hooks/use-historical-yield-breakdown"
 import { LP_TOKEN_ADDRESS } from "@/lib/constants"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { useWalletState } from "@/hooks/use-wallet-state"
@@ -86,6 +88,9 @@ function RealizedYieldContent() {
   const [sourceChartTab, setSourceChartTab] = useState<PnlTab>('total')
   const [poolChartTab, setPoolChartTab] = useState<PnlTab>('total')
   const { format: formatInCurrency } = useCurrencyPreference()
+  const { preferences: displayPreferences } = useDisplayPreferences()
+  const showPriceChanges = displayPreferences.showPriceChanges
+  const useHistoricalBlndPrices = displayPreferences.useHistoricalBlndPrices
 
   const {
     wallets,
@@ -98,7 +103,7 @@ function RealizedYieldContent() {
   const publicKey = activeWallet?.publicKey
 
   // Get blend positions for current prices and balances
-  const { blndPrice, lpTokenPrice, data: blendSnapshot, totalBackstopUsd, isLoading: isLoadingPositions } = useBlendPositions(publicKey)
+  const { blndPrice, lpTokenPrice, data: blendSnapshot, backstopPositions, totalBackstopUsd, isLoading: isLoadingPositions, totalEmissions: unclaimedBlndTokens } = useBlendPositions(publicKey)
 
   // Build SDK prices map
   const sdkPricesMap = useMemo(() => {
@@ -128,6 +133,14 @@ function RealizedYieldContent() {
     enabled: !!publicKey && sdkReady,
   })
 
+  // Use same yield breakdown calculation as home page for consistency
+  const yieldBreakdown = useHistoricalYieldBreakdown(
+    publicKey,
+    blendSnapshot?.positions,
+    backstopPositions,
+    lpTokenPrice
+  )
+
   const formatUsd = (value: number) => {
     if (!Number.isFinite(value)) return formatInCurrency(0)
     return formatInCurrency(value, {
@@ -137,6 +150,9 @@ function RealizedYieldContent() {
   }
 
   // Calculate emissions per source
+  // Respects useHistoricalBlndPrices setting:
+  // - When true: use historical prices from API (tx.valueUsd)
+  // - When false: recalculate BLND using current price
   const emissionsBySource = useMemo(() => {
     if (!data?.transactions) return { pools: { blnd: 0, lp: 0, usd: 0 }, backstop: { blnd: 0, lp: 0, usd: 0 } }
 
@@ -151,16 +167,25 @@ function RealizedYieldContent() {
       const target = tx.source === 'pool' ? result.pools : result.backstop
       if (tx.asset === 'BLND') {
         target.blnd += tx.amount
+        // Use historical or current price based on setting
+        if (useHistoricalBlndPrices) {
+          target.usd += tx.valueUsd
+        } else {
+          target.usd += tx.amount * (blndPrice ?? 0)
+        }
       } else if (tx.asset === 'BLND-USDC LP') {
         target.lp += tx.amount
+        // LP tokens always use historical price (no setting for LP)
+        target.usd += tx.valueUsd
       }
-      target.usd += tx.valueUsd
     }
 
     return result
-  }, [data?.transactions])
+  }, [data?.transactions, useHistoricalBlndPrices, blndPrice])
+
 
   // Aggregate by pool for per-pool breakdown (grouped by pool with lending/backstop sub-items)
+  // Respects useHistoricalBlndPrices setting for emissions values
   const perPoolBreakdown = useMemo(() => {
     if (!data?.transactions) return []
 
@@ -184,7 +209,12 @@ function RealizedYieldContent() {
       if (tx.type === 'deposit') {
         target.deposited += tx.valueUsd
       } else if (tx.type === 'claim') {
-        target.emissionsClaimed += tx.valueUsd
+        // Respect useHistoricalBlndPrices setting for BLND claims
+        if (tx.asset === 'BLND' && !useHistoricalBlndPrices) {
+          target.emissionsClaimed += tx.amount * (blndPrice ?? 0)
+        } else {
+          target.emissionsClaimed += tx.valueUsd
+        }
       } else {
         target.withdrawn += tx.valueUsd
       }
@@ -199,7 +229,7 @@ function RealizedYieldContent() {
         const bTotal = b.lending.deposited + b.backstop.deposited
         return bTotal - aTotal
       })
-  }, [data?.transactions])
+  }, [data?.transactions, useHistoricalBlndPrices, blndPrice])
 
   // Calculate current positions and unrealized P&L from SDK
   const unrealizedData = useMemo(() => {
@@ -256,9 +286,82 @@ function RealizedYieldContent() {
     }
   }, [data, blendSnapshot, totalBackstopUsd])
 
+  // Calculate unclaimed emissions (pending BLND that can still be claimed)
+  const unclaimedEmissions = useMemo(() => {
+    // Unclaimed BLND from lending pools (in USD)
+    const poolsBlndTokens = unclaimedBlndTokens ?? 0
+    const poolsUsd = poolsBlndTokens * (blndPrice ?? 0)
+
+    // Unclaimed BLND from backstop positions (in USD)
+    const backstopBlndTokens = backstopPositions?.reduce((sum, bp) => sum + (bp.claimableBlnd || 0), 0) ?? 0
+    const backstopUsd = backstopBlndTokens * (blndPrice ?? 0)
+
+    return {
+      pools: { blnd: poolsBlndTokens, usd: poolsUsd },
+      backstop: { blnd: backstopBlndTokens, usd: backstopUsd },
+    }
+  }, [unclaimedBlndTokens, backstopPositions, blndPrice])
+
+  // Display P&L values based on showPriceChanges setting
+  // Uses yieldBreakdown (same as home page) for consistency
+  // When OFF: show only protocol yield (excludes price changes)
+  // When ON: show total earned (includes price changes)
+  const displayPnl = useMemo(() => {
+    // Calculate pools values from yieldBreakdown.byAsset
+    let poolsProtocolYield = 0
+    let poolsTotalEarned = 0
+    for (const breakdown of yieldBreakdown.byAsset.values()) {
+      poolsProtocolYield += breakdown.protocolYieldUsd
+      poolsTotalEarned += breakdown.totalEarnedUsd
+    }
+
+    // Calculate backstop values from yieldBreakdown.byBackstop
+    let backstopProtocolYield = 0
+    let backstopTotalEarned = 0
+    for (const breakdown of yieldBreakdown.byBackstop.values()) {
+      backstopProtocolYield += breakdown.protocolYieldUsd
+      backstopTotalEarned += breakdown.totalEarnedUsd
+    }
+
+    // Realized P&L = emissions (BLND/LP claims)
+    // We only count explicit claims as realized, not inferred from cost basis differences
+    // (cost basis differences can occur when SDK positions don't fully match historical data)
+    const totalEmissions = emissionsBySource.pools.usd + emissionsBySource.backstop.usd
+
+    if (showPriceChanges) {
+      // Include price changes: use totalEarnedUsd (same as home page)
+      const totalUnrealized = poolsTotalEarned + backstopTotalEarned
+      // Total P&L = unrealized (with price changes) + realized emissions
+      const totalPnl = totalUnrealized + totalEmissions
+      return {
+        totalPnl,
+        poolsUnrealized: poolsTotalEarned,
+        backstopUnrealized: backstopTotalEarned,
+        totalUnrealized,
+        realizedFromWithdrawals: totalEmissions,
+        poolsYield: poolsProtocolYield,
+        backstopYield: backstopProtocolYield,
+      }
+    } else {
+      // Exclude price changes: use protocolYieldUsd only (same as home page)
+      const totalUnrealized = poolsProtocolYield + backstopProtocolYield
+      // Total P&L = unrealized yield + realized emissions
+      const totalPnl = totalUnrealized + totalEmissions
+      return {
+        totalPnl,
+        poolsUnrealized: poolsProtocolYield,
+        backstopUnrealized: backstopProtocolYield,
+        totalUnrealized,
+        realizedFromWithdrawals: totalEmissions,
+        poolsYield: poolsProtocolYield,
+        backstopYield: backstopProtocolYield,
+      }
+    }
+  }, [showPriceChanges, yieldBreakdown, emissionsBySource, data])
+
   // Determine display state based on whether user has current positions
   const hasCurrentPositions = unrealizedData.totalCurrentUsd > 0
-  const totalPnlPositive = unrealizedData.totalPnl >= 0
+  const totalPnlPositive = displayPnl.totalPnl >= 0
 
   if (!activeWallet) {
     return (
@@ -307,7 +410,7 @@ function RealizedYieldContent() {
         {(isLoading || !sdkReady) ? (
           <div className="space-y-4">
             <Card>
-              <CardContent className="pt-6">
+              <CardContent>
                 <div className="space-y-4">
                   <Skeleton className="h-6 w-40" />
                   <Skeleton className="h-10 w-48" />
@@ -316,9 +419,9 @@ function RealizedYieldContent() {
               </CardContent>
             </Card>
             <div className="grid grid-cols-2 gap-3">
-              {[...Array(4)].map((_, i) => (
-                <Card key={i}>
-                  <CardContent className="pt-4 pb-4">
+              {[...Array(2)].map((_, i) => (
+                <Card key={i} className="py-4">
+                  <CardContent>
                     <Skeleton className="h-4 w-20 mb-2" />
                     <Skeleton className="h-6 w-28" />
                   </CardContent>
@@ -340,7 +443,7 @@ function RealizedYieldContent() {
           <>
             {/* Hero Summary Card */}
             <Card>
-              <CardContent className="pt-6">
+              <CardContent>
                 {hasCurrentPositions ? (
                   // User has active positions - show Total P&L as primary metric
                   <>
@@ -354,11 +457,11 @@ function RealizedYieldContent() {
                         </p>
                         <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap">
                           <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${totalPnlPositive ? "text-emerald-400" : "text-red-400"}`}>
-                            {totalPnlPositive ? "+" : ""}{formatUsd(unrealizedData.totalPnl)}
+                            {totalPnlPositive ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
                           </p>
                           {data.totalDepositedUsd > 0 && (
                             <Badge variant="outline" className={totalPnlPositive ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}>
-                              {totalPnlPositive ? "+" : ""}{((unrealizedData.totalPnl / data.totalDepositedUsd) * 100).toFixed(1)}%
+                              {totalPnlPositive ? "+" : ""}{((displayPnl.totalPnl / data.totalDepositedUsd) * 100).toFixed(1)}%
                             </Badge>
                           )}
                         </div>
@@ -431,9 +534,9 @@ function RealizedYieldContent() {
 
             {/* Strategy Performance Stats */}
             {data.firstActivityDate && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-3">
-                <Card>
-                  <CardContent className="pt-4 pb-4">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                <Card className="py-4">
+                  <CardContent>
                     <div className="flex items-center gap-2 mb-1">
                       <Calendar className="h-3 w-3 text-muted-foreground" />
                       <p className="text-xs text-muted-foreground">First Activity</p>
@@ -441,36 +544,10 @@ function RealizedYieldContent() {
                     <p className="font-semibold text-sm">{formatDate(data.firstActivityDate)}</p>
                   </CardContent>
                 </Card>
-                <Card>
-                  <CardContent className="pt-4 pb-4">
+                <Card className="py-4">
+                  <CardContent>
                     <p className="text-xs text-muted-foreground mb-1">Days Active</p>
                     <p className="font-semibold text-sm">{data.daysActive} days</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4 pb-4">
-                    <p className="text-xs text-muted-foreground mb-1">Capital Deployed</p>
-                    <p className="font-semibold text-sm tabular-nums">{formatUsd(data.totalDepositedUsd)}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-4 pb-4">
-                    <p className="text-xs text-muted-foreground mb-1">
-                      {hasCurrentPositions ? (
-                        <InfoLabel label="Total ROI" tooltip="Total P&L as a percentage of capital deployed." />
-                      ) : (
-                        <InfoLabel label="Withdrawn %" tooltip="Percentage of deposited capital that has been withdrawn." />
-                      )}
-                    </p>
-                    {hasCurrentPositions ? (
-                      <p className={`font-semibold text-sm tabular-nums ${totalPnlPositive ? "text-emerald-400" : "text-red-400"}`}>
-                        {totalPnlPositive ? "+" : ""}{((unrealizedData.totalPnl / data.totalDepositedUsd) * 100).toFixed(1)}%
-                      </p>
-                    ) : (
-                      <p className="font-semibold text-sm tabular-nums">
-                        {((data.totalWithdrawnUsd / data.totalDepositedUsd) * 100).toFixed(1)}%
-                      </p>
-                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -499,7 +576,7 @@ function RealizedYieldContent() {
                         // distributed proportionally based on cost basis at each point
                         const costBasis = d.cumulativeDeposited - (d.cumulativeWithdrawn - d.cumulativeRealizedPnl)
                         const finalCostBasis = unrealizedData.totalCostBasis || 1
-                        const unrealizedEstimate = costBasis > 0 ? (costBasis / finalCostBasis) * unrealizedData.totalUnrealized : 0
+                        const unrealizedEstimate = costBasis > 0 ? (costBasis / finalCostBasis) * displayPnl.totalUnrealized : 0
                         return {
                           ...d,
                           unrealized: unrealizedEstimate,
@@ -636,12 +713,28 @@ function RealizedYieldContent() {
                         <span className="text-muted-foreground">Withdrawn</span>
                         <span className="tabular-nums">{formatUsd(data.pools.withdrawn)}</span>
                       </div>
+                      {displayPnl.poolsYield > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Yield" tooltip="Interest earned from lending. This is protocol yield (tokens earned × current price)." />
+                          </span>
+                          <span className="tabular-nums">{formatUsd(displayPnl.poolsYield)}</span>
+                        </div>
+                      )}
                       {emissionsBySource.pools.usd > 0 && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
                             <InfoLabel label="Emissions Claimed" tooltip="BLND tokens received as rewards from lending positions." />
                           </span>
                           <span className="tabular-nums">{formatUsd(emissionsBySource.pools.usd)}</span>
+                        </div>
+                      )}
+                      {unclaimedEmissions.pools.usd > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Emissions Unclaimed" tooltip="BLND tokens available to claim from lending positions." />
+                          </span>
+                          <span className="tabular-nums">{formatUsd(unclaimedEmissions.pools.usd)}</span>
                         </div>
                       )}
                       {emissionsBySource.pools.usd > 0 && (
@@ -666,12 +759,12 @@ function RealizedYieldContent() {
                               <InfoLabel label="Unrealized P&L" tooltip="Current Balance minus Cost Basis. Profit still in the protocol." />
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className={`tabular-nums ${unrealizedData.poolsUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                {unrealizedData.poolsUnrealized >= 0 ? "+" : ""}{formatUsd(unrealizedData.poolsUnrealized)}
+                              <span className={`tabular-nums ${displayPnl.poolsUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {displayPnl.poolsUnrealized >= 0 ? "+" : ""}{formatUsd(displayPnl.poolsUnrealized)}
                               </span>
                               {data.pools.deposited > 0 && (
-                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${unrealizedData.poolsUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
-                                  {unrealizedData.poolsUnrealized >= 0 ? "+" : ""}{((unrealizedData.poolsUnrealized / data.pools.deposited) * 100).toFixed(1)}%
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${displayPnl.poolsUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {displayPnl.poolsUnrealized >= 0 ? "+" : ""}{((displayPnl.poolsUnrealized / data.pools.deposited) * 100).toFixed(1)}%
                                 </Badge>
                               )}
                             </div>
@@ -681,12 +774,12 @@ function RealizedYieldContent() {
                               <InfoLabel label="P&L" tooltip="Total profit: Unrealized P&L + Realized P&L" />
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className={`tabular-nums ${(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                {(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "+" : ""}{formatUsd(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd)}
+                              <span className={`tabular-nums ${(displayPnl.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {(displayPnl.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "+" : ""}{formatUsd(displayPnl.poolsUnrealized + emissionsBySource.pools.usd)}
                               </span>
                               {data.pools.deposited > 0 && (
-                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
-                                  {(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "+" : ""}{(((unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) / data.pools.deposited) * 100).toFixed(1)}%
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${(displayPnl.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {(displayPnl.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "+" : ""}{(((displayPnl.poolsUnrealized + emissionsBySource.pools.usd) / data.pools.deposited) * 100).toFixed(1)}%
                                 </Badge>
                               )}
                             </div>
@@ -721,12 +814,28 @@ function RealizedYieldContent() {
                         <span className="text-muted-foreground">Withdrawn</span>
                         <span className="tabular-nums">{formatUsd(data.backstop.withdrawn)}</span>
                       </div>
+                      {displayPnl.backstopYield > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Yield" tooltip="LP token appreciation from backstop positions. This is protocol yield." />
+                          </span>
+                          <span className="tabular-nums">{formatUsd(displayPnl.backstopYield)}</span>
+                        </div>
+                      )}
                       {emissionsBySource.backstop.usd > 0 && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
                             <InfoLabel label="Emissions Claimed" tooltip="BLND and LP tokens received as rewards from backstop positions." />
                           </span>
                           <span className="tabular-nums">{formatUsd(emissionsBySource.backstop.usd)}</span>
+                        </div>
+                      )}
+                      {unclaimedEmissions.backstop.usd > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Emissions Unclaimed" tooltip="BLND tokens available to claim from backstop positions." />
+                          </span>
+                          <span className="tabular-nums">{formatUsd(unclaimedEmissions.backstop.usd)}</span>
                         </div>
                       )}
                       {emissionsBySource.backstop.usd > 0 && (
@@ -751,12 +860,12 @@ function RealizedYieldContent() {
                               <InfoLabel label="Unrealized P&L" tooltip="Current Balance minus Cost Basis. Profit still in the protocol." />
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className={`tabular-nums ${unrealizedData.backstopUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                {unrealizedData.backstopUnrealized >= 0 ? "+" : ""}{formatUsd(unrealizedData.backstopUnrealized)}
+                              <span className={`tabular-nums ${displayPnl.backstopUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {displayPnl.backstopUnrealized >= 0 ? "+" : ""}{formatUsd(displayPnl.backstopUnrealized)}
                               </span>
                               {data.backstop.deposited > 0 && (
-                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${unrealizedData.backstopUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
-                                  {unrealizedData.backstopUnrealized >= 0 ? "+" : ""}{((unrealizedData.backstopUnrealized / data.backstop.deposited) * 100).toFixed(1)}%
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${displayPnl.backstopUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {displayPnl.backstopUnrealized >= 0 ? "+" : ""}{((displayPnl.backstopUnrealized / data.backstop.deposited) * 100).toFixed(1)}%
                                 </Badge>
                               )}
                             </div>
@@ -766,12 +875,12 @@ function RealizedYieldContent() {
                               <InfoLabel label="P&L" tooltip="Total profit: Unrealized P&L + Realized P&L" />
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className={`tabular-nums ${(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                {(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "+" : ""}{formatUsd(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd)}
+                              <span className={`tabular-nums ${(displayPnl.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {(displayPnl.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "+" : ""}{formatUsd(displayPnl.backstopUnrealized + emissionsBySource.backstop.usd)}
                               </span>
                               {data.backstop.deposited > 0 && (
-                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
-                                  {(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "+" : ""}{(((unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) / data.backstop.deposited) * 100).toFixed(1)}%
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${(displayPnl.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {(displayPnl.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "+" : ""}{(((displayPnl.backstopUnrealized + emissionsBySource.backstop.usd) / data.backstop.deposited) * 100).toFixed(1)}%
                                 </Badge>
                               )}
                             </div>
@@ -833,8 +942,8 @@ function RealizedYieldContent() {
                               lastBackstopCostBasis = backstopCostBasisMap.get(date)!
                             }
                             // Estimate unrealized based on cost basis proportion
-                            const poolsUnrealizedEst = lastPoolsCostBasis > 0 ? (lastPoolsCostBasis / finalPoolsCostBasis) * unrealizedData.poolsUnrealized : 0
-                            const backstopUnrealizedEst = lastBackstopCostBasis > 0 ? (lastBackstopCostBasis / finalBackstopCostBasis) * unrealizedData.backstopUnrealized : 0
+                            const poolsUnrealizedEst = lastPoolsCostBasis > 0 ? (lastPoolsCostBasis / finalPoolsCostBasis) * displayPnl.poolsUnrealized : 0
+                            const backstopUnrealizedEst = lastBackstopCostBasis > 0 ? (lastBackstopCostBasis / finalBackstopCostBasis) * displayPnl.backstopUnrealized : 0
                             return {
                               date,
                               poolsRealized: lastPoolsRealized,
@@ -930,8 +1039,8 @@ function RealizedYieldContent() {
                       <Separator />
                       <div className="flex items-center justify-between">
                         <p className="font-semibold">Total P&L</p>
-                        <p className={`text-lg font-bold tabular-nums ${unrealizedData.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {unrealizedData.totalPnl >= 0 ? "+" : ""}{formatUsd(unrealizedData.totalPnl)}
+                        <p className={`text-lg font-bold tabular-nums ${displayPnl.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {displayPnl.totalPnl >= 0 ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
                         </p>
                       </div>
                     </>
@@ -967,13 +1076,13 @@ function RealizedYieldContent() {
                       ? (poolData.lending.deposited / data.pools.deposited) * unrealizedData.poolsCurrentUsd
                       : 0
                     const lendingUnrealized = data.pools.deposited > 0
-                      ? (poolData.lending.deposited / data.pools.deposited) * unrealizedData.poolsUnrealized
+                      ? (poolData.lending.deposited / data.pools.deposited) * displayPnl.poolsUnrealized
                       : 0
                     const backstopCurrentBalance = data.backstop.deposited > 0
                       ? (poolData.backstop.deposited / data.backstop.deposited) * unrealizedData.backstopCurrentUsd
                       : 0
                     const backstopUnrealized = data.backstop.deposited > 0
-                      ? (poolData.backstop.deposited / data.backstop.deposited) * unrealizedData.backstopUnrealized
+                      ? (poolData.backstop.deposited / data.backstop.deposited) * displayPnl.backstopUnrealized
                       : 0
 
                     // Total P&L for each source in this pool
@@ -1250,10 +1359,10 @@ function RealizedYieldContent() {
 
                               // Calculate this pool's share of unrealized P&L
                               const lendingUnrealizedShare = deposits.lending > 0
-                                ? (deposits.lending / totalPoolsDeposited) * unrealizedData.poolsUnrealized
+                                ? (deposits.lending / totalPoolsDeposited) * displayPnl.poolsUnrealized
                                 : 0
                               const backstopUnrealizedShare = deposits.backstop > 0
-                                ? (deposits.backstop / totalBackstopDeposited) * unrealizedData.backstopUnrealized
+                                ? (deposits.backstop / totalBackstopDeposited) * displayPnl.backstopUnrealized
                                 : 0
 
                               for (const ts of pool.timeSeries) {

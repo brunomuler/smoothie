@@ -1,13 +1,14 @@
 "use client"
 
 import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { CurrencySelector } from "@/components/currency-selector"
 import { Switch } from "@/components/ui/switch"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
 
 export default function SettingsPage() {
+  const router = useRouter()
   const { currency, setCurrency } = useCurrencyPreference()
   const { preferences, setShowPriceChanges, setUseHistoricalBlndPrices } = useDisplayPreferences()
 
@@ -16,12 +17,12 @@ export default function SettingsPage() {
       {/* Header with back button */}
       <header className="sticky top-0 z-50 bg-background border-b border-border">
         <div className="container max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <Link
-            href="/"
+          <button
+            onClick={() => router.back()}
             className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-muted transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <h1 className="text-lg font-semibold">Settings</h1>
         </div>
       </header>

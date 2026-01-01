@@ -6,6 +6,7 @@ export interface RealizedYieldTransaction {
   type: 'deposit' | 'withdraw' | 'claim'
   source: 'pool' | 'backstop'
   asset: string
+  assetAddress: string | null
   amount: number
   priceUsd: number
   valueUsd: number

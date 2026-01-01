@@ -66,6 +66,57 @@ export class RatesRepository extends BaseRepository {
   async refreshDailyRates(): Promise<void> {
     await this.pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY daily_rates')
   }
+
+  /**
+   * Get period APY for all pool/asset combinations
+   * Calculates APY from start and end b_rate values over the period
+   */
+  async getPeriodApyAll(
+    days: number
+  ): Promise<Array<{ pool_id: string; asset_address: string; apy: number | null }>> {
+    const rows = await this.query<{
+      pool_id: string
+      asset_address: string
+      apy: string | null
+    }>(
+      `
+      WITH period_bounds AS (
+        SELECT
+          pool_id,
+          asset_address,
+          FIRST_VALUE(b_rate) OVER (
+            PARTITION BY pool_id, asset_address
+            ORDER BY rate_date ASC
+          ) as start_rate,
+          LAST_VALUE(b_rate) OVER (
+            PARTITION BY pool_id, asset_address
+            ORDER BY rate_date ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+          ) as end_rate,
+          COUNT(*) OVER (PARTITION BY pool_id, asset_address) as day_count
+        FROM daily_rates
+        WHERE rate_date >= CURRENT_DATE - $1::integer
+          AND b_rate IS NOT NULL
+      )
+      SELECT DISTINCT
+        pool_id,
+        asset_address,
+        CASE
+          WHEN start_rate > 0 AND end_rate > 0 AND day_count > 1
+          THEN (POWER(end_rate / start_rate, 365.0 / day_count) - 1) * 100
+          ELSE NULL
+        END as apy
+      FROM period_bounds
+      `,
+      [days]
+    )
+
+    return rows.map((row) => ({
+      pool_id: row.pool_id,
+      asset_address: row.asset_address,
+      apy: row.apy ? parseFloat(row.apy) : null,
+    }))
+  }
 }
 
 // Export singleton instance

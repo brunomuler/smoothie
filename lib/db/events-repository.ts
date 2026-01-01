@@ -2024,6 +2024,7 @@ export class EventsRepository {
       type: 'deposit' | 'withdraw' | 'claim'
       source: 'pool' | 'backstop'
       asset: string
+      assetAddress: string | null
       amount: number
       priceUsd: number
       valueUsd: number
@@ -2227,6 +2228,7 @@ export class EventsRepository {
       type: 'deposit' | 'withdraw' | 'claim'
       source: 'pool' | 'backstop'
       asset: string
+      assetAddress: string | null
       amount: number
       priceUsd: number
       valueUsd: number
@@ -2252,6 +2254,7 @@ export class EventsRepository {
         type: isDeposit ? 'deposit' : 'withdraw',
         source: 'pool',
         asset: row.asset_symbol || 'Unknown',
+        assetAddress: row.asset_address,
         amount: tokens,
         priceUsd: price,
         valueUsd: usdValue,
@@ -2282,6 +2285,7 @@ export class EventsRepository {
         type: row.action_type === 'deposit' ? 'deposit' : 'withdraw',
         source: 'backstop',
         asset: 'BLND-USDC LP',
+        assetAddress: LP_TOKEN_ADDRESS,
         amount: lpTokens,
         priceUsd: price,
         valueUsd: usdValue,
@@ -2309,6 +2313,7 @@ export class EventsRepository {
         type: 'claim',
         source: 'pool',
         asset: 'BLND',
+        assetAddress: BLND_TOKEN_ADDRESS,
         amount: blndAmount,
         priceUsd: price,
         valueUsd: usdValue,
@@ -2335,6 +2340,7 @@ export class EventsRepository {
         type: 'claim',
         source: 'backstop',
         asset: 'BLND-USDC LP',
+        assetAddress: LP_TOKEN_ADDRESS,
         amount: lpTokens,
         priceUsd: price,
         valueUsd: usdValue,
