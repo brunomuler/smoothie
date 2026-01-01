@@ -2,39 +2,25 @@
 
 import { useState, useMemo, Suspense } from "react"
 import Link from "next/link"
-import { ArrowLeft, TrendingUp, TrendingDown, Shield, PiggyBank, Flame, Download, Calendar, Wallet, Info } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { ArrowLeft, TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet, Info } from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   ChartConfig,
   ChartContainer,
   ChartTooltip,
 } from "@/components/ui/chart"
-import { Area, AreaChart, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, Bar, BarChart, XAxis, YAxis } from "recharts"
 import { useRealizedYield } from "@/hooks/use-realized-yield"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
@@ -93,9 +79,12 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
+type PnlTab = 'total' | 'realized' | 'unrealized'
+
 function RealizedYieldContent() {
-  const [typeFilter, setTypeFilter] = useState<string>("all")
-  const [sourceFilter, setSourceFilter] = useState<string>("all")
+  const [mainChartTab, setMainChartTab] = useState<PnlTab>('total')
+  const [sourceChartTab, setSourceChartTab] = useState<PnlTab>('total')
+  const [poolChartTab, setPoolChartTab] = useState<PnlTab>('total')
   const { format: formatInCurrency } = useCurrencyPreference()
 
   const {
@@ -147,65 +136,69 @@ function RealizedYieldContent() {
     })
   }
 
-  // Calculate running net for transactions display
-  const transactionsWithRunningNet = useMemo(() => {
-    if (!data?.transactions) return []
+  // Calculate emissions per source
+  const emissionsBySource = useMemo(() => {
+    if (!data?.transactions) return { pools: { blnd: 0, lp: 0, usd: 0 }, backstop: { blnd: 0, lp: 0, usd: 0 } }
 
-    let runningNet = 0
-    const txsWithNet = data.transactions.map(tx => {
-      if (tx.type === "deposit") {
-        runningNet -= tx.valueUsd
-      } else {
-        runningNet += tx.valueUsd
+    const result = {
+      pools: { blnd: 0, lp: 0, usd: 0 },
+      backstop: { blnd: 0, lp: 0, usd: 0 },
+    }
+
+    for (const tx of data.transactions) {
+      if (tx.type !== 'claim') continue
+
+      const target = tx.source === 'pool' ? result.pools : result.backstop
+      if (tx.asset === 'BLND') {
+        target.blnd += tx.amount
+      } else if (tx.asset === 'BLND-USDC LP') {
+        target.lp += tx.amount
       }
-      return { ...tx, runningNet }
-    })
+      target.usd += tx.valueUsd
+    }
 
-    // Apply filters and reverse
-    return txsWithNet.filter(tx => {
-      if (typeFilter !== "all" && tx.type !== typeFilter) return false
-      if (sourceFilter !== "all" && tx.source !== sourceFilter) return false
-      return true
-    }).reverse()
-  }, [data?.transactions, typeFilter, sourceFilter])
+    return result
+  }, [data?.transactions])
 
-  // Aggregate by pool for per-pool breakdown
+  // Aggregate by pool for per-pool breakdown (grouped by pool with lending/backstop sub-items)
   const perPoolBreakdown = useMemo(() => {
     if (!data?.transactions) return []
 
     const poolMap = new Map<string, {
       poolId: string
       poolName: string | null
-      deposited: number
-      withdrawn: number
-      source: 'pool' | 'backstop'
+      lending: { deposited: number; withdrawn: number; emissionsClaimed: number }
+      backstop: { deposited: number; withdrawn: number; emissionsClaimed: number }
     }>()
 
     for (const tx of data.transactions) {
-      // Skip claims for per-pool breakdown (they're shown separately)
-      if (tx.type === 'claim') continue
-
-      const key = `${tx.poolId}-${tx.source}`
-      const existing = poolMap.get(key) || {
+      const existing = poolMap.get(tx.poolId) || {
         poolId: tx.poolId,
         poolName: tx.poolName,
-        deposited: 0,
-        withdrawn: 0,
-        source: tx.source,
+        lending: { deposited: 0, withdrawn: 0, emissionsClaimed: 0 },
+        backstop: { deposited: 0, withdrawn: 0, emissionsClaimed: 0 },
       }
+
+      const target = tx.source === 'pool' ? existing.lending : existing.backstop
 
       if (tx.type === 'deposit') {
-        existing.deposited += tx.valueUsd
+        target.deposited += tx.valueUsd
+      } else if (tx.type === 'claim') {
+        target.emissionsClaimed += tx.valueUsd
       } else {
-        existing.withdrawn += tx.valueUsd
+        target.withdrawn += tx.valueUsd
       }
 
-      poolMap.set(key, existing)
+      poolMap.set(tx.poolId, existing)
     }
 
     return Array.from(poolMap.values())
-      .filter(p => p.deposited > 0 || p.withdrawn > 0)
-      .sort((a, b) => (b.deposited + b.withdrawn) - (a.deposited + a.withdrawn))
+      .filter(p => p.lending.deposited > 0 || p.backstop.deposited > 0)
+      .sort((a, b) => {
+        const aTotal = a.lending.deposited + a.backstop.deposited
+        const bTotal = b.lending.deposited + b.backstop.deposited
+        return bTotal - aTotal
+      })
   }, [data?.transactions])
 
   // Calculate current positions and unrealized P&L from SDK
@@ -262,33 +255,6 @@ function RealizedYieldContent() {
       totalPnl,
     }
   }, [data, blendSnapshot, totalBackstopUsd])
-
-  // Export transactions as CSV
-  const handleExportCSV = () => {
-    if (!data?.transactions) return
-
-    const headers = ["Date", "Type", "Source", "Asset", "Amount", "Price (USD)", "Value (USD)", "Pool", "Tx Hash"]
-    const rows = data.transactions.map(tx => [
-      tx.date,
-      tx.type,
-      tx.source,
-      tx.asset,
-      tx.amount.toString(),
-      tx.priceUsd.toString(),
-      tx.valueUsd.toString(),
-      tx.poolName || tx.poolId,
-      tx.txHash,
-    ])
-
-    const csv = [headers.join(","), ...rows.map(row => row.join(","))].join("\n")
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `performance-${publicKey?.slice(0, 8)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
 
   // Determine display state based on whether user has current positions
   const hasCurrentPositions = unrealizedData.totalCurrentUsd > 0
@@ -510,19 +476,36 @@ function RealizedYieldContent() {
               </div>
             )}
 
-            {/* Cash Flow Chart */}
-            {data.cumulativeRealized.length > 1 && (
+            {/* P&L Chart with tabs */}
+            {data.cumulativeRealized.length > 1 && (data.emissions.usdValue > 0 || unrealizedData.totalUnrealized !== 0) && (
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium">Cumulative Cash Flow</CardTitle>
-                  <CardDescription className="text-xs">
-                    Net deposits vs withdrawals over time
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">Cumulative P&L</CardTitle>
+                    <Tabs value={mainChartTab} onValueChange={(v) => setMainChartTab(v as PnlTab)}>
+                      <TabsList className="h-7">
+                        <TabsTrigger value="total" className="text-xs px-2 py-1">P&L</TabsTrigger>
+                        <TabsTrigger value="realized" className="text-xs px-2 py-1">Realized</TabsTrigger>
+                        <TabsTrigger value="unrealized" className="text-xs px-2 py-1">Unrealized</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <ChartContainer config={chartConfig} className="h-40 w-full">
                     <AreaChart
-                      data={data.cumulativeRealized}
+                      data={data.cumulativeRealized.map((d, i, arr) => {
+                        // For unrealized, we estimate based on the final unrealized value
+                        // distributed proportionally based on cost basis at each point
+                        const costBasis = d.cumulativeDeposited - (d.cumulativeWithdrawn - d.cumulativeRealizedPnl)
+                        const finalCostBasis = unrealizedData.totalCostBasis || 1
+                        const unrealizedEstimate = costBasis > 0 ? (costBasis / finalCostBasis) * unrealizedData.totalUnrealized : 0
+                        return {
+                          ...d,
+                          unrealized: unrealizedEstimate,
+                          total: d.cumulativeRealizedPnl + unrealizedEstimate,
+                        }
+                      })}
                       margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
                     >
                       <defs>
@@ -530,9 +513,13 @@ function RealizedYieldContent() {
                           <stop offset="5%" stopColor="rgb(34, 197, 94)" stopOpacity={0.3} />
                           <stop offset="95%" stopColor="rgb(34, 197, 94)" stopOpacity={0} />
                         </linearGradient>
-                        <linearGradient id="realizedGradientNegative" x1="0" y1="1" x2="0" y2="0">
+                        <linearGradient id="unrealizedGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="rgb(59, 130, 246)" stopOpacity={0.3} />
                           <stop offset="95%" stopColor="rgb(59, 130, 246)" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="totalGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="rgb(168, 85, 247)" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="rgb(168, 85, 247)" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <XAxis
@@ -549,9 +536,9 @@ function RealizedYieldContent() {
                         tickFormatter={(value) => {
                           const absValue = Math.abs(value)
                           if (absValue >= 1000) {
-                            return `${value < 0 ? "-" : ""}$${formatNumber(absValue / 1000, 0)}k`
+                            return `$${formatNumber(absValue / 1000, 0)}k`
                           }
-                          return `${value < 0 ? "-" : ""}$${formatNumber(absValue, 0)}`
+                          return `$${formatNumber(absValue, 0)}`
                         }}
                         tick={{ fontSize: 9 }}
                         width={45}
@@ -560,18 +547,25 @@ function RealizedYieldContent() {
                         content={({ active, payload }) => {
                           if (active && payload && payload.length) {
                             const chartData = payload[0].payload
-                            const netFlow = chartData.cumulativeRealized
-                            const isPositiveFlow = netFlow >= 0
                             return (
                               <div className="bg-background border rounded-lg p-2.5 shadow-lg text-xs">
                                 <p className="font-medium mb-1.5">{formatDate(chartData.date)}</p>
                                 <div className="space-y-0.5">
-                                  <p className="text-muted-foreground">Deposited: {formatUsd(chartData.cumulativeDeposited)}</p>
-                                  <p className="text-muted-foreground">Withdrawn: {formatUsd(chartData.cumulativeWithdrawn)}</p>
-                                  <Separator className="my-1" />
-                                  <p className={`font-medium ${isPositiveFlow ? "text-emerald-400" : "text-blue-500"}`}>
-                                    Net: {isPositiveFlow ? "+" : ""}{formatUsd(netFlow)}
-                                  </p>
+                                  {mainChartTab === 'total' && (
+                                    <p className="font-medium text-purple-500">
+                                      P&L: {chartData.total >= 0 ? '+' : ''}{formatUsd(chartData.total)}
+                                    </p>
+                                  )}
+                                  {mainChartTab === 'realized' && (
+                                    <p className="font-medium text-emerald-400">
+                                      Realized: +{formatUsd(chartData.cumulativeRealizedPnl)}
+                                    </p>
+                                  )}
+                                  {mainChartTab === 'unrealized' && (
+                                    <p className="font-medium text-blue-500">
+                                      Unrealized: {chartData.unrealized >= 0 ? '+' : ''}{formatUsd(chartData.unrealized)}
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             )
@@ -579,13 +573,33 @@ function RealizedYieldContent() {
                           return null
                         }}
                       />
-                      <Area
-                        type="stepAfter"
-                        dataKey="cumulativeRealized"
-                        stroke={data.realizedPnl >= 0 ? "rgb(34, 197, 94)" : "rgb(59, 130, 246)"}
-                        strokeWidth={2}
-                        fill={data.realizedPnl >= 0 ? "url(#realizedGradientPositive)" : "url(#realizedGradientNegative)"}
-                      />
+                      {mainChartTab === 'realized' && (
+                        <Area
+                          type="stepAfter"
+                          dataKey="cumulativeRealizedPnl"
+                          stroke="rgb(34, 197, 94)"
+                          strokeWidth={2}
+                          fill="url(#realizedGradientPositive)"
+                        />
+                      )}
+                      {mainChartTab === 'unrealized' && (
+                        <Area
+                          type="monotone"
+                          dataKey="unrealized"
+                          stroke="rgb(59, 130, 246)"
+                          strokeWidth={2}
+                          fill="url(#unrealizedGradient)"
+                        />
+                      )}
+                      {mainChartTab === 'total' && (
+                        <Area
+                          type="monotone"
+                          dataKey="total"
+                          stroke="rgb(168, 85, 247)"
+                          strokeWidth={2}
+                          fill="url(#totalGradient)"
+                        />
+                      )}
                     </AreaChart>
                   </ChartContainer>
                 </CardContent>
@@ -608,6 +622,12 @@ function RealizedYieldContent() {
                       <p className="font-medium text-sm">Lending Pools</p>
                     </div>
                     <div className="pl-7 space-y-1 text-sm">
+                      {unrealizedData.poolsCurrentUsd > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Current Balance</span>
+                          <span className="tabular-nums">{formatUsd(unrealizedData.poolsCurrentUsd)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Deposited</span>
                         <span className="tabular-nums">{formatUsd(data.pools.deposited)}</span>
@@ -616,29 +636,62 @@ function RealizedYieldContent() {
                         <span className="text-muted-foreground">Withdrawn</span>
                         <span className="tabular-nums">{formatUsd(data.pools.withdrawn)}</span>
                       </div>
+                      {emissionsBySource.pools.usd > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Emissions Claimed" tooltip="BLND tokens received as rewards from lending positions." />
+                          </span>
+                          <span className="tabular-nums">{formatUsd(emissionsBySource.pools.usd)}</span>
+                        </div>
+                      )}
+                      {emissionsBySource.pools.usd > 0 && (
+                        <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Realized P&L" tooltip="Profits already withdrawn from the protocol (emissions claimed)." />
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="tabular-nums text-emerald-400">+{formatUsd(emissionsBySource.pools.usd)}</span>
+                            {data.pools.deposited > 0 && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-400 border-emerald-400/30">
+                                +{((emissionsBySource.pools.usd / data.pools.deposited) * 100).toFixed(1)}%
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {unrealizedData.poolsCurrentUsd > 0 && (
                         <>
-                          <div className="flex justify-between pt-1 border-t border-border/50">
-                            <span className="text-muted-foreground">Current Balance</span>
-                            <span className="tabular-nums">{formatUsd(unrealizedData.poolsCurrentUsd)}</span>
-                          </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify-between items-center pt-1 border-t border-border/50">
                             <span className="text-muted-foreground">
                               <InfoLabel label="Unrealized P&L" tooltip="Current Balance minus Cost Basis. Profit still in the protocol." />
                             </span>
-                            <span className={`tabular-nums ${unrealizedData.poolsUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                              {unrealizedData.poolsUnrealized >= 0 ? "+" : ""}{formatUsd(unrealizedData.poolsUnrealized)}
+                            <div className="flex items-center gap-2">
+                              <span className={`tabular-nums ${unrealizedData.poolsUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {unrealizedData.poolsUnrealized >= 0 ? "+" : ""}{formatUsd(unrealizedData.poolsUnrealized)}
+                              </span>
+                              {data.pools.deposited > 0 && (
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${unrealizedData.poolsUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {unrealizedData.poolsUnrealized >= 0 ? "+" : ""}{((unrealizedData.poolsUnrealized / data.pools.deposited) * 100).toFixed(1)}%
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center font-medium pt-1 border-t border-border/50">
+                            <span>
+                              <InfoLabel label="P&L" tooltip="Total profit: Unrealized P&L + Realized P&L" />
                             </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`tabular-nums ${(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "+" : ""}{formatUsd(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd)}
+                              </span>
+                              {data.pools.deposited > 0 && (
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {(unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "+" : ""}{(((unrealizedData.poolsUnrealized + emissionsBySource.pools.usd) / data.pools.deposited) * 100).toFixed(1)}%
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </>
-                      )}
-                      {unrealizedData.poolsCurrentUsd > 0 && (
-                        <div className="flex justify-between font-medium pt-1 border-t border-border/50">
-                          <span>P&L</span>
-                          <span className={`tabular-nums ${unrealizedData.poolsUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                            {unrealizedData.poolsUnrealized >= 0 ? "+" : ""}{formatUsd(unrealizedData.poolsUnrealized)}
-                          </span>
-                        </div>
                       )}
                     </div>
                   </div>
@@ -654,6 +707,12 @@ function RealizedYieldContent() {
                       <p className="font-medium text-sm">Backstop</p>
                     </div>
                     <div className="pl-7 space-y-1 text-sm">
+                      {unrealizedData.backstopCurrentUsd > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Current Balance</span>
+                          <span className="tabular-nums">{formatUsd(unrealizedData.backstopCurrentUsd)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Deposited</span>
                         <span className="tabular-nums">{formatUsd(data.backstop.deposited)}</span>
@@ -662,17 +721,60 @@ function RealizedYieldContent() {
                         <span className="text-muted-foreground">Withdrawn</span>
                         <span className="tabular-nums">{formatUsd(data.backstop.withdrawn)}</span>
                       </div>
+                      {emissionsBySource.backstop.usd > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Emissions Claimed" tooltip="BLND and LP tokens received as rewards from backstop positions." />
+                          </span>
+                          <span className="tabular-nums">{formatUsd(emissionsBySource.backstop.usd)}</span>
+                        </div>
+                      )}
+                      {emissionsBySource.backstop.usd > 0 && (
+                        <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Realized P&L" tooltip="Profits already withdrawn from the protocol (emissions claimed)." />
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="tabular-nums text-emerald-400">+{formatUsd(emissionsBySource.backstop.usd)}</span>
+                            {data.backstop.deposited > 0 && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-400 border-emerald-400/30">
+                                +{((emissionsBySource.backstop.usd / data.backstop.deposited) * 100).toFixed(1)}%
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {unrealizedData.backstopCurrentUsd > 0 && (
                         <>
-                          <div className="flex justify-between pt-1 border-t border-border/50">
-                            <span className="text-muted-foreground">Current Balance</span>
-                            <span className="tabular-nums">{formatUsd(unrealizedData.backstopCurrentUsd)}</span>
-                          </div>
-                          <div className="flex justify-between font-medium">
-                            <span>P&L</span>
-                            <span className={`tabular-nums ${unrealizedData.backstopUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                              {unrealizedData.backstopUnrealized >= 0 ? "+" : ""}{formatUsd(unrealizedData.backstopUnrealized)}
+                          <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                            <span className="text-muted-foreground">
+                              <InfoLabel label="Unrealized P&L" tooltip="Current Balance minus Cost Basis. Profit still in the protocol." />
                             </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`tabular-nums ${unrealizedData.backstopUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {unrealizedData.backstopUnrealized >= 0 ? "+" : ""}{formatUsd(unrealizedData.backstopUnrealized)}
+                              </span>
+                              {data.backstop.deposited > 0 && (
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${unrealizedData.backstopUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {unrealizedData.backstopUnrealized >= 0 ? "+" : ""}{((unrealizedData.backstopUnrealized / data.backstop.deposited) * 100).toFixed(1)}%
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center font-medium pt-1 border-t border-border/50">
+                            <span>
+                              <InfoLabel label="P&L" tooltip="Total profit: Unrealized P&L + Realized P&L" />
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className={`tabular-nums ${(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "+" : ""}{formatUsd(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd)}
+                              </span>
+                              {data.backstop.deposited > 0 && (
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {(unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) >= 0 ? "+" : ""}{(((unrealizedData.backstopUnrealized + emissionsBySource.backstop.usd) / data.backstop.deposited) * 100).toFixed(1)}%
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </>
                       )}
@@ -680,31 +782,128 @@ function RealizedYieldContent() {
                   </div>
                 )}
 
-                {/* Emissions */}
-                {data.emissions.usdValue > 0 && (
-                  <div className="p-3 rounded-lg bg-muted/50 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-full bg-yellow-500/10">
-                        <Flame className="h-3.5 w-3.5 text-yellow-500" />
-                      </div>
-                      <p className="font-medium text-sm">
-                        <InfoLabel label="Emissions Claimed" tooltip="BLND and LP tokens received as rewards from pool and backstop positions." />
-                      </p>
+                {/* Combined P&L Chart by Source */}
+                {((data.cumulativeBySource?.pools?.length > 1) || (data.cumulativeBySource?.backstop?.length > 1)) && (
+                  <div className="pt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-muted-foreground">P&L over time</p>
+                      <Tabs value={sourceChartTab} onValueChange={(v) => setSourceChartTab(v as PnlTab)}>
+                        <TabsList className="h-6">
+                          <TabsTrigger value="total" className="text-[10px] px-1.5 py-0.5">P&L</TabsTrigger>
+                          <TabsTrigger value="realized" className="text-[10px] px-1.5 py-0.5">Realized</TabsTrigger>
+                          <TabsTrigger value="unrealized" className="text-[10px] px-1.5 py-0.5">Unrealized</TabsTrigger>
+                        </TabsList>
+                      </Tabs>
                     </div>
-                    <div className="pl-7 space-y-1 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">BLND Received</span>
-                        <span className="tabular-nums">{formatNumber(data.emissions.blndClaimed, 0)} BLND</span>
+                    <ChartContainer config={chartConfig} className="h-24 w-full">
+                      <AreaChart
+                        data={(() => {
+                          // Create lookup maps for each source
+                          const poolsRealizedMap = new Map<string, number>()
+                          const backstopRealizedMap = new Map<string, number>()
+                          const poolsCostBasisMap = new Map<string, number>()
+                          const backstopCostBasisMap = new Map<string, number>()
+
+                          for (const d of data.cumulativeBySource?.pools || []) {
+                            poolsRealizedMap.set(d.date, d.cumulativeRealizedPnl)
+                            poolsCostBasisMap.set(d.date, d.cumulativeDeposited - (d.cumulativeWithdrawn - d.cumulativeRealizedPnl))
+                          }
+                          for (const d of data.cumulativeBySource?.backstop || []) {
+                            backstopRealizedMap.set(d.date, d.cumulativeRealizedPnl)
+                            backstopCostBasisMap.set(d.date, d.cumulativeDeposited - (d.cumulativeWithdrawn - d.cumulativeRealizedPnl))
+                          }
+
+                          // Get all unique dates and sort them
+                          const allDates = new Set<string>([...poolsRealizedMap.keys(), ...backstopRealizedMap.keys()])
+                          const sortedDates = Array.from(allDates).sort()
+
+                          // Build merged array with carried forward values
+                          let lastPoolsRealized = 0, lastBackstopRealized = 0
+                          let lastPoolsCostBasis = 0, lastBackstopCostBasis = 0
+                          const finalPoolsCostBasis = unrealizedData.poolsCostBasis || 1
+                          const finalBackstopCostBasis = unrealizedData.backstopCostBasis || 1
+
+                          return sortedDates.map(date => {
+                            if (poolsRealizedMap.has(date)) {
+                              lastPoolsRealized = poolsRealizedMap.get(date)!
+                              lastPoolsCostBasis = poolsCostBasisMap.get(date)!
+                            }
+                            if (backstopRealizedMap.has(date)) {
+                              lastBackstopRealized = backstopRealizedMap.get(date)!
+                              lastBackstopCostBasis = backstopCostBasisMap.get(date)!
+                            }
+                            // Estimate unrealized based on cost basis proportion
+                            const poolsUnrealizedEst = lastPoolsCostBasis > 0 ? (lastPoolsCostBasis / finalPoolsCostBasis) * unrealizedData.poolsUnrealized : 0
+                            const backstopUnrealizedEst = lastBackstopCostBasis > 0 ? (lastBackstopCostBasis / finalBackstopCostBasis) * unrealizedData.backstopUnrealized : 0
+                            return {
+                              date,
+                              poolsRealized: lastPoolsRealized,
+                              backstopRealized: lastBackstopRealized,
+                              poolsUnrealized: poolsUnrealizedEst,
+                              backstopUnrealized: backstopUnrealizedEst,
+                              poolsTotal: lastPoolsRealized + poolsUnrealizedEst,
+                              backstopTotal: lastBackstopRealized + backstopUnrealizedEst,
+                            }
+                          })
+                        })()}
+                        margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
+                      >
+                        <defs>
+                          <linearGradient id="poolsGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="rgb(59, 130, 246)" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="rgb(59, 130, 246)" stopOpacity={0} />
+                          </linearGradient>
+                          <linearGradient id="backstopGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="rgb(168, 85, 247)" stopOpacity={0.3} />
+                            <stop offset="95%" stopColor="rgb(168, 85, 247)" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <YAxis domain={['dataMin', 'dataMax']} hide />
+                        <ChartTooltip
+                          content={({ active, payload }) => {
+                            if (active && payload && payload.length) {
+                              const chartData = payload[0].payload
+                              const poolsVal = sourceChartTab === 'realized' ? chartData.poolsRealized : sourceChartTab === 'unrealized' ? chartData.poolsUnrealized : chartData.poolsTotal
+                              const backstopVal = sourceChartTab === 'realized' ? chartData.backstopRealized : sourceChartTab === 'unrealized' ? chartData.backstopUnrealized : chartData.backstopTotal
+                              return (
+                                <div className="bg-background border rounded-lg p-2 shadow-lg text-xs">
+                                  <p className="text-muted-foreground mb-1">{formatShortDate(chartData.date)}</p>
+                                  {poolsVal !== 0 && (
+                                    <p className="font-medium text-blue-500">Pools: {poolsVal >= 0 ? '+' : ''}{formatUsd(poolsVal)}</p>
+                                  )}
+                                  {backstopVal !== 0 && (
+                                    <p className="font-medium text-purple-500">Backstop: {backstopVal >= 0 ? '+' : ''}{formatUsd(backstopVal)}</p>
+                                  )}
+                                </div>
+                              )
+                            }
+                            return null
+                          }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey={sourceChartTab === 'realized' ? 'poolsRealized' : sourceChartTab === 'unrealized' ? 'poolsUnrealized' : 'poolsTotal'}
+                          stroke="rgb(59, 130, 246)"
+                          strokeWidth={1.5}
+                          fill="url(#poolsGradient)"
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey={sourceChartTab === 'realized' ? 'backstopRealized' : sourceChartTab === 'unrealized' ? 'backstopUnrealized' : 'backstopTotal'}
+                          stroke="rgb(168, 85, 247)"
+                          strokeWidth={1.5}
+                          fill="url(#backstopGradient)"
+                        />
+                      </AreaChart>
+                    </ChartContainer>
+                    <div className="flex justify-center gap-4 mt-1">
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        <div className="w-2 h-2 rounded-full bg-blue-500" />
+                        <span className="text-muted-foreground">Lending Pools</span>
                       </div>
-                      {data.emissions.lpClaimed > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">LP Received</span>
-                          <span className="tabular-nums">{formatNumber(data.emissions.lpClaimed, 2)} LP</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between font-medium pt-1 border-t border-border/50">
-                        <span>USD Value</span>
-                        <span className="tabular-nums text-emerald-400">+{formatUsd(data.emissions.usdValue)}</span>
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        <div className="w-2 h-2 rounded-full bg-purple-500" />
+                        <span className="text-muted-foreground">Backstop</span>
                       </div>
                     </div>
                   </div>
@@ -753,168 +952,439 @@ function RealizedYieldContent() {
             </Card>
 
             {/* Per-Pool Breakdown */}
-            {perPoolBreakdown.length > 1 && (
+            {perPoolBreakdown.length > 0 && (
               <Card>
                 <CardHeader className="pb-2 sm:pb-3">
                   <CardTitle className="text-sm font-medium">Activity by Pool</CardTitle>
-                  <CardDescription className="text-xs">
-                    Deposits and withdrawals per pool
-                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-1.5 sm:space-y-2">
+                <CardContent className="space-y-2 sm:space-y-3">
                   {perPoolBreakdown.map((poolData) => {
+                    const totalDeposited = poolData.lending.deposited + poolData.backstop.deposited
+                    const totalEmissions = poolData.lending.emissionsClaimed + poolData.backstop.emissionsClaimed
+
+                    // Estimate per-pool current balance and unrealized based on proportion of deposits
+                    const lendingCurrentBalance = data.pools.deposited > 0
+                      ? (poolData.lending.deposited / data.pools.deposited) * unrealizedData.poolsCurrentUsd
+                      : 0
+                    const lendingUnrealized = data.pools.deposited > 0
+                      ? (poolData.lending.deposited / data.pools.deposited) * unrealizedData.poolsUnrealized
+                      : 0
+                    const backstopCurrentBalance = data.backstop.deposited > 0
+                      ? (poolData.backstop.deposited / data.backstop.deposited) * unrealizedData.backstopCurrentUsd
+                      : 0
+                    const backstopUnrealized = data.backstop.deposited > 0
+                      ? (poolData.backstop.deposited / data.backstop.deposited) * unrealizedData.backstopUnrealized
+                      : 0
+
+                    // Total P&L for each source in this pool
+                    const lendingTotalPnl = lendingUnrealized + poolData.lending.emissionsClaimed
+                    const backstopTotalPnl = backstopUnrealized + poolData.backstop.emissionsClaimed
+                    const poolTotalPnl = lendingTotalPnl + backstopTotalPnl
+                    const poolTotalCurrentBalance = lendingCurrentBalance + backstopCurrentBalance
+
                     return (
                       <div
-                        key={`${poolData.poolId}-${poolData.source}`}
-                        className="flex items-center justify-between p-2 sm:p-2.5 rounded-lg bg-muted/30 text-sm"
+                        key={poolData.poolId}
+                        className="p-3 rounded-lg bg-muted/50 space-y-3"
                       >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${poolData.source === 'pool' ? 'bg-blue-500' : 'bg-purple-500'}`} />
-                          <div className="min-w-0">
-                            <p className="font-medium truncate text-xs sm:text-sm">
-                              {poolData.poolName || poolData.poolId.slice(0, 8) + '...'}
-                            </p>
-                            <p className="text-[10px] sm:text-xs text-muted-foreground capitalize">
-                              {poolData.source}
-                            </p>
+                        {/* Pool Header */}
+                        <div className="flex items-center justify-between pb-1 border-b border-border/50">
+                          <p className="font-medium text-sm">
+                            {poolData.poolName || poolData.poolId.slice(0, 8) + '...'}
+                          </p>
+                        </div>
+
+                        {/* Lending Position */}
+                        {poolData.lending.deposited > 0 && (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-full bg-blue-500/10">
+                                <PiggyBank className="h-3.5 w-3.5 text-blue-500" />
+                              </div>
+                              <p className="font-medium text-sm">Lending</p>
+                            </div>
+                            <div className="pl-7 space-y-1 text-sm">
+                              {lendingCurrentBalance > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Current Balance</span>
+                                  <span className="tabular-nums">{formatUsd(lendingCurrentBalance)}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Deposited</span>
+                                <span className="tabular-nums">{formatUsd(poolData.lending.deposited)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Withdrawn</span>
+                                <span className="tabular-nums">{formatUsd(poolData.lending.withdrawn)}</span>
+                              </div>
+                              {poolData.lending.emissionsClaimed > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">
+                                    <InfoLabel label="Emissions Claimed" tooltip="BLND tokens received as rewards from this lending position." />
+                                  </span>
+                                  <span className="tabular-nums">{formatUsd(poolData.lending.emissionsClaimed)}</span>
+                                </div>
+                              )}
+                              {poolData.lending.emissionsClaimed > 0 && (
+                                <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                                  <span className="text-muted-foreground">
+                                    <InfoLabel label="Realized P&L" tooltip="Profits already withdrawn from the protocol (emissions claimed)." />
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="tabular-nums text-emerald-400">+{formatUsd(poolData.lending.emissionsClaimed)}</span>
+                                    {poolData.lending.deposited > 0 && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-400 border-emerald-400/30">
+                                        +{((poolData.lending.emissionsClaimed / poolData.lending.deposited) * 100).toFixed(1)}%
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              {lendingCurrentBalance > 0 && (
+                                <>
+                                  <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                                    <span className="text-muted-foreground">
+                                      <InfoLabel label="Unrealized P&L" tooltip="Current Balance minus Cost Basis. Profit still in the protocol." />
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`tabular-nums ${lendingUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        {lendingUnrealized >= 0 ? "+" : ""}{formatUsd(lendingUnrealized)}
+                                      </span>
+                                      {poolData.lending.deposited > 0 && (
+                                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${lendingUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                          {lendingUnrealized >= 0 ? "+" : ""}{((lendingUnrealized / poolData.lending.deposited) * 100).toFixed(1)}%
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-between items-center font-medium pt-1 border-t border-border/50">
+                                    <span>
+                                      <InfoLabel label="P&L" tooltip="Total profit: Unrealized P&L + Realized P&L" />
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`tabular-nums ${lendingTotalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        {lendingTotalPnl >= 0 ? "+" : ""}{formatUsd(lendingTotalPnl)}
+                                      </span>
+                                      {poolData.lending.deposited > 0 && (
+                                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${lendingTotalPnl >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                          {lendingTotalPnl >= 0 ? "+" : ""}{((lendingTotalPnl / poolData.lending.deposited) * 100).toFixed(1)}%
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <div className="text-right flex-shrink-0 ml-2 text-[10px] sm:text-xs">
-                          <p className="tabular-nums">
-                            <span className="text-muted-foreground">In:</span> {formatUsd(poolData.deposited)}
-                          </p>
-                          <p className="tabular-nums">
-                            <span className="text-muted-foreground">Out:</span> {formatUsd(poolData.withdrawn)}
-                          </p>
-                        </div>
+                        )}
+
+                        {/* Backstop Position */}
+                        {poolData.backstop.deposited > 0 && (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-full bg-purple-500/10">
+                                <Shield className="h-3.5 w-3.5 text-purple-500" />
+                              </div>
+                              <p className="font-medium text-sm">Backstop</p>
+                            </div>
+                            <div className="pl-7 space-y-1 text-sm">
+                              {backstopCurrentBalance > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">Current Balance</span>
+                                  <span className="tabular-nums">{formatUsd(backstopCurrentBalance)}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Deposited</span>
+                                <span className="tabular-nums">{formatUsd(poolData.backstop.deposited)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Withdrawn</span>
+                                <span className="tabular-nums">{formatUsd(poolData.backstop.withdrawn)}</span>
+                              </div>
+                              {poolData.backstop.emissionsClaimed > 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">
+                                    <InfoLabel label="Emissions Claimed" tooltip="BLND and LP tokens received as rewards from this backstop position." />
+                                  </span>
+                                  <span className="tabular-nums">{formatUsd(poolData.backstop.emissionsClaimed)}</span>
+                                </div>
+                              )}
+                              {poolData.backstop.emissionsClaimed > 0 && (
+                                <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                                  <span className="text-muted-foreground">
+                                    <InfoLabel label="Realized P&L" tooltip="Profits already withdrawn from the protocol (emissions claimed)." />
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="tabular-nums text-emerald-400">+{formatUsd(poolData.backstop.emissionsClaimed)}</span>
+                                    {poolData.backstop.deposited > 0 && (
+                                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-400 border-emerald-400/30">
+                                        +{((poolData.backstop.emissionsClaimed / poolData.backstop.deposited) * 100).toFixed(1)}%
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              {backstopCurrentBalance > 0 && (
+                                <>
+                                  <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                                    <span className="text-muted-foreground">
+                                      <InfoLabel label="Unrealized P&L" tooltip="Current Balance minus Cost Basis. Profit still in the protocol." />
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`tabular-nums ${backstopUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        {backstopUnrealized >= 0 ? "+" : ""}{formatUsd(backstopUnrealized)}
+                                      </span>
+                                      {poolData.backstop.deposited > 0 && (
+                                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${backstopUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                          {backstopUnrealized >= 0 ? "+" : ""}{((backstopUnrealized / poolData.backstop.deposited) * 100).toFixed(1)}%
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex justify-between items-center font-medium pt-1 border-t border-border/50">
+                                    <span>
+                                      <InfoLabel label="P&L" tooltip="Total profit: Unrealized P&L + Realized P&L" />
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`tabular-nums ${backstopTotalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                        {backstopTotalPnl >= 0 ? "+" : ""}{formatUsd(backstopTotalPnl)}
+                                      </span>
+                                      {poolData.backstop.deposited > 0 && (
+                                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${backstopTotalPnl >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                          {backstopTotalPnl >= 0 ? "+" : ""}{((backstopTotalPnl / poolData.backstop.deposited) * 100).toFixed(1)}%
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Pool Summary - only show if both lending and backstop exist */}
+                        {poolData.lending.deposited > 0 && poolData.backstop.deposited > 0 && (
+                          <div className="pt-2 border-t border-border/50 space-y-1">
+                            {poolTotalCurrentBalance > 0 && (
+                              <div className="flex justify-between items-center text-sm">
+                                <span className="text-muted-foreground">Current Balance</span>
+                                <span className="tabular-nums font-medium">{formatUsd(poolTotalCurrentBalance)}</span>
+                              </div>
+                            )}
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-muted-foreground">Total Deposited</span>
+                              <span className="tabular-nums font-medium">{formatUsd(totalDeposited)}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-muted-foreground">Total Withdrawn</span>
+                              <span className="tabular-nums font-medium">{formatUsd(poolData.lending.withdrawn + poolData.backstop.withdrawn)}</span>
+                            </div>
+                            {poolTotalCurrentBalance > 0 && (
+                              <>
+                                <Separator className="my-1" />
+                                <div className="flex justify-between items-center">
+                                  <span className="font-semibold">Total P&L</span>
+                                  <p className={`text-lg font-bold tabular-nums ${poolTotalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                    {poolTotalPnl >= 0 ? "+" : ""}{formatUsd(poolTotalPnl)}
+                                  </p>
+                                </div>
+                              </>
+                            )}
+                            {poolTotalCurrentBalance === 0 && totalEmissions > 0 && (
+                              <>
+                                <Separator className="my-1" />
+                                <div className="flex justify-between items-center">
+                                  <span className="font-semibold">Realized P&L</span>
+                                  <p className="text-lg font-bold tabular-nums text-emerald-400">
+                                    +{formatUsd(totalEmissions)}
+                                  </p>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
+
+                  {/* Per-Pool P&L Stacked Bar Chart Over Time */}
+                  {data.cumulativeByPool && data.cumulativeByPool.length > 0 && data.cumulativeByPool.some(p =>
+                    p.timeSeries.some(ts => ts.lendingRealizedPnl > 0 || ts.backstopRealizedPnl > 0)
+                  ) && (
+                    <div className="pt-2">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs text-muted-foreground">P&L over time by Pool</p>
+                        <Tabs value={poolChartTab} onValueChange={(v) => setPoolChartTab(v as PnlTab)}>
+                          <TabsList className="h-6">
+                            <TabsTrigger value="total" className="text-[10px] px-1.5 py-0.5">P&L</TabsTrigger>
+                            <TabsTrigger value="realized" className="text-[10px] px-1.5 py-0.5">Realized</TabsTrigger>
+                            <TabsTrigger value="unrealized" className="text-[10px] px-1.5 py-0.5">Unrealized</TabsTrigger>
+                          </TabsList>
+                        </Tabs>
+                      </div>
+                      <ChartContainer config={chartConfig} className="h-40 w-full">
+                        <BarChart
+                          data={(() => {
+                            // Calculate total deposits per pool for proportional unrealized distribution
+                            const poolDeposits = new Map<string, { lending: number; backstop: number }>()
+                            for (const poolData of perPoolBreakdown) {
+                              const poolKey = data.cumulativeByPool?.find(p => p.poolId === poolData.poolId)?.poolName || poolData.poolId.slice(0, 8)
+                              poolDeposits.set(poolKey, {
+                                lending: poolData.lending.deposited,
+                                backstop: poolData.backstop.deposited,
+                              })
+                            }
+
+                            // Calculate totals for proportional distribution
+                            const totalPoolsDeposited = data.pools.deposited || 1
+                            const totalBackstopDeposited = data.backstop.deposited || 1
+
+                            // Merge all pool time series into a single dataset
+                            const dateMap = new Map<string, Record<string, string | number>>()
+
+                            for (const pool of data.cumulativeByPool || []) {
+                              const poolKey = pool.poolName || pool.poolId.slice(0, 8)
+                              const deposits = poolDeposits.get(poolKey) || { lending: 0, backstop: 0 }
+
+                              // Calculate this pool's share of unrealized P&L
+                              const lendingUnrealizedShare = deposits.lending > 0
+                                ? (deposits.lending / totalPoolsDeposited) * unrealizedData.poolsUnrealized
+                                : 0
+                              const backstopUnrealizedShare = deposits.backstop > 0
+                                ? (deposits.backstop / totalBackstopDeposited) * unrealizedData.backstopUnrealized
+                                : 0
+
+                              for (const ts of pool.timeSeries) {
+                                const existing = dateMap.get(ts.date) || { date: ts.date }
+                                // Realized
+                                existing[`${poolKey}_lending_realized`] = ts.lendingRealizedPnl
+                                existing[`${poolKey}_backstop_realized`] = ts.backstopRealizedPnl
+                                // Unrealized (estimate based on proportion)
+                                existing[`${poolKey}_lending_unrealized`] = lendingUnrealizedShare
+                                existing[`${poolKey}_backstop_unrealized`] = backstopUnrealizedShare
+                                // Total
+                                existing[`${poolKey}_lending_total`] = ts.lendingRealizedPnl + lendingUnrealizedShare
+                                existing[`${poolKey}_backstop_total`] = ts.backstopRealizedPnl + backstopUnrealizedShare
+                                dateMap.set(ts.date, existing)
+                              }
+                            }
+
+                            // Convert to array and sort by date
+                            return Array.from(dateMap.values())
+                              .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+                          })()}
+                          margin={{ top: 5, right: 5, left: 0, bottom: 5 }}
+                        >
+                          <XAxis
+                            dataKey="date"
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={formatShortDate}
+                            tick={{ fontSize: 9 }}
+                            interval="preserveStartEnd"
+                          />
+                          <YAxis
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(value) => {
+                              if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`
+                              return `$${value.toFixed(0)}`
+                            }}
+                            tick={{ fontSize: 9 }}
+                            width={40}
+                          />
+                          <ChartTooltip
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                const chartData = payload[0].payload
+                                const suffix = poolChartTab === 'realized' ? '_realized' : poolChartTab === 'unrealized' ? '_unrealized' : '_total'
+                                return (
+                                  <div className="bg-background border rounded-lg p-2 shadow-lg text-xs">
+                                    <p className="font-medium mb-1.5">{formatShortDate(chartData.date)}</p>
+                                    <div className="space-y-1">
+                                      {(data.cumulativeByPool || []).map(pool => {
+                                        const poolKey = pool.poolName || pool.poolId.slice(0, 8)
+                                        const lending = chartData[`${poolKey}_lending${suffix}`] || 0
+                                        const backstop = chartData[`${poolKey}_backstop${suffix}`] || 0
+                                        if (lending === 0 && backstop === 0) return null
+                                        return (
+                                          <div key={pool.poolId}>
+                                            <p className="font-medium text-muted-foreground">{poolKey}</p>
+                                            {lending !== 0 && <p className="text-blue-500 pl-2">Lending: {lending >= 0 ? '+' : ''}{formatUsd(lending)}</p>}
+                                            {backstop !== 0 && <p className="text-purple-500 pl-2">Backstop: {backstop >= 0 ? '+' : ''}{formatUsd(backstop)}</p>}
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                )
+                              }
+                              return null
+                            }}
+                          />
+                          {/* Render stacked bars for each pool */}
+                          {(data.cumulativeByPool || []).map((pool, index) => {
+                            const poolKey = pool.poolName || pool.poolId.slice(0, 8)
+                            const suffix = poolChartTab === 'realized' ? '_realized' : poolChartTab === 'unrealized' ? '_unrealized' : '_total'
+                            // Generate colors based on index
+                            const colors = [
+                              { lending: 'rgb(59, 130, 246)', backstop: 'rgb(147, 197, 253)' },  // Blue
+                              { lending: 'rgb(168, 85, 247)', backstop: 'rgb(216, 180, 254)' },  // Purple
+                              { lending: 'rgb(34, 197, 94)', backstop: 'rgb(134, 239, 172)' },   // Green
+                              { lending: 'rgb(249, 115, 22)', backstop: 'rgb(253, 186, 116)' },  // Orange
+                            ]
+                            const colorPair = colors[index % colors.length]
+
+                            return [
+                              <Bar
+                                key={`${pool.poolId}_lending`}
+                                dataKey={`${poolKey}_lending${suffix}`}
+                                stackId={pool.poolId}
+                                fill={colorPair.lending}
+                                radius={[0, 0, 0, 0]}
+                              />,
+                              <Bar
+                                key={`${pool.poolId}_backstop`}
+                                dataKey={`${poolKey}_backstop${suffix}`}
+                                stackId={pool.poolId}
+                                fill={colorPair.backstop}
+                                radius={[2, 2, 0, 0]}
+                              />
+                            ]
+                          })}
+                        </BarChart>
+                      </ChartContainer>
+                      {/* Legend */}
+                      <div className="flex flex-wrap justify-center gap-3 mt-2">
+                        {(data.cumulativeByPool || []).map((pool, index) => {
+                          const poolKey = pool.poolName || pool.poolId.slice(0, 8)
+                          const colors = [
+                            { lending: 'rgb(59, 130, 246)', backstop: 'rgb(147, 197, 253)' },
+                            { lending: 'rgb(168, 85, 247)', backstop: 'rgb(216, 180, 254)' },
+                            { lending: 'rgb(34, 197, 94)', backstop: 'rgb(134, 239, 172)' },
+                            { lending: 'rgb(249, 115, 22)', backstop: 'rgb(253, 186, 116)' },
+                          ]
+                          const colorPair = colors[index % colors.length]
+
+                          return (
+                            <div key={pool.poolId} className="flex items-center gap-1.5 text-[10px]">
+                              <div className="flex gap-0.5">
+                                <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: colorPair.lending }} />
+                                <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: colorPair.backstop }} />
+                              </div>
+                              <span className="text-muted-foreground">{poolKey}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
 
-            {/* Transaction History */}
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="text-sm font-medium">Transaction History</CardTitle>
-                    <CardDescription className="text-xs">
-                      {data.transactions.length} total transactions
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Select value={typeFilter} onValueChange={setTypeFilter}>
-                      <SelectTrigger className="w-[5.5rem] h-7 text-xs">
-                        <SelectValue placeholder="Type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        <SelectItem value="deposit">Deposits</SelectItem>
-                        <SelectItem value="withdraw">Withdrawals</SelectItem>
-                        <SelectItem value="claim">Claims</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                      <SelectTrigger className="w-[5.5rem] h-7 text-xs">
-                        <SelectValue placeholder="Source" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All</SelectItem>
-                        <SelectItem value="pool">Pools</SelectItem>
-                        <SelectItem value="backstop">Backstop</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="outline" size="sm" onClick={handleExportCSV} className="h-7 px-2">
-                            <Download className="h-3 w-3" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Export to CSV</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="px-0 pb-0">
-                <div className="border-t overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent">
-                        <TableHead className="text-xs h-9 pl-4 sm:pl-6">Date</TableHead>
-                        <TableHead className="text-xs h-9">Type</TableHead>
-                        <TableHead className="text-xs h-9 hidden sm:table-cell">Asset</TableHead>
-                        <TableHead className="text-xs h-9 text-right hidden md:table-cell">Amount</TableHead>
-                        <TableHead className="text-xs h-9 text-right hidden md:table-cell">Price</TableHead>
-                        <TableHead className="text-xs h-9 text-right">Value</TableHead>
-                        <TableHead className="text-xs h-9 text-right pr-4 sm:pr-6">
-                          <span className="hidden sm:inline"><InfoLabel label="Running Net" tooltip="Cumulative Withdrawn minus Deposited at each point in time." /></span>
-                          <span className="sm:hidden">Net</span>
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transactionsWithRunningNet.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8 text-sm">
-                            No transactions match the filters
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        transactionsWithRunningNet.slice(0, 50).map((tx, i) => (
-                          <TableRow key={`${tx.txHash}-${i}`} className="text-xs">
-                            <TableCell className="pl-4 sm:pl-6 py-2">{formatShortDate(tx.date)}</TableCell>
-                            <TableCell className="py-2">
-                              <Badge
-                                variant="outline"
-                                className={`text-[10px] px-1.5 py-0 ${
-                                  tx.type === "deposit"
-                                    ? "text-blue-500 border-blue-500/30 bg-blue-500/5"
-                                    : tx.type === "withdraw"
-                                    ? "text-emerald-400 border-emerald-400/30 bg-emerald-400/5"
-                                    : "text-yellow-500 border-yellow-500/30 bg-yellow-500/5"
-                                }`}
-                              >
-                                {tx.type}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="py-2 hidden sm:table-cell">
-                              <span>{tx.asset}</span>
-                              <span className="text-muted-foreground ml-1">({tx.source})</span>
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums py-2 hidden md:table-cell">
-                              {formatNumber(tx.amount, tx.asset === "BLND" ? 0 : 2)}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums py-2 text-muted-foreground hidden md:table-cell">
-                              ${formatNumber(tx.priceUsd, tx.priceUsd < 0.01 ? 4 : 2)}
-                            </TableCell>
-                            <TableCell className={`text-right tabular-nums py-2 font-medium ${tx.type === "deposit" ? "" : "text-emerald-400"}`}>
-                              {tx.type === "deposit" ? "-" : "+"}{formatUsd(tx.valueUsd)}
-                            </TableCell>
-                            <TableCell className={`text-right tabular-nums py-2 pr-4 sm:pr-6 ${tx.runningNet >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                              {tx.runningNet >= 0 ? "+" : ""}{formatUsd(tx.runningNet)}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                  {transactionsWithRunningNet.length > 50 && (
-                    <div className="p-3 text-center text-xs text-muted-foreground border-t bg-muted/30">
-                      Showing first 50 of {transactionsWithRunningNet.length} transactions.
-                      <Button variant="link" onClick={handleExportCSV} className="ml-1 p-0 h-auto text-xs">
-                        Export all to CSV
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
           </>
         )}
       </div>

@@ -52,6 +52,34 @@ export interface RealizedYieldResponse {
     cumulativeDeposited: number
     cumulativeWithdrawn: number
     cumulativeRealized: number
+    cumulativeRealizedPnl: number
+  }>
+
+  // Per-source time series for charting
+  cumulativeBySource: {
+    pools: Array<{
+      date: string
+      cumulativeDeposited: number
+      cumulativeWithdrawn: number
+      cumulativeRealizedPnl: number
+    }>
+    backstop: Array<{
+      date: string
+      cumulativeDeposited: number
+      cumulativeWithdrawn: number
+      cumulativeRealizedPnl: number
+    }>
+  }
+
+  // Per-pool time series for charting (stacked bar chart)
+  cumulativeByPool: Array<{
+    poolId: string
+    poolName: string | null
+    timeSeries: Array<{
+      date: string
+      lendingRealizedPnl: number
+      backstopRealizedPnl: number
+    }>
   }>
 
   // Transaction list
@@ -115,45 +143,205 @@ export async function GET(request: NextRequest) {
 
     const data = await eventsRepository.getRealizedYieldData(userAddress, sdkPrices)
 
-    // Calculate cumulative time series for charting
-    const cumulativeRealized: Array<{
-      date: string
-      cumulativeDeposited: number
-      cumulativeWithdrawn: number
-      cumulativeRealized: number
-    }> = []
-
-    let cumDeposited = 0
-    let cumWithdrawn = 0
+    // Helper to generate all dates between start and end (inclusive)
+    const getAllDatesBetween = (startDate: string, endDate: string): string[] => {
+      const dates: string[] = []
+      const current = new Date(startDate)
+      const end = new Date(endDate)
+      while (current <= end) {
+        dates.push(current.toISOString().split('T')[0])
+        current.setDate(current.getDate() + 1)
+      }
+      return dates
+    }
 
     // Group transactions by date and calculate running totals
-    const dateMap = new Map<string, { deposited: number; withdrawn: number }>()
+    const dateMap = new Map<string, { deposited: number; withdrawn: number; realizedPnl: number }>()
 
     for (const tx of data.transactions) {
-      const existing = dateMap.get(tx.date) || { deposited: 0, withdrawn: 0 }
+      const existing = dateMap.get(tx.date) || { deposited: 0, withdrawn: 0, realizedPnl: 0 }
 
       if (tx.type === 'deposit') {
         existing.deposited += tx.valueUsd
+      } else if (tx.type === 'claim') {
+        // Claims are pure realized profit
+        existing.withdrawn += tx.valueUsd
+        existing.realizedPnl += tx.valueUsd
       } else {
-        // withdrawals and claims count as withdrawn
+        // Regular withdrawals count as withdrawn but not as realized P&L
         existing.withdrawn += tx.valueUsd
       }
 
       dateMap.set(tx.date, existing)
     }
 
-    // Convert to sorted array with cumulative values
-    const sortedDates = Array.from(dateMap.keys()).sort()
-    for (const date of sortedDates) {
-      const dayData = dateMap.get(date)!
-      cumDeposited += dayData.deposited
-      cumWithdrawn += dayData.withdrawn
+    // Calculate cumulative time series for charting (with all days filled in)
+    const cumulativeRealized: Array<{
+      date: string
+      cumulativeDeposited: number
+      cumulativeWithdrawn: number
+      cumulativeRealized: number
+      cumulativeRealizedPnl: number
+    }> = []
 
-      cumulativeRealized.push({
-        date,
-        cumulativeDeposited: cumDeposited,
-        cumulativeWithdrawn: cumWithdrawn,
-        cumulativeRealized: cumWithdrawn - cumDeposited,
+    // Use today's date as the end date for charts
+    const today = new Date().toISOString().split('T')[0]
+
+    if (data.firstActivityDate) {
+      const allDates = getAllDatesBetween(data.firstActivityDate, today)
+      let cumDeposited = 0
+      let cumWithdrawn = 0
+      let cumRealizedPnl = 0
+
+      for (const date of allDates) {
+        const dayData = dateMap.get(date)
+        if (dayData) {
+          cumDeposited += dayData.deposited
+          cumWithdrawn += dayData.withdrawn
+          cumRealizedPnl += dayData.realizedPnl
+        }
+
+        cumulativeRealized.push({
+          date,
+          cumulativeDeposited: cumDeposited,
+          cumulativeWithdrawn: cumWithdrawn,
+          cumulativeRealized: cumWithdrawn - cumDeposited,
+          cumulativeRealizedPnl: cumRealizedPnl,
+        })
+      }
+    }
+
+    // Calculate per-source cumulative time series
+    const poolsDateMap = new Map<string, { deposited: number; withdrawn: number; realizedPnl: number }>()
+    const backstopDateMap = new Map<string, { deposited: number; withdrawn: number; realizedPnl: number }>()
+
+    for (const tx of data.transactions) {
+      const targetMap = tx.source === 'pool' ? poolsDateMap : backstopDateMap
+      const existing = targetMap.get(tx.date) || { deposited: 0, withdrawn: 0, realizedPnl: 0 }
+
+      if (tx.type === 'deposit') {
+        existing.deposited += tx.valueUsd
+      } else if (tx.type === 'claim') {
+        existing.withdrawn += tx.valueUsd
+        existing.realizedPnl += tx.valueUsd
+      } else {
+        existing.withdrawn += tx.valueUsd
+      }
+
+      targetMap.set(tx.date, existing)
+    }
+
+    // Build pools cumulative series (with all days filled in)
+    const poolsCumulative: Array<{ date: string; cumulativeDeposited: number; cumulativeWithdrawn: number; cumulativeRealizedPnl: number }> = []
+    if (poolsDateMap.size > 0) {
+      const poolsFirstDate = Array.from(poolsDateMap.keys()).sort()[0]
+      const allDates = getAllDatesBetween(poolsFirstDate, today)
+      let poolsCumDeposited = 0, poolsCumWithdrawn = 0, poolsCumRealizedPnl = 0
+
+      for (const date of allDates) {
+        const dayData = poolsDateMap.get(date)
+        if (dayData) {
+          poolsCumDeposited += dayData.deposited
+          poolsCumWithdrawn += dayData.withdrawn
+          poolsCumRealizedPnl += dayData.realizedPnl
+        }
+        poolsCumulative.push({
+          date,
+          cumulativeDeposited: poolsCumDeposited,
+          cumulativeWithdrawn: poolsCumWithdrawn,
+          cumulativeRealizedPnl: poolsCumRealizedPnl,
+        })
+      }
+    }
+
+    // Build backstop cumulative series (with all days filled in)
+    const backstopCumulative: Array<{ date: string; cumulativeDeposited: number; cumulativeWithdrawn: number; cumulativeRealizedPnl: number }> = []
+    if (backstopDateMap.size > 0) {
+      const backstopFirstDate = Array.from(backstopDateMap.keys()).sort()[0]
+      const allDates = getAllDatesBetween(backstopFirstDate, today)
+      let backstopCumDeposited = 0, backstopCumWithdrawn = 0, backstopCumRealizedPnl = 0
+
+      for (const date of allDates) {
+        const dayData = backstopDateMap.get(date)
+        if (dayData) {
+          backstopCumDeposited += dayData.deposited
+          backstopCumWithdrawn += dayData.withdrawn
+          backstopCumRealizedPnl += dayData.realizedPnl
+        }
+        backstopCumulative.push({
+          date,
+          cumulativeDeposited: backstopCumDeposited,
+          cumulativeWithdrawn: backstopCumWithdrawn,
+          cumulativeRealizedPnl: backstopCumRealizedPnl,
+        })
+      }
+    }
+
+    // Build per-pool cumulative time series (for stacked bar chart)
+    const poolDateMaps = new Map<string, {
+      poolName: string | null
+      lending: Map<string, number>
+      backstop: Map<string, number>
+    }>()
+
+    for (const tx of data.transactions) {
+      if (tx.type !== 'claim') continue // Only track claims/emissions for realized P&L
+
+      let poolData = poolDateMaps.get(tx.poolId)
+      if (!poolData) {
+        poolData = {
+          poolName: tx.poolName,
+          lending: new Map(),
+          backstop: new Map(),
+        }
+        poolDateMaps.set(tx.poolId, poolData)
+      }
+
+      const targetMap = tx.source === 'pool' ? poolData.lending : poolData.backstop
+      const existing = targetMap.get(tx.date) || 0
+      targetMap.set(tx.date, existing + tx.valueUsd)
+    }
+
+    // Build cumulative time series for each pool
+    const cumulativeByPool: Array<{
+      poolId: string
+      poolName: string | null
+      timeSeries: Array<{
+        date: string
+        lendingRealizedPnl: number
+        backstopRealizedPnl: number
+      }>
+    }> = []
+
+    for (const [poolId, poolData] of poolDateMaps) {
+      // Find first activity date for this pool
+      const allDatesSet = new Set([...poolData.lending.keys(), ...poolData.backstop.keys()])
+      if (allDatesSet.size === 0) continue
+
+      const firstDate = Array.from(allDatesSet).sort()[0]
+      const allDates = getAllDatesBetween(firstDate, today)
+
+      let cumLending = 0
+      let cumBackstop = 0
+      const timeSeries: Array<{ date: string; lendingRealizedPnl: number; backstopRealizedPnl: number }> = []
+
+      for (const date of allDates) {
+        const lendingValue = poolData.lending.get(date) || 0
+        const backstopValue = poolData.backstop.get(date) || 0
+        cumLending += lendingValue
+        cumBackstop += backstopValue
+
+        timeSeries.push({
+          date,
+          lendingRealizedPnl: cumLending,
+          backstopRealizedPnl: cumBackstop,
+        })
+      }
+
+      cumulativeByPool.push({
+        poolId,
+        poolName: poolData.poolName,
+        timeSeries,
       })
     }
 
@@ -194,6 +382,11 @@ export async function GET(request: NextRequest) {
       firstActivityDate: data.firstActivityDate,
       lastActivityDate: data.lastActivityDate,
       cumulativeRealized,
+      cumulativeBySource: {
+        pools: poolsCumulative,
+        backstop: backstopCumulative,
+      },
+      cumulativeByPool,
       transactions: data.transactions,
     }
 
