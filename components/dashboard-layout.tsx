@@ -119,7 +119,7 @@ export function DashboardLayout({
       <div className="hidden md:block h-[60px]" />
 
       {/* Main content */}
-      <main className="container max-w-4xl mx-auto px-4 py-3 sm:py-4 md:pt-8 md:pb-6 min-h-[calc(100vh-120px)]">
+      <main className={`container max-w-4xl mx-auto px-4 py-3 sm:py-4 md:pb-6 min-h-[calc(100vh-120px)] ${isHomePage ? "md:pt-0" : "md:pt-8"}`}>
         {onRefresh ? (
           <PullToRefresh onRefresh={onRefresh}>{pageContent}</PullToRefresh>
         ) : (
