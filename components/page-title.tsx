@@ -1,23 +1,16 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
-
 interface PageTitleProps {
   children: React.ReactNode
   badge?: string
 }
 
+// Desktop title is now shown in the fixed header of DashboardLayout
+// This component provides mobile top padding for non-home pages
 export function PageTitle({ children, badge }: PageTitleProps) {
   return (
-    <div className="pt-6 md:pt-8 md:pb-10">
-      <h1 className="hidden md:flex text-2xl font-medium items-center gap-2">
-        {children}
-        {badge && (
-          <Badge variant="secondary" className="text-xs font-normal">
-            {badge}
-          </Badge>
-        )}
-      </h1>
+    <div className="pt-6 md:pt-0">
+      {/* Mobile spacing only - desktop title shown in fixed header */}
     </div>
   )
 }

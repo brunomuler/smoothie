@@ -5,19 +5,9 @@ import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { navItems } from "./nav-config"
-import { WalletSelector } from "@/components/wallet-selector"
-import { useWalletState } from "@/hooks/use-wallet-state"
 
 export function Sidebar() {
   const pathname = usePathname()
-  const {
-    wallets,
-    activeWallet,
-    handleSelectWallet,
-    handleConnectWallet,
-    handleDisconnect,
-    isHydrated,
-  } = useWalletState()
 
   return (
     <aside className="hidden md:flex fixed left-0 top-0 z-40 h-screen w-56 flex-col border-r border-border bg-background">
@@ -59,19 +49,6 @@ export function Sidebar() {
           )
         })}
       </nav>
-
-      {/* Wallet Selector */}
-      <div className="p-4">
-        <WalletSelector
-          wallets={wallets}
-          activeWallet={activeWallet}
-          onSelectWallet={handleSelectWallet}
-          onConnectWallet={handleConnectWallet}
-          onDisconnect={handleDisconnect}
-          fullWidth
-          isHydrated={isHydrated}
-        />
-      </div>
     </aside>
   )
 }

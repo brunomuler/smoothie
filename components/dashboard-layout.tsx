@@ -30,31 +30,41 @@ export function DashboardLayout({
     isHydrated,
   } = useWalletState()
 
-  // Get page title for non-home pages (for mobile header)
+  // Get page title for non-home pages
   const isHomePage = pathname === "/"
   const currentNavItem = navItems.find(
     (item) => item.href !== "/" && pathname.startsWith(item.href)
   )
   const pageTitle = currentNavItem?.title
-  const mainContent = (
-    <main className="container max-w-4xl mx-auto px-4 py-3 sm:py-4">
-      <div className="space-y-6">
-        {error && (
-          <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4">
-            <p className="text-destructive text-sm">
-              Error loading positions: {error instanceof Error ? error.message : "Unknown error"}
-            </p>
-          </div>
-        )}
 
-        {!error && children}
-      </div>
-    </main>
+  const walletSelectorElement = (
+    <WalletSelector
+      wallets={wallets}
+      activeWallet={activeWallet}
+      onSelectWallet={handleSelectWallet}
+      onConnectWallet={handleConnectWallet}
+      onDisconnect={handleDisconnect}
+      isHydrated={isHydrated}
+    />
+  )
+
+  const pageContent = (
+    <div className="space-y-6">
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4">
+          <p className="text-destructive text-sm">
+            Error loading positions: {error instanceof Error ? error.message : "Unknown error"}
+          </p>
+        </div>
+      )}
+
+      {!error && children}
+    </div>
   )
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Fixed header - Mobile only (desktop has wallet selector in sidebar) */}
+    <>
+      {/* Fixed header - Mobile */}
       <header className="md:hidden fixed top-0 left-0 right-0 z-[60] bg-background shadow-[0_4px_6px_0px_oklch(0.145_0_0),0_8px_20px_-2px_oklch(0.145_0_0)] dark:shadow-[0_4px_6px_0px_oklch(0.145_0_0),0_8px_20px_-2px_oklch(0.145_0_0)]">
         <div className="px-4 py-1.5 flex items-center justify-between gap-2">
           {isHomePage ? (
@@ -89,16 +99,35 @@ export function DashboardLayout({
       {/* Spacer for fixed header - Mobile only */}
       <div className="md:hidden h-[52px]" />
 
-      {/* Main content with optional pull-to-refresh */}
-      <div className="flex-1">
-        {onRefresh ? (
-          <PullToRefresh onRefresh={onRefresh}>{mainContent}</PullToRefresh>
-        ) : (
-          mainContent
-        )}
+      {/* Fixed header - Desktop only */}
+      <div className="hidden md:block fixed top-0 left-56 right-0 z-[60] bg-background shadow-[0_4px_6px_0px_oklch(0.145_0_0),0_8px_20px_-2px_oklch(0.145_0_0)] dark:shadow-[0_4px_6px_0px_oklch(0.145_0_0),0_8px_20px_-2px_oklch(0.145_0_0)]">
+        <div className="container max-w-4xl mx-auto px-4 py-3">
+          <div className="flex items-center justify-between gap-2">
+            {!isHomePage && (
+              <h1 className="text-2xl font-medium">
+                {pageTitle}
+              </h1>
+            )}
+            <div className={isHomePage ? "ml-auto" : ""}>
+              {walletSelectorElement}
+            </div>
+          </div>
+        </div>
       </div>
 
+      {/* Spacer for fixed header - Desktop only */}
+      <div className="hidden md:block h-[60px]" />
+
+      {/* Main content */}
+      <main className="container max-w-4xl mx-auto px-4 py-3 sm:py-4 md:pt-8 md:pb-6 min-h-[calc(100vh-120px)]">
+        {onRefresh ? (
+          <PullToRefresh onRefresh={onRefresh}>{pageContent}</PullToRefresh>
+        ) : (
+          pageContent
+        )}
+      </main>
+
       <Footer />
-    </div>
+    </>
   )
 }
