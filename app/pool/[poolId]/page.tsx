@@ -21,7 +21,7 @@ import { usePoolsOnly } from "@/hooks/use-metadata"
 import { TokenLogo } from "@/components/token-logo"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useWalletState } from "@/hooks/use-wallet-state"
-import { LandingPage } from "@/components/landing-page"
+import { AuthenticatedPage } from "@/components/authenticated-page"
 
 // Extended position type with yield data
 interface PositionWithYield extends BlendReservePosition {
@@ -712,14 +712,7 @@ export default function PoolDetailsPage() {
   const poolId = decodeURIComponent(params.poolId as string)
 
   // Use the shared wallet state hook
-  const {
-    wallets,
-    activeWallet,
-    handleSelectWallet,
-    handleConnectWallet,
-    handleDisconnect,
-    isHydrated,
-  } = useWalletState()
+  const { activeWallet } = useWalletState()
 
   // Currency preference hook
   const { format: formatInCurrency } = useCurrencyPreference()
@@ -973,66 +966,107 @@ export default function PoolDetailsPage() {
   // Get pool info from tracked pools for explorer link
   const poolInfo = trackedPools.find(p => p.id === poolId)
 
-  // Show landing page for non-logged-in users
-  if (!activeWallet) {
-    return (
-      <LandingPage
-        wallets={wallets}
-        activeWallet={activeWallet}
-        onSelectWallet={handleSelectWallet}
-        onConnectWallet={handleConnectWallet}
-        onDisconnect={handleDisconnect}
-        isHydrated={isHydrated}
-      />
-    )
-  }
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <PageHeader title="Pool Details" />
-        <main className="container mx-auto px-4 py-8">
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="h-24 bg-muted animate-pulse rounded-lg" />
-              ))}
+  // Render content based on state
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div className="min-h-screen bg-background">
+          <PageHeader title="Pool Details" />
+          <main className="container mx-auto px-4 py-8">
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-24 bg-muted animate-pulse rounded-lg" />
+                ))}
+              </div>
+              <div className="h-64 bg-muted animate-pulse rounded-lg" />
             </div>
-            <div className="h-64 bg-muted animate-pulse rounded-lg" />
-          </div>
-        </main>
-      </div>
-    )
-  }
+          </main>
+        </div>
+      )
+    }
 
-  if (error) {
+    if (error) {
+      return (
+        <div className="min-h-screen bg-background">
+          <PageHeader title="Pool Details" />
+          <main className="container mx-auto px-4 py-8">
+            <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4">
+              <p className="text-destructive text-sm">
+                Error loading pool data: {error instanceof Error ? error.message : "Unknown error"}
+              </p>
+            </div>
+          </main>
+        </div>
+      )
+    }
+
+    if (!poolData) {
+      return (
+        <div className="min-h-screen bg-background">
+          <PageHeader title="Pool Details" />
+          <main className="container mx-auto px-4 py-8">
+            <div className="text-center py-8 text-muted-foreground">
+              <p>No data found for this pool.</p>
+              <p className="text-sm mt-2">
+                The pool ID might be invalid or you don&apos;t have positions in this pool.
+              </p>
+              <Link href="/">
+                <Button className="mt-4">Go to Home</Button>
+              </Link>
+            </div>
+          </main>
+        </div>
+      )
+    }
+
     return (
       <div className="min-h-screen bg-background">
-        <PageHeader title="Pool Details" />
-        <main className="container mx-auto px-4 py-8">
-          <div className="bg-destructive/10 border border-destructive/20 rounded-md p-4">
-            <p className="text-destructive text-sm">
-              Error loading pool data: {error instanceof Error ? error.message : "Unknown error"}
-            </p>
-          </div>
-        </main>
-      </div>
-    )
-  }
+        <PageHeader
+          title={`${poolData.poolName} Pool`}
+          explorerUrl={`https://stellar.expert/explorer/public/contract/${poolId}`}
+        />
 
-  if (!poolData) {
-    return (
-      <div className="min-h-screen bg-background">
-        <PageHeader title="Pool Details" />
-        <main className="container mx-auto px-4 py-8">
-          <div className="text-center py-8 text-muted-foreground">
-            <p>No data found for this pool.</p>
-            <p className="text-sm mt-2">
-              The pool ID might be invalid or you don&apos;t have positions in this pool.
-            </p>
-            <Link href="/">
-              <Button className="mt-4">Go to Home</Button>
-            </Link>
+        <main className="container mx-auto px-4 py-6">
+          <div className="space-y-6">
+            {/* Summary Stats */}
+            <PoolSummary estimate={poolData.estimate} formatUsd={formatUsd} />
+
+            {/* Supply/Borrow Positions */}
+            {poolData.positions.length > 0 && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg">Your Positions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {/* Desktop */}
+                  <div className="hidden md:block">
+                    {poolData.positions.map((position) => (
+                      <AssetRow key={position.id} position={position} blndPrice={poolData.blndPrice} formatUsd={formatUsd} formatYield={formatYield} />
+                    ))}
+                  </div>
+
+                  {/* Mobile */}
+                  <div className="md:hidden">
+                    {poolData.positions.map((position) => (
+                      <MobileAssetCard key={position.id} position={position} blndPrice={poolData.blndPrice} formatUsd={formatUsd} formatYield={formatYield} />
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Backstop Position */}
+            {poolData.backstopPosition && (
+              <BackstopSection
+                position={poolData.backstopPosition}
+                claimedLp={poolData.backstopClaimedLp}
+                blndPerLpToken={poolData.blndPerLpToken}
+                blndPrice={poolData.blndPrice}
+                formatUsd={formatUsd}
+                formatYield={formatYield}
+              />
+            )}
           </div>
         </main>
       </div>
@@ -1040,54 +1074,8 @@ export default function PoolDetailsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <PageHeader
-        title={`${poolData.poolName} Pool`}
-        explorerUrl={`https://stellar.expert/explorer/public/contract/${poolId}`}
-      />
-
-      <main className="container mx-auto px-4 py-6">
-        <div className="space-y-6">
-          {/* Summary Stats */}
-          <PoolSummary estimate={poolData.estimate} formatUsd={formatUsd} />
-
-          {/* Supply/Borrow Positions */}
-          {poolData.positions.length > 0 && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg">Your Positions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {/* Desktop */}
-                <div className="hidden md:block">
-                  {poolData.positions.map((position) => (
-                    <AssetRow key={position.id} position={position} blndPrice={poolData.blndPrice} formatUsd={formatUsd} formatYield={formatYield} />
-                  ))}
-                </div>
-
-                {/* Mobile */}
-                <div className="md:hidden">
-                  {poolData.positions.map((position) => (
-                    <MobileAssetCard key={position.id} position={position} blndPrice={poolData.blndPrice} formatUsd={formatUsd} formatYield={formatYield} />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Backstop Position */}
-          {poolData.backstopPosition && (
-            <BackstopSection
-              position={poolData.backstopPosition}
-              claimedLp={poolData.backstopClaimedLp}
-              blndPerLpToken={poolData.blndPerLpToken}
-              blndPrice={poolData.blndPrice}
-              formatUsd={formatUsd}
-              formatYield={formatYield}
-            />
-          )}
-        </div>
-      </main>
-    </div>
+    <AuthenticatedPage withLayout={false}>
+      {renderContent()}
+    </AuthenticatedPage>
   )
 }

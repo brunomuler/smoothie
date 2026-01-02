@@ -6,9 +6,7 @@ import { Switch } from "@/components/ui/switch"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
 import { useAnalytics } from "@/hooks/use-analytics"
-import { DashboardLayout } from "@/components/dashboard-layout"
-import { LandingPage } from "@/components/landing-page"
-import { useWalletState } from "@/hooks/use-wallet-state"
+import { AuthenticatedPage } from "@/components/authenticated-page"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageTitle } from "@/components/page-title"
 
@@ -16,43 +14,14 @@ function SettingsContent() {
   const { capture } = useAnalytics()
   const { currency, setCurrency } = useCurrencyPreference()
   const { preferences, setShowPriceChanges, setUseHistoricalBlndPrices } = useDisplayPreferences()
-  const {
-    wallets,
-    activeWallet,
-    handleSelectWallet,
-    handleConnectWallet,
-    handleDisconnect,
-    isHydrated,
-  } = useWalletState()
 
   // Track page view
   useEffect(() => {
     capture('page_viewed', { page: 'settings' })
   }, [capture])
 
-  // Show landing page for non-logged-in users
-  if (!activeWallet) {
-    return (
-      <LandingPage
-        wallets={wallets}
-        activeWallet={activeWallet}
-        onSelectWallet={handleSelectWallet}
-        onConnectWallet={handleConnectWallet}
-        onDisconnect={handleDisconnect}
-        isHydrated={isHydrated}
-      />
-    )
-  }
-
   return (
-    <DashboardLayout
-      wallets={wallets}
-      activeWallet={activeWallet}
-      onSelectWallet={handleSelectWallet}
-      onConnectWallet={handleConnectWallet}
-      onDisconnect={handleDisconnect}
-      isHydrated={isHydrated}
-    >
+    <AuthenticatedPage>
       <div>
         <PageTitle>Settings</PageTitle>
 
@@ -103,7 +72,7 @@ function SettingsContent() {
           </div>
         </div>
       </div>
-    </DashboardLayout>
+    </AuthenticatedPage>
   )
 }
 

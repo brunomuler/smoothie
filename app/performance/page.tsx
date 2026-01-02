@@ -13,8 +13,7 @@ import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
 import { useHistoricalYieldBreakdown } from "@/hooks/use-historical-yield-breakdown"
 import { useAnalytics } from "@/hooks/use-analytics"
-import { DashboardLayout } from "@/components/dashboard-layout"
-import { LandingPage } from "@/components/landing-page"
+import { AuthenticatedPage } from "@/components/authenticated-page"
 import { PageTitle } from "@/components/page-title"
 import { useWalletState } from "@/hooks/use-wallet-state"
 import { InfoLabel } from "@/components/performance"
@@ -36,14 +35,7 @@ function RealizedYieldContent() {
   const showPriceChanges = displayPreferences.showPriceChanges
   const useHistoricalBlndPrices = displayPreferences.useHistoricalBlndPrices
 
-  const {
-    wallets,
-    activeWallet,
-    handleSelectWallet,
-    handleConnectWallet,
-    handleDisconnect,
-    isHydrated,
-  } = useWalletState()
+  const { activeWallet } = useWalletState()
 
   // Track page view
   useEffect(() => {
@@ -437,29 +429,8 @@ function RealizedYieldContent() {
   const hasCurrentPositions = unrealizedData.totalCurrentUsd > 0
   const totalPnlPositive = displayPnl.totalPnl >= 0
 
-  // Show landing page for non-logged-in users
-  if (!activeWallet) {
-    return (
-      <LandingPage
-        wallets={wallets}
-        activeWallet={activeWallet}
-        onSelectWallet={handleSelectWallet}
-        onConnectWallet={handleConnectWallet}
-        onDisconnect={handleDisconnect}
-        isHydrated={isHydrated}
-      />
-    )
-  }
-
   return (
-    <DashboardLayout
-      wallets={wallets}
-      activeWallet={activeWallet}
-      onSelectWallet={handleSelectWallet}
-      onConnectWallet={handleConnectWallet}
-      onDisconnect={handleDisconnect}
-      isHydrated={isHydrated}
-    >
+    <AuthenticatedPage>
       <TooltipProvider>
       <div>
         <PageTitle badge="Beta">Performance</PageTitle>
@@ -467,27 +438,170 @@ function RealizedYieldContent() {
         <div className="space-y-4 sm:space-y-6">
         {(isLoading || !sdkReady) ? (
           <div className="space-y-4 sm:space-y-6">
-            {/* Summary Skeleton */}
-            <div className="rounded-xl border bg-card p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-8 w-40" />
+            {/* Hero Summary Card Skeleton */}
+            <Card>
+              <CardContent>
+                <div className="flex items-start justify-between mb-4">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-20" />
+                    <div className="flex items-baseline gap-3">
+                      <Skeleton className="h-9 w-36" />
+                      <Skeleton className="h-5 w-14 rounded-full" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-9 w-9 rounded-full" />
                 </div>
-                <Skeleton className="h-10 w-10 rounded-full" />
-              </div>
-              <div className="flex gap-6">
-                <Skeleton className="h-5 w-20" />
-                <Skeleton className="h-5 w-20" />
-                <Skeleton className="h-5 w-20" />
-              </div>
+                <Separator className="my-4" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                  <div className="space-y-1">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-5 w-24" />
+                  </div>
+                  <div className="space-y-1">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-5 w-24" />
+                  </div>
+                  <div className="space-y-1 col-span-2 sm:col-span-1">
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-5 w-24" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Date Info Skeleton */}
+            <div className="flex items-center gap-4">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-4 w-24" />
             </div>
 
-            {/* Breakdown Skeleton */}
-            <div className="rounded-xl border bg-card p-6 space-y-3">
+            {/* Breakdown by Source Skeleton */}
+            <div className="space-y-3">
               <Skeleton className="h-5 w-36" />
-              <Skeleton className="h-24 w-full rounded-lg" />
-              <Skeleton className="h-24 w-full rounded-lg" />
+              <Card>
+                <CardContent className="space-y-4 pt-4">
+                  {/* Lending Pools Section */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-7 w-7 rounded-full" />
+                      <Skeleton className="h-4 w-24" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between pt-2 border-t border-border/50">
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Backstop Section */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-7 w-7 rounded-full" />
+                      <Skeleton className="h-4 w-16" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between pt-2 border-t border-border/50">
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Summary */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
+                    <div className="flex justify-between">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
+                    <div className="flex justify-between">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-20" />
+                    </div>
+                    <Separator />
+                    <div className="flex justify-between">
+                      <Skeleton className="h-5 w-20" />
+                      <Skeleton className="h-6 w-28" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Breakdown by Pool Skeleton */}
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-32" />
+              <Card>
+                <CardContent className="space-y-4 pt-4">
+                  {/* Pool Item */}
+                  <div className="space-y-3">
+                    <Skeleton className="h-4 w-28" />
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-7 w-7 rounded-full" />
+                      <Skeleton className="h-4 w-16" />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between pt-2 border-t border-border/50">
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                    </div>
+                    <div className="pt-2 border-t border-border/50 space-y-2">
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="flex justify-between">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <Separator className="my-1" />
+                      <div className="flex justify-between">
+                        <Skeleton className="h-5 w-20" />
+                        <Skeleton className="h-6 w-24" />
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         ) : !data || (data.totalDepositedUsd === 0 && data.totalWithdrawnUsd === 0) ? (
@@ -1069,7 +1183,7 @@ function RealizedYieldContent() {
         </div>
       </div>
       </TooltipProvider>
-    </DashboardLayout>
+    </AuthenticatedPage>
   )
 }
 
@@ -1084,31 +1198,177 @@ function PerformanceSkeleton() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-6 space-y-6">
+      <main className="container mx-auto px-4 py-6 space-y-4 sm:space-y-6">
         {/* Page title skeleton */}
-        <Skeleton className="h-8 w-40" />
-
-        {/* Summary card skeleton */}
-        <div className="rounded-xl border bg-card p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-8 w-40" />
-            </div>
-            <Skeleton className="h-10 w-10 rounded-full" />
-          </div>
-          <div className="flex gap-6">
-            <Skeleton className="h-5 w-20" />
-            <Skeleton className="h-5 w-20" />
-            <Skeleton className="h-5 w-20" />
-          </div>
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-5 w-10 rounded-full" />
         </div>
 
-        {/* Breakdown card skeleton */}
-        <div className="rounded-xl border bg-card p-6 space-y-3">
+        {/* Hero Summary Card Skeleton */}
+        <Card>
+          <CardContent>
+            <div className="flex items-start justify-between mb-4">
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-20" />
+                <div className="flex items-baseline gap-3">
+                  <Skeleton className="h-9 w-36" />
+                  <Skeleton className="h-5 w-14 rounded-full" />
+                </div>
+              </div>
+              <Skeleton className="h-9 w-9 rounded-full" />
+            </div>
+            <Separator className="my-4" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+              <div className="space-y-1">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-5 w-24" />
+              </div>
+              <div className="space-y-1">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-5 w-24" />
+              </div>
+              <div className="space-y-1 col-span-2 sm:col-span-1">
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="h-5 w-24" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Date Info Skeleton */}
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-4 w-32" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+
+        {/* Breakdown by Source Skeleton */}
+        <div className="space-y-3">
           <Skeleton className="h-5 w-36" />
-          <Skeleton className="h-24 w-full rounded-lg" />
-          <Skeleton className="h-24 w-full rounded-lg" />
+          <Card>
+            <CardContent className="space-y-4 pt-4">
+              {/* Lending Pools Section */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-7 w-7 rounded-full" />
+                  <Skeleton className="h-4 w-24" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between pt-2 border-t border-border/50">
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Backstop Section */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-7 w-7 rounded-full" />
+                  <Skeleton className="h-4 w-16" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between pt-2 border-t border-border/50">
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Summary */}
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+                <div className="flex justify-between">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+                <div className="flex justify-between">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+                <Separator />
+                <div className="flex justify-between">
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-6 w-28" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Breakdown by Pool Skeleton */}
+        <div className="space-y-3">
+          <Skeleton className="h-5 w-32" />
+          <Card>
+            <CardContent className="space-y-4 pt-4">
+              {/* Pool Item */}
+              <div className="space-y-3">
+                <Skeleton className="h-4 w-28" />
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-7 w-7 rounded-full" />
+                  <Skeleton className="h-4 w-16" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between pt-2 border-t border-border/50">
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-border/50 space-y-2">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-20" />
+                  </div>
+                  <Separator className="my-1" />
+                  <div className="flex justify-between">
+                    <Skeleton className="h-5 w-20" />
+                    <Skeleton className="h-6 w-24" />
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </main>
     </div>

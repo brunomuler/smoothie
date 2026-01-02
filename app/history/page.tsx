@@ -5,59 +5,30 @@ import { TransactionHistory } from "@/components/transaction-history"
 import { PageTitle } from "@/components/page-title"
 import { useWalletState } from "@/hooks/use-wallet-state"
 import { useAnalytics } from "@/hooks/use-analytics"
-import { DashboardLayout } from "@/components/dashboard-layout"
-import { LandingPage } from "@/components/landing-page"
+import { AuthenticatedPage } from "@/components/authenticated-page"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card, CardContent } from "@/components/ui/card"
 
 function HistoryContent() {
   const { capture } = useAnalytics()
-  const {
-    wallets,
-    activeWallet,
-    handleSelectWallet,
-    handleConnectWallet,
-    handleDisconnect,
-    isHydrated,
-  } = useWalletState()
+  const { activeWallet } = useWalletState()
 
   // Track page view
   useEffect(() => {
     capture('page_viewed', { page: 'history' })
   }, [capture])
 
-  // Show landing page for non-logged-in users
-  if (!activeWallet) {
-    return (
-      <LandingPage
-        wallets={wallets}
-        activeWallet={activeWallet}
-        onSelectWallet={handleSelectWallet}
-        onConnectWallet={handleConnectWallet}
-        onDisconnect={handleDisconnect}
-        isHydrated={isHydrated}
-      />
-    )
-  }
-
   return (
-    <DashboardLayout
-      wallets={wallets}
-      activeWallet={activeWallet}
-      onSelectWallet={handleSelectWallet}
-      onConnectWallet={handleConnectWallet}
-      onDisconnect={handleDisconnect}
-      isHydrated={isHydrated}
-    >
+    <AuthenticatedPage>
       <div>
+        <PageTitle>History</PageTitle>
         <TransactionHistory
-          publicKey={activeWallet.publicKey}
+          publicKey={activeWallet!.publicKey}
           limit={50}
           showControls={true}
-          title={<PageTitle>History</PageTitle>}
         />
       </div>
-    </DashboardLayout>
+    </AuthenticatedPage>
   )
 }
 

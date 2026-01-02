@@ -9,9 +9,7 @@ import { BackstopChart } from "@/components/explore/backstop-chart"
 import { SupplyResults } from "@/components/explore/supply-results"
 import { BackstopResults } from "@/components/explore/backstop-results"
 import { useExplore } from "@/hooks/use-explore"
-import { DashboardLayout } from "@/components/dashboard-layout"
-import { LandingPage } from "@/components/landing-page"
-import { useWalletState } from "@/hooks/use-wallet-state"
+import { AuthenticatedPage } from "@/components/authenticated-page"
 import { useAnalytics } from "@/hooks/use-analytics"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { ExploreFilters as ExploreFiltersType } from "@/types/explore"
@@ -27,14 +25,6 @@ function ExploreContent() {
   })
 
   const { isLoading, supplyItems, backstopItems } = useExplore(filters)
-  const {
-    wallets,
-    activeWallet,
-    handleSelectWallet,
-    handleConnectWallet,
-    handleDisconnect,
-    isHydrated,
-  } = useWalletState()
 
   // Track page view
   useEffect(() => {
@@ -46,29 +36,8 @@ function ExploreContent() {
     capture('tab_changed', { tab, page: 'explore' })
   }
 
-  // Show landing page for non-logged-in users
-  if (!activeWallet) {
-    return (
-      <LandingPage
-        wallets={wallets}
-        activeWallet={activeWallet}
-        onSelectWallet={handleSelectWallet}
-        onConnectWallet={handleConnectWallet}
-        onDisconnect={handleDisconnect}
-        isHydrated={isHydrated}
-      />
-    )
-  }
-
   return (
-    <DashboardLayout
-      wallets={wallets}
-      activeWallet={activeWallet}
-      onSelectWallet={handleSelectWallet}
-      onConnectWallet={handleConnectWallet}
-      onDisconnect={handleDisconnect}
-      isHydrated={isHydrated}
-    >
+    <AuthenticatedPage>
       <div>
         <PageTitle>Explore</PageTitle>
 
@@ -97,7 +66,7 @@ function ExploreContent() {
           </TabsContent>
         </Tabs>
       </div>
-    </DashboardLayout>
+    </AuthenticatedPage>
   )
 }
 

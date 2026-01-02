@@ -161,10 +161,7 @@ export function WalletSelector({
   // Show skeleton while hydrating wallet state from localStorage
   if (!isHydrated) {
     return (
-      <div className={cn("flex items-center gap-2", fullWidth && "w-full")}>
-        <Skeleton className="h-10 w-10 rounded-full" />
-        <Skeleton className="h-4 w-20 hidden sm:block" />
-      </div>
+      <Skeleton className={cn("h-10 w-[140px] rounded-md", fullWidth && "w-full")} />
     )
   }
 

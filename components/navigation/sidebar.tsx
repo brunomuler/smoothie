@@ -16,6 +16,7 @@ export function Sidebar() {
     handleSelectWallet,
     handleConnectWallet,
     handleDisconnect,
+    isHydrated,
   } = useWalletState()
 
   return (
@@ -68,6 +69,7 @@ export function Sidebar() {
           onConnectWallet={handleConnectWallet}
           onDisconnect={handleDisconnect}
           fullWidth
+          isHydrated={isHydrated}
         />
       </div>
     </aside>

@@ -9,8 +9,7 @@ import { useBalanceHistoryData } from "@/hooks/use-balance-history-data"
 import { useComputedBalance } from "@/hooks/use-computed-balance"
 import { useChartHistoricalPrices } from "@/hooks/use-chart-historical-prices"
 import { useHistoricalYieldBreakdown } from "@/hooks/use-historical-yield-breakdown"
-import { LandingPage } from "@/components/landing-page"
-import { DashboardLayout } from "@/components/dashboard-layout"
+import { AuthenticatedPage } from "@/components/authenticated-page"
 import { WalletBalance } from "@/components/wallet-balance"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
@@ -24,14 +23,7 @@ import { LP_TOKEN_ADDRESS } from "@/lib/constants"
 
 export function HomeContent() {
   const queryClient = useQueryClient()
-  const {
-    wallets,
-    activeWallet,
-    handleSelectWallet,
-    handleConnectWallet,
-    handleDisconnect,
-    isHydrated,
-  } = useWalletState()
+  const { activeWallet } = useWalletState()
   const [isDemoMode, setIsDemoMode] = useState(false)
   const { capture } = useAnalytics()
   const { preferences: displayPreferences } = useDisplayPreferences()
@@ -332,36 +324,13 @@ export function HomeContent() {
       }))
   }, [blendSnapshot?.poolEstimates, blendSnapshot?.positions])
 
-  // Show landing page for non-logged-in users
-  if (!activeWallet) {
-    return (
-      <LandingPage
-        wallets={wallets}
-        activeWallet={activeWallet}
-        onSelectWallet={handleSelectWallet}
-        onConnectWallet={handleConnectWallet}
-        onDisconnect={handleDisconnect}
-        isHydrated={isHydrated}
-      />
-    )
-  }
-
   // Check if there are no positions AND no history (empty account)
   const hasNoPositions = !isLoading && assetCards.length === 0 && backstopPositions.length === 0
   const hasNoHistory = !aggregatedHistoryData?.isLoading && (!aggregatedHistoryData?.chartData || aggregatedHistoryData.chartData.length === 0)
   const isEmptyAccount = hasNoPositions && hasNoHistory
 
   return (
-    <DashboardLayout
-      wallets={wallets}
-      activeWallet={activeWallet}
-      onSelectWallet={handleSelectWallet}
-      onConnectWallet={handleConnectWallet}
-      onDisconnect={handleDisconnect}
-      onRefresh={handleRefresh}
-      error={error}
-      isHydrated={isHydrated}
-    >
+    <AuthenticatedPage onRefresh={handleRefresh} error={error}>
       {isEmptyAccount ? (
         <div className="text-center py-12 px-4">
           <h2 className="text-xl font-semibold mb-2">No Blend positions yet</h2>
@@ -374,7 +343,7 @@ export function HomeContent() {
           <WalletBalance
             data={balanceDataWithHistorical}
             chartData={chartData}
-            publicKey={activeWallet.publicKey}
+            publicKey={activeWallet!.publicKey}
             balanceHistoryData={aggregatedHistoryDataWithCorrectYield ?? undefined}
             loading={isLoading || !aggregatedHistoryDataWithCorrectYield || aggregatedHistoryDataWithCorrectYield.isLoading}
             isDemoMode={isDemoMode}
@@ -396,7 +365,7 @@ export function HomeContent() {
 
           {(isLoading || totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0) || isDemoMode) && (
             <BlndRewardsCard
-              publicKey={activeWallet.publicKey}
+              publicKey={activeWallet!.publicKey}
               pendingEmissions={isDemoMode ? 156.75 : totalEmissions}
               pendingSupplyEmissions={isDemoMode ? 120.5 : blendSnapshot?.totalSupplyEmissions}
               pendingBorrowEmissions={isDemoMode ? 36.25 : blendSnapshot?.totalBorrowEmissions}
@@ -466,6 +435,6 @@ export function HomeContent() {
           </Tabs>
         </>
       )}
-    </DashboardLayout>
+    </AuthenticatedPage>
   )
 }

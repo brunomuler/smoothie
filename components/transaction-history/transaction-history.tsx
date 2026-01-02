@@ -252,7 +252,7 @@ export function TransactionHistory({
           <div className={`flex items-center mb-4 ${title ? 'justify-between' : 'justify-end'}`}>
             {title}
             {showControls && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 ml-auto md:ml-0">
                 <Button variant="outline" size="icon" className="h-8 w-8" disabled>
                   <Download className="h-4 w-4" />
                 </Button>
@@ -283,7 +283,7 @@ export function TransactionHistory({
           <div className={`flex items-center mb-4 ${title ? 'justify-between' : 'justify-end'}`}>
             {title}
             {showControls && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 ml-auto md:ml-0">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button variant="outline" size="icon" className="h-8 w-8" disabled>
@@ -321,7 +321,7 @@ export function TransactionHistory({
         <div className={`flex items-center mb-4 ${title ? 'justify-between' : 'justify-end'}`}>
           {title}
           {showControls && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 ml-auto md:ml-0">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
