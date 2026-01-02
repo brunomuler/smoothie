@@ -27,6 +27,7 @@ import { Filters } from "./filters"
 
 interface TransactionHistoryFullProps extends TransactionHistoryProps {
   showControls?: boolean
+  title?: React.ReactNode
 }
 
 export function TransactionHistory({
@@ -36,6 +37,7 @@ export function TransactionHistory({
   limit = 50,
   hideToggle = false,
   showControls = true,
+  title,
 }: TransactionHistoryFullProps) {
   const [selectedActionTypes, setSelectedActionTypes] = useState<ActionType[]>([])
   const [startDate, setStartDate] = useState<Date | undefined>(undefined)
@@ -246,14 +248,19 @@ export function TransactionHistory({
   if (isLoading) {
     return (
       <>
-        {showControls && (
-          <div className="flex items-center justify-end gap-2 mb-4">
-            <Button variant="outline" size="icon" className="h-8 w-8" disabled>
-              <Download className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8" disabled>
-              <span className="h-4 w-4" />
-            </Button>
+        {(showControls || title) && (
+          <div className={`flex items-center mb-4 ${title ? 'justify-between' : 'justify-end'}`}>
+            {title}
+            {showControls && (
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled>
+                  <Download className="h-4 w-4" />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled>
+                  <span className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         )}
         <Card className="py-0">
@@ -272,27 +279,32 @@ export function TransactionHistory({
   if (actions.length === 0) {
     return (
       <>
-        {showControls && (
-          <div className="flex items-center justify-end gap-2 mb-4">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8" disabled>
-                  <Download className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="bg-black text-white border-black" arrowClassName="bg-black fill-black">
-                Download CSV
-              </TooltipContent>
-            </Tooltip>
-            <Filters
-              selectedActionTypes={selectedActionTypes}
-              onToggleActionType={toggleActionType}
-              startDate={startDate}
-              endDate={endDate}
-              onStartDateChange={setStartDate}
-              onEndDateChange={setEndDate}
-              onClear={clearFilters}
-            />
+        {(showControls || title) && (
+          <div className={`flex items-center mb-4 ${title ? 'justify-between' : 'justify-end'}`}>
+            {title}
+            {showControls && (
+              <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="icon" className="h-8 w-8" disabled>
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-black text-white border-black" arrowClassName="bg-black fill-black">
+                    Download CSV
+                  </TooltipContent>
+                </Tooltip>
+                <Filters
+                  selectedActionTypes={selectedActionTypes}
+                  onToggleActionType={toggleActionType}
+                  startDate={startDate}
+                  endDate={endDate}
+                  onStartDateChange={setStartDate}
+                  onEndDateChange={setEndDate}
+                  onClear={clearFilters}
+                />
+              </div>
+            )}
           </div>
         )}
         <p className="text-sm text-muted-foreground text-center py-12">
@@ -305,37 +317,42 @@ export function TransactionHistory({
   return (
     <>
       {/* Controls - outside the card */}
-      {showControls && (
-        <div className="flex items-center justify-end gap-2 mb-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-8 w-8"
-                onClick={handleExport}
-                disabled={isExporting || actions.length === 0}
-              >
-                {isExporting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent className="bg-black text-white border-black" arrowClassName="bg-black fill-black">
-              Download CSV
-            </TooltipContent>
-          </Tooltip>
-          <Filters
-            selectedActionTypes={selectedActionTypes}
-            onToggleActionType={toggleActionType}
-            startDate={startDate}
-            endDate={endDate}
-            onStartDateChange={setStartDate}
-            onEndDateChange={setEndDate}
-            onClear={clearFilters}
-          />
+      {(showControls || title) && (
+        <div className={`flex items-center mb-4 ${title ? 'justify-between' : 'justify-end'}`}>
+          {title}
+          {showControls && (
+            <div className="flex items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={handleExport}
+                    disabled={isExporting || actions.length === 0}
+                  >
+                    {isExporting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="bg-black text-white border-black" arrowClassName="bg-black fill-black">
+                  Download CSV
+                </TooltipContent>
+              </Tooltip>
+              <Filters
+                selectedActionTypes={selectedActionTypes}
+                onToggleActionType={toggleActionType}
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
+                onClear={clearFilters}
+              />
+            </div>
+          )}
         </div>
       )}
 

@@ -87,7 +87,8 @@ export function useComputedBalance(
   backstopBalanceHistoryQuery: BackstopBalanceHistoryQuery,
   uniqueAssetAddresses: string[],
   historicalPrices?: HistoricalPriceGetter,  // Optional: historical prices for chart
-  showPriceChanges: boolean = true  // When false, use current prices for chart instead of historical
+  showPriceChanges: boolean = true,  // When false, use current prices for chart instead of historical
+  historicalBackstopCostBasis?: Map<string, number>  // Optional: date -> cumulative cost basis in LP tokens
 ): UseComputedBalanceReturn {
   // Build a map of asset address -> USD price from SDK positions
   const assetPriceMap = useMemo(() => {
@@ -328,16 +329,36 @@ export function useComputedBalance(
       const backstopUsdValue = backstopLpTokens * lpPrice
       totalBalance += backstopUsdValue
 
-      // For deposit (cost basis), use the actual cost basis from backstop positions
-      // This ensures yield = balance - deposit correctly shows only interest earned
-      const backstopCostBasisLp = backstopPositions.reduce((sum, bp) => sum + (bp.costBasisLp || 0), 0)
+      // For deposit (cost basis), use historical cost basis if available, otherwise fall back to current
+      // Historical cost basis tracks the actual cumulative deposits/withdrawals over time
+      let effectiveBackstopCostBasisLp: number
 
-      // IMPORTANT: Clamp cost basis to not exceed the LP tokens at this date
-      // This prevents showing negative yield when current cost basis includes recent deposits
-      // that weren't present on historical dates
-      const effectiveBackstopCostBasisLp = backstopCostBasisLp > 0
-        ? Math.min(backstopCostBasisLp, backstopLpTokens)  // Use min of cost basis and historical balance
-        : backstopLpTokens  // If no cost basis data, use LP tokens as deposit (conservative - 0 yield)
+      if (historicalBackstopCostBasis && historicalBackstopCostBasis.size > 0) {
+        // Use historical cost basis - find the cost basis as of this date
+        // The map contains cumulative cost basis at each date
+        effectiveBackstopCostBasisLp = historicalBackstopCostBasis.get(date) ?? 0
+
+        // If no exact date match, find the most recent date before this one
+        if (effectiveBackstopCostBasisLp === 0 && backstopLpTokens > 0) {
+          const sortedDates = Array.from(historicalBackstopCostBasis.keys()).sort()
+          for (const histDate of sortedDates) {
+            if (histDate <= date) {
+              effectiveBackstopCostBasisLp = historicalBackstopCostBasis.get(histDate) ?? 0
+            } else {
+              break
+            }
+          }
+        }
+      } else {
+        // Fall back to current cost basis from SDK positions
+        const backstopCostBasisLp = backstopPositions.reduce((sum, bp) => sum + (bp.costBasisLp || 0), 0)
+
+        // Clamp cost basis to not exceed the LP tokens at this date
+        // This prevents showing negative yield when current cost basis includes recent deposits
+        effectiveBackstopCostBasisLp = backstopCostBasisLp > 0
+          ? Math.min(backstopCostBasisLp, backstopLpTokens)
+          : backstopLpTokens  // If no cost basis data, use LP tokens as deposit (conservative - 0 yield)
+      }
 
       // Use same LP price for cost basis (historical or current)
       const backstopCostBasisUsd = effectiveBackstopCostBasisLp * lpPrice

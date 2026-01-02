@@ -240,22 +240,34 @@ export function useHistoricalYieldBreakdown(
           }
         } else {
           // Fallback: use cost basis from position (no historical prices for this pool)
+          // costBasisLp represents the net deposited LP tokens (deposits - withdrawals in LP terms)
           const costBasisLp = bp.costBasisLp || 0
-          const costBasisHistorical = costBasisLp > 0
-            ? costBasisLp * lpTokenPrice
-            : bp.lpTokens * lpTokenPrice
-
           const netDepositedLpTokens = costBasisLp > 0 ? costBasisLp : bp.lpTokens
 
-          const breakdown = calculateHistoricalYieldBreakdown(
-            bp.lpTokens,
-            lpTokenPrice,
-            [{ date: '', tokens: netDepositedLpTokens, priceAtDeposit: lpTokenPrice, usdValue: costBasisHistorical }],
-            []
-          )
+          // Since we don't have historical LP prices, we estimate the deposit price
+          // by using the current price. This means protocol yield will be calculated
+          // based on the difference between current LP tokens and net deposited.
+          // Price change will be 0 since we don't know the historical price.
+          // The protocol yield = (current LP - net deposited) × current price
+          const yieldLpTokens = bp.lpTokens - netDepositedLpTokens
+          const protocolYieldUsd = yieldLpTokens * lpTokenPrice
+          const currentValueUsd = bp.lpTokens * lpTokenPrice
+
+          // Since we don't have historical price, assume same as current (no price change)
+          // Cost basis = net deposited tokens × current price (best estimate)
+          const costBasisHistorical = netDepositedLpTokens * lpTokenPrice
 
           poolBreakdown = {
-            ...breakdown,
+            costBasisHistorical,
+            weightedAvgDepositPrice: lpTokenPrice,
+            netDepositedTokens: netDepositedLpTokens,
+            protocolYieldTokens: yieldLpTokens,
+            protocolYieldUsd,
+            priceChangeUsd: 0, // Unknown without historical prices
+            priceChangePercent: 0,
+            currentValueUsd,
+            totalEarnedUsd: protocolYieldUsd, // Only protocol yield when no historical prices
+            totalEarnedPercent: costBasisHistorical > 0 ? (protocolYieldUsd / costBasisHistorical) * 100 : 0,
             poolAddress: poolId,
           }
         }

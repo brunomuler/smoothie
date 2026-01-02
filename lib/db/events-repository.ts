@@ -2039,7 +2039,6 @@ export class EventsRepository {
       throw new Error('Database pool not initialized')
     }
 
-    const LP_TOKEN_ADDRESS = 'CDMHROXQ75GEMEJ4LJCT4TUFKY7PH5Z7V5RCVS4KKGU2CQLQRN35DKFT'
     const BLND_TOKEN_ADDRESS = 'CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY'
 
     // Get pool deposits/withdrawals with historical prices

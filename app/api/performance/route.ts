@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
+import { LP_TOKEN_ADDRESS } from '@/lib/constants'
 
 export interface RealizedYieldTransaction {
   date: string
@@ -118,7 +119,6 @@ export async function GET(request: NextRequest) {
     const sdkPrices = new Map<string, number>()
 
     // Add BLND and LP prices if provided
-    const LP_TOKEN_ADDRESS = 'CDMHROXQ75GEMEJ4LJCT4TUFKY7PH5Z7V5RCVS4KKGU2CQLQRN35DKFT'
     const BLND_TOKEN_ADDRESS = 'CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY'
 
     if (sdkBlndPrice > 0) {

@@ -33,9 +33,12 @@ export function useRealizedYield({
   sdkPrices = {},
   enabled = true,
 }: UseRealizedYieldOptions): UseRealizedYieldResult {
+  // Create a stable cache key from sdkPrices object
+  const sdkPricesKey = Object.keys(sdkPrices).sort().map(k => `${k}:${sdkPrices[k]?.toFixed(6)}`).join(',')
+
   const query = useQuery({
     // Include SDK prices in query key so we refetch when prices become available
-    queryKey: ["performance", publicKey, sdkBlndPrice, sdkLpPrice],
+    queryKey: ["performance", publicKey, sdkBlndPrice, sdkLpPrice, sdkPricesKey],
     queryFn: async ({ signal }) => {
       if (!publicKey) {
         throw new Error("No public key provided")

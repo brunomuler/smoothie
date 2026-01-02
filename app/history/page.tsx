@@ -50,12 +50,11 @@ function HistoryContent() {
       isHydrated={isHydrated}
     >
       <div>
-        <PageTitle>History</PageTitle>
-
         <TransactionHistory
           publicKey={activeWallet.publicKey}
           limit={50}
           showControls={true}
+          title={<PageTitle>History</PageTitle>}
         />
       </div>
     </DashboardLayout>
@@ -65,13 +64,15 @@ function HistoryContent() {
 function HistoryLoading() {
   return (
     <div className="px-4 py-4">
-      <div className="mb-4">
-        <Skeleton className="h-6 w-24 mb-2" />
-        <Skeleton className="h-4 w-48" />
-      </div>
-      <div className="flex justify-end gap-2 mb-4">
-        <Skeleton className="h-8 w-8" />
-        <Skeleton className="h-8 w-8" />
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <Skeleton className="h-6 w-24 mb-2" />
+          <Skeleton className="h-4 w-48" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-8" />
+          <Skeleton className="h-8 w-8" />
+        </div>
       </div>
       <Card className="py-0">
         <CardContent className="p-0">
