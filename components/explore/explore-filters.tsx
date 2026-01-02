@@ -6,6 +6,7 @@ import type { ApyPeriod, ExploreFilters, SortBy } from "@/types/explore"
 interface ExploreFiltersProps {
   filters: ExploreFilters
   onFiltersChange: (filters: ExploreFilters) => void
+  showSortBy?: boolean
 }
 
 const PERIOD_OPTIONS: { value: ApyPeriod; label: string }[] = [
@@ -22,7 +23,7 @@ const SORT_OPTIONS: { value: SortBy; label: string }[] = [
   { value: "blnd", label: "BLND" },
 ]
 
-export function ExploreFilters({ filters, onFiltersChange }: ExploreFiltersProps) {
+export function ExploreFilters({ filters, onFiltersChange, showSortBy = true }: ExploreFiltersProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-6">
       {/* Period Selector */}
@@ -45,23 +46,25 @@ export function ExploreFilters({ filters, onFiltersChange }: ExploreFiltersProps
       </div>
 
       {/* Sort By Selector */}
-      <div className="flex items-center justify-between gap-2 sm:justify-start">
-        <span className="text-sm text-muted-foreground shrink-0">Sort by</span>
-        <Tabs
-          value={filters.sortBy}
-          onValueChange={(value) =>
-            onFiltersChange({ ...filters, sortBy: value as SortBy })
-          }
-        >
-          <TabsList className="h-8">
-            {SORT_OPTIONS.map((option) => (
-              <TabsTrigger key={option.value} value={option.value} className="text-xs px-2 sm:text-sm sm:px-3">
-                {option.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-      </div>
+      {showSortBy && (
+        <div className="flex items-center justify-between gap-2 sm:justify-start">
+          <span className="text-sm text-muted-foreground shrink-0">Sort by</span>
+          <Tabs
+            value={filters.sortBy}
+            onValueChange={(value) =>
+              onFiltersChange({ ...filters, sortBy: value as SortBy })
+            }
+          >
+            <TabsList className="h-8">
+              {SORT_OPTIONS.map((option) => (
+                <TabsTrigger key={option.value} value={option.value} className="text-xs px-2 sm:text-sm sm:px-3">
+                  {option.label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
     </div>
   )
 }

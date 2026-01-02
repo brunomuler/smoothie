@@ -91,8 +91,9 @@ function ExploreContent() {
           </TabsContent>
 
           <TabsContent value="backstops" className="space-y-6">
+            <ExploreFilters filters={filters} onFiltersChange={setFilters} />
             <BackstopChart items={backstopItems} isLoading={isLoading} />
-            <BackstopResults items={backstopItems} isLoading={isLoading} />
+            <BackstopResults items={backstopItems} isLoading={isLoading} sortBy={filters.sortBy} />
           </TabsContent>
         </Tabs>
       </div>
