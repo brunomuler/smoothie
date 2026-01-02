@@ -10,7 +10,12 @@ export function BottomNav() {
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="flex items-center justify-around h-16 px-2 pb-[env(safe-area-inset-bottom)]">
+      <div
+        className="flex items-center justify-around h-16 px-2"
+        style={{
+          paddingBottom: "calc(env(safe-area-inset-bottom) + var(--pwa-extra-padding, 0px))",
+        }}
+      >
         {navItems.map((item) => {
           const isActive = pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href))
@@ -20,7 +25,7 @@ export function BottomNav() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex flex-col items-center justify-center gap-0.5 flex-1 py-2 transition-colors",
+                "flex flex-col items-center justify-center gap-0.5 flex-1 py-3 transition-colors",
                 isActive
                   ? "text-primary"
                   : "text-muted-foreground"

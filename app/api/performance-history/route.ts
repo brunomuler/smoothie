@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
 import { LP_TOKEN_ADDRESS } from '@/lib/constants'
+import { getAllDatesBetween, getToday } from '@/lib/date-utils'
 
 export interface DailyPnlDataPoint {
   date: string
@@ -152,7 +153,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Step 4: Get historical prices for all assets
-    const today = new Date().toISOString().split('T')[0]
+    const today = getToday()
     // Use earliest balance date for prices (we need prices from when we have balance data)
     const startDate = earliestBalanceDate || today
 
@@ -194,17 +195,6 @@ export async function GET(request: NextRequest) {
     const realizedYieldData = await eventsRepository.getRealizedYieldData(userAddress, sdkPricesMap)
 
     // Step 7: Build daily P&L time series
-    const getAllDatesBetween = (start: string, end: string): string[] => {
-      const dates: string[] = []
-      const current = new Date(start)
-      const endDate = new Date(end)
-      while (current <= endDate) {
-        dates.push(current.toISOString().split('T')[0])
-        current.setDate(current.getDate() + 1)
-      }
-      return dates
-    }
-
     const allDates = earliestBalanceDate ? getAllDatesBetween(earliestBalanceDate, today) : []
 
     // Track TOKEN deposits/withdrawals per asset (not USD!)

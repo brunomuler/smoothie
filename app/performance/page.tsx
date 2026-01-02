@@ -1,17 +1,12 @@
 "use client"
 
 import { useMemo, Suspense, useEffect } from "react"
-import { TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet, Info } from "lucide-react"
+import { TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { useRealizedYield } from "@/hooks/use-realized-yield"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
@@ -22,6 +17,7 @@ import { DashboardLayout } from "@/components/dashboard-layout"
 import { LandingPage } from "@/components/landing-page"
 import { PageTitle } from "@/components/page-title"
 import { useWalletState } from "@/hooks/use-wallet-state"
+import { InfoLabel } from "@/components/performance"
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
@@ -30,24 +26,6 @@ function formatDate(dateStr: string): string {
     day: "numeric",
     year: "numeric",
   })
-}
-
-// Helper component for labels with info tooltips
-// Note: Requires TooltipProvider to be wrapped around the parent component
-function InfoLabel({ label, tooltip, className = "" }: { label: string; tooltip: string; className?: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className={`inline-flex items-center gap-1 cursor-help ${className}`}>
-          {label}
-          <Info className="h-3 w-3 text-muted-foreground/60" />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-[220px] text-xs">
-        <p>{tooltip}</p>
-      </TooltipContent>
-    </Tooltip>
-  )
 }
 
 

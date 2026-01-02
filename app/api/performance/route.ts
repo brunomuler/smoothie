@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
-import { LP_TOKEN_ADDRESS } from '@/lib/constants'
+import { LP_TOKEN_ADDRESS, BLND_TOKEN_ADDRESS } from '@/lib/constants'
+import { getAllDatesBetween, getToday, getFirstDateFromMap, getFirstDateFromSet } from '@/lib/date-utils'
 
 export interface RealizedYieldTransaction {
   date: string
@@ -118,9 +119,6 @@ export async function GET(request: NextRequest) {
     // Build SDK prices map
     const sdkPrices = new Map<string, number>()
 
-    // Add BLND and LP prices if provided
-    const BLND_TOKEN_ADDRESS = 'CD25MNVTZDL4Y3XBCPCJXGXATV5WUHHOWMYFF4YBEGU5FCPGMYTVG5JY'
-
     if (sdkBlndPrice > 0) {
       sdkPrices.set(BLND_TOKEN_ADDRESS, sdkBlndPrice)
     }
@@ -143,18 +141,6 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await eventsRepository.getRealizedYieldData(userAddress, sdkPrices)
-
-    // Helper to generate all dates between start and end (inclusive)
-    const getAllDatesBetween = (startDate: string, endDate: string): string[] => {
-      const dates: string[] = []
-      const current = new Date(startDate)
-      const end = new Date(endDate)
-      while (current <= end) {
-        dates.push(current.toISOString().split('T')[0])
-        current.setDate(current.getDate() + 1)
-      }
-      return dates
-    }
 
     // Group transactions by date and calculate running totals
     const dateMap = new Map<string, { deposited: number; withdrawn: number; realizedPnl: number }>()
@@ -186,7 +172,7 @@ export async function GET(request: NextRequest) {
     }> = []
 
     // Use today's date as the end date for charts
-    const today = new Date().toISOString().split('T')[0]
+    const today = getToday()
 
     if (data.firstActivityDate) {
       const allDates = getAllDatesBetween(data.firstActivityDate, today)
@@ -234,8 +220,8 @@ export async function GET(request: NextRequest) {
 
     // Build pools cumulative series (with all days filled in)
     const poolsCumulative: Array<{ date: string; cumulativeDeposited: number; cumulativeWithdrawn: number; cumulativeRealizedPnl: number }> = []
-    if (poolsDateMap.size > 0) {
-      const poolsFirstDate = Array.from(poolsDateMap.keys()).sort()[0]
+    const poolsFirstDate = getFirstDateFromMap(poolsDateMap)
+    if (poolsFirstDate) {
       const allDates = getAllDatesBetween(poolsFirstDate, today)
       let poolsCumDeposited = 0, poolsCumWithdrawn = 0, poolsCumRealizedPnl = 0
 
@@ -257,8 +243,8 @@ export async function GET(request: NextRequest) {
 
     // Build backstop cumulative series (with all days filled in)
     const backstopCumulative: Array<{ date: string; cumulativeDeposited: number; cumulativeWithdrawn: number; cumulativeRealizedPnl: number }> = []
-    if (backstopDateMap.size > 0) {
-      const backstopFirstDate = Array.from(backstopDateMap.keys()).sort()[0]
+    const backstopFirstDate = getFirstDateFromMap(backstopDateMap)
+    if (backstopFirstDate) {
       const allDates = getAllDatesBetween(backstopFirstDate, today)
       let backstopCumDeposited = 0, backstopCumWithdrawn = 0, backstopCumRealizedPnl = 0
 
@@ -317,9 +303,9 @@ export async function GET(request: NextRequest) {
     for (const [poolId, poolData] of poolDateMaps) {
       // Find first activity date for this pool
       const allDatesSet = new Set([...poolData.lending.keys(), ...poolData.backstop.keys()])
-      if (allDatesSet.size === 0) continue
+      const firstDate = getFirstDateFromSet(allDatesSet)
+      if (!firstDate) continue
 
-      const firstDate = Array.from(allDatesSet).sort()[0]
       const allDates = getAllDatesBetween(firstDate, today)
 
       let cumLending = 0

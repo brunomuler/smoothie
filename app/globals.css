@@ -122,6 +122,34 @@
   }
 }
 
+/* PWA standalone mode extra padding */
+:root {
+  --pwa-extra-padding: 0px;
+}
+
+/* Android/Chrome PWA standalone mode */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  :root {
+    --pwa-extra-padding: 12px;
+  }
+}
+
+/* iOS Safari standalone mode (class added via JS) */
+html.ios-standalone {
+  --pwa-extra-padding: 12px;
+}
+
+/* Mobile navigation content padding */
+.nav-content-padding {
+  padding-bottom: calc(4rem + env(safe-area-inset-bottom) + var(--pwa-extra-padding, 0px));
+}
+
+@media (min-width: 768px) {
+  .nav-content-padding {
+    padding-bottom: 0;
+  }
+}
+
 /* Make Recharts bar rectangles pass-through for clicks so tooltip cursor receives them */
 .recharts-bar-rectangle {
   pointer-events: none;

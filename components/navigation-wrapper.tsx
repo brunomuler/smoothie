@@ -4,6 +4,7 @@ import { Suspense } from "react"
 import { usePathname } from "next/navigation"
 import { Sidebar, BottomNav } from "@/components/navigation"
 import { useWalletState } from "@/hooks/use-wallet-state"
+import { useStandaloneMode } from "@/hooks/use-standalone-mode"
 
 interface NavigationWrapperProps {
   children: React.ReactNode
@@ -12,6 +13,9 @@ interface NavigationWrapperProps {
 export function NavigationWrapper({ children }: NavigationWrapperProps) {
   const pathname = usePathname()
   const { activeWallet, isHydrated } = useWalletState()
+
+  // Initialize PWA standalone mode detection (adds class to html for iOS)
+  useStandaloneMode()
 
   // Pages that don't need navigation (privacy, terms, etc.)
   const noNavigationPages = ["/privacy", "/terms"]
@@ -31,7 +35,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
       </Suspense>
 
       {/* Main content area */}
-      <div className="md:pl-56 pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
+      <div className="md:pl-56 nav-content-padding">
         {children}
       </div>
 

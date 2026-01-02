@@ -2,6 +2,8 @@
 
 import { useMemo } from "react"
 import { detectPositionChanges, calculateEarningsStats } from "@/lib/balance-history-utils"
+import { formatUsdWithSymbol } from "@/lib/format-utils"
+import { LP_TOKEN_ADDRESS } from "@/lib/constants"
 import type { AssetCardData } from "@/types/asset-card"
 import type { BalanceData } from "@/types/wallet-balance"
 import type { ChartDataPoint, EarningsStats, PositionChange } from "@/types/balance-history"
@@ -195,14 +197,9 @@ export function useComputedBalance(
     const realYield = initialBalanceData.rawBalance - totalCostBasis
     const yieldPercentage = totalCostBasis > 0 ? (realYield / totalCostBasis) * 100 : 0
 
-    const usdFormatter = new Intl.NumberFormat("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })
-
     return {
       ...initialBalanceData,
-      interestEarned: `$${usdFormatter.format(realYield)}`,
+      interestEarned: formatUsdWithSymbol(realYield),
       rawInterestEarned: realYield,
       growthPercentage: yieldPercentage,
     }
@@ -322,7 +319,6 @@ export function useComputedBalance(
       // When showPriceChanges is OFF, always use current LP price (no historical price impact)
       // When showPriceChanges is ON, use historical LP price if available
       const backstopLpTokens = backstopByDate.get(date) || 0
-      const LP_TOKEN_ADDRESS = 'CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM'
       const lpPrice = showPriceChanges && historicalPrices?.hasHistoricalData
         ? historicalPrices.getPrice(LP_TOKEN_ADDRESS, date)
         : (lpTokenPrice || 0)

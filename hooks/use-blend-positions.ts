@@ -6,6 +6,7 @@ import { fetchWalletBlendSnapshot, type BlendWalletSnapshot, type BlendBackstopP
 import { toTrackedPools } from "@/lib/blend/pools"
 import { useMetadata } from "@/hooks/use-metadata"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
+import { formatUsd, formatUsdWithDecimals } from "@/lib/format-utils"
 import type { BalanceData } from "@/types/wallet-balance"
 import type { AssetCardData } from "@/types/asset-card"
 import type { BackstopCostBasis } from "@/lib/db/types"
@@ -46,28 +47,6 @@ function setCachedPositions(publicKey: string, data: BlendWalletSnapshot): void 
   } catch {
     // localStorage full or unavailable - ignore
   }
-}
-
-const usdFormatter = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
-
-function formatUsd(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "0.00"
-  }
-  return usdFormatter.format(value)
-}
-
-function formatUsdWithDecimals(value: number, decimals = 7): string {
-  if (!Number.isFinite(value)) {
-    return "$0.00"
-  }
-  return `$${value.toLocaleString("en-US", {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  })}`
 }
 
 const ASSET_LOGO_MAP: Record<string, string> = {
