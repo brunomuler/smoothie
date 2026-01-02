@@ -12,11 +12,10 @@ import { useHistoricalYieldBreakdown } from "@/hooks/use-historical-yield-breakd
 import { LandingPage } from "@/components/landing-page"
 import { DashboardLayout } from "@/components/dashboard-layout"
 import { WalletBalance } from "@/components/wallet-balance"
-import { TransactionHistory } from "@/components/transaction-history"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
-import { ArrowDownFromLine, History, PiggyBank } from "lucide-react"
+import { ArrowDownFromLine, PiggyBank } from "lucide-react"
 import { BlndRewardsCard } from "@/components/blnd-rewards-card"
 import { PortfolioAllocationBar } from "@/components/portfolio-allocation-bar"
 import { SupplyPositions } from "@/components/supply-positions"
@@ -31,6 +30,7 @@ export function HomeContent() {
     handleSelectWallet,
     handleConnectWallet,
     handleDisconnect,
+    isHydrated,
   } = useWalletState()
   const [isDemoMode, setIsDemoMode] = useState(false)
   const { capture } = useAnalytics()
@@ -341,6 +341,7 @@ export function HomeContent() {
         onSelectWallet={handleSelectWallet}
         onConnectWallet={handleConnectWallet}
         onDisconnect={handleDisconnect}
+        isHydrated={isHydrated}
       />
     )
   }
@@ -359,6 +360,7 @@ export function HomeContent() {
       onDisconnect={handleDisconnect}
       onRefresh={handleRefresh}
       error={error}
+      isHydrated={isHydrated}
     >
       {isEmptyAccount ? (
         <div className="text-center py-12 px-4">
@@ -424,7 +426,7 @@ export function HomeContent() {
           )}
 
           <Tabs defaultValue="positions" className="w-full" onValueChange={(tab) => capture('tab_changed', { tab })}>
-            <TabsList className="grid w-full grid-cols-3 h-10 sm:h-11 mb-2 bg-transparent border border-gray-500/20 rounded-lg">
+            <TabsList className="grid w-full grid-cols-2 h-10 sm:h-11 mb-2 bg-transparent border border-gray-500/20 rounded-lg">
               <TabsTrigger value="positions" className="gap-1.5 text-xs sm:text-sm">
                 <PiggyBank className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Supplied
@@ -432,10 +434,6 @@ export function HomeContent() {
               <TabsTrigger value="borrows" className="gap-1.5 text-xs sm:text-sm">
                 <ArrowDownFromLine className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 Borrowed
-              </TabsTrigger>
-              <TabsTrigger value="history" className="gap-1.5 text-xs sm:text-sm">
-                <History className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                History
               </TabsTrigger>
             </TabsList>
 
@@ -463,14 +461,6 @@ export function HomeContent() {
                 enrichedAssetCards={enrichedAssetCardsWithBreakdown}
                 poolAssetBorrowCostBasisMap={poolAssetBorrowCostBasisMap}
                 onPoolClick={(poolId, poolName) => capture('pool_clicked', { pool_id: poolId, pool_name: poolName })}
-              />
-            </TabsContent>
-
-            <TabsContent value="history" className="space-y-4">
-              <TransactionHistory
-                publicKey={activeWallet.publicKey}
-                limit={20}
-                hideToggle={true}
               />
             </TabsContent>
           </Tabs>

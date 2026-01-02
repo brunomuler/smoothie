@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Wallet, Check, Plus, LogOut, Copy, ChevronDown, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +29,8 @@ interface WalletSelectorProps {
   onFollowAddress?: (address: string) => void
   onDisconnect?: (walletId: string) => void
   variant?: "default" | "landing"
+  fullWidth?: boolean
+  isHydrated?: boolean
 }
 
 export function WalletSelector({
@@ -38,6 +41,8 @@ export function WalletSelector({
   onFollowAddress,
   onDisconnect,
   variant = "default",
+  fullWidth = false,
+  isHydrated = true,
 }: WalletSelectorProps) {
   const [showConnectionModal, setShowConnectionModal] = React.useState(false)
   const [showFollowAddressModal, setShowFollowAddressModal] = React.useState(false)
@@ -153,6 +158,16 @@ export function WalletSelector({
   const isAddressAlreadyAdded = (address: string) =>
     wallets.some((w) => w.publicKey.toLowerCase() === address.toLowerCase())
 
+  // Show skeleton while hydrating wallet state from localStorage
+  if (!isHydrated) {
+    return (
+      <div className={cn("flex items-center gap-2", fullWidth && "w-full")}>
+        <Skeleton className="h-10 w-10 rounded-full" />
+        <Skeleton className="h-4 w-20 hidden sm:block" />
+      </div>
+    )
+  }
+
   // Landing variant: render a button that directly opens the connection modal
   if (variant === "landing" && !activeWallet) {
     return (
@@ -194,7 +209,8 @@ export function WalletSelector({
             <Button
               variant="outline"
               className={cn(
-                "gap-2 pl-1.5 pr-2.5 h-10 min-w-[140px]",
+                "gap-2 pl-1.5 pr-2.5 h-10 min-w-[140px] justify-between",
+                fullWidth && "w-full",
                 "!bg-transparent border-white/10 hover:!bg-white/5 hover:border-white/20",
                 "dark:!bg-transparent dark:border-white/10 dark:hover:!bg-white/5",
                 "transition-all duration-200"
@@ -216,7 +232,7 @@ export function WalletSelector({
           ) : (
             <Button
               variant="default"
-              className="gap-2 h-10"
+              className={cn("gap-2 h-10", fullWidth && "w-full")}
             >
               <Wallet className="h-4 w-4" />
               <span className="hidden sm:inline">Connect Wallet</span>

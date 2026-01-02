@@ -1,34 +1,61 @@
 "use client"
 
-import { ArrowLeft } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { Suspense, useEffect } from "react"
 import { CurrencySelector } from "@/components/currency-selector"
 import { Switch } from "@/components/ui/switch"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
+import { useAnalytics } from "@/hooks/use-analytics"
+import { DashboardLayout } from "@/components/dashboard-layout"
+import { LandingPage } from "@/components/landing-page"
+import { useWalletState } from "@/hooks/use-wallet-state"
+import { Skeleton } from "@/components/ui/skeleton"
+import { PageTitle } from "@/components/page-title"
 
-export default function SettingsPage() {
-  const router = useRouter()
+function SettingsContent() {
+  const { capture } = useAnalytics()
   const { currency, setCurrency } = useCurrencyPreference()
   const { preferences, setShowPriceChanges, setUseHistoricalBlndPrices } = useDisplayPreferences()
+  const {
+    wallets,
+    activeWallet,
+    handleSelectWallet,
+    handleConnectWallet,
+    handleDisconnect,
+    isHydrated,
+  } = useWalletState()
+
+  // Track page view
+  useEffect(() => {
+    capture('page_viewed', { page: 'settings' })
+  }, [capture])
+
+  // Show landing page for non-logged-in users
+  if (!activeWallet) {
+    return (
+      <LandingPage
+        wallets={wallets}
+        activeWallet={activeWallet}
+        onSelectWallet={handleSelectWallet}
+        onConnectWallet={handleConnectWallet}
+        onDisconnect={handleDisconnect}
+        isHydrated={isHydrated}
+      />
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header with back button */}
-      <header className="sticky top-0 z-50 bg-background border-b border-border">
-        <div className="container max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button
-            onClick={() => router.back()}
-            className="flex items-center justify-center w-10 h-10 rounded-full hover:bg-muted transition-colors"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <h1 className="text-lg font-semibold">Settings</h1>
-        </div>
-      </header>
+    <DashboardLayout
+      wallets={wallets}
+      activeWallet={activeWallet}
+      onSelectWallet={handleSelectWallet}
+      onConnectWallet={handleConnectWallet}
+      onDisconnect={handleDisconnect}
+      isHydrated={isHydrated}
+    >
+      <div>
+        <PageTitle>Settings</PageTitle>
 
-      {/* Content */}
-      <main className="container max-w-4xl mx-auto px-4 py-6">
         <div className="space-y-4">
           {/* Currency Section */}
           <div className="bg-card rounded-lg border border-border p-4">
@@ -75,7 +102,31 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
+    </DashboardLayout>
+  )
+}
+
+function SettingsLoading() {
+  return (
+    <div className="px-4 py-4 space-y-4">
+      <div>
+        <Skeleton className="h-6 w-24 mb-2" />
+        <Skeleton className="h-4 w-48" />
+      </div>
+      <div className="space-y-3">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-20 w-full" />
+      </div>
     </div>
+  )
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<SettingsLoading />}>
+      <SettingsContent />
+    </Suspense>
   )
 }

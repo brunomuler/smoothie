@@ -1,10 +1,8 @@
 "use client"
 
-import { useState, useMemo, Suspense } from "react"
-import Link from "next/link"
-import { ArrowLeft, TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet, Info } from "lucide-react"
+import { useState, useMemo, Suspense, useEffect } from "react"
+import { TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet, Info } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
@@ -26,8 +24,14 @@ import { useBlendPositions } from "@/hooks/use-blend-positions"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
 import { useHistoricalYieldBreakdown } from "@/hooks/use-historical-yield-breakdown"
+import { useBalanceHistoryData } from "@/hooks/use-balance-history-data"
+import { useComputedBalance } from "@/hooks/use-computed-balance"
+import { useChartHistoricalPrices } from "@/hooks/use-chart-historical-prices"
+import { useAnalytics } from "@/hooks/use-analytics"
 import { LP_TOKEN_ADDRESS } from "@/lib/constants"
 import { DashboardLayout } from "@/components/dashboard-layout"
+import { LandingPage } from "@/components/landing-page"
+import { PageTitle } from "@/components/page-title"
 import { useWalletState } from "@/hooks/use-wallet-state"
 
 function formatNumber(value: number, decimals = 2): string {
@@ -84,6 +88,7 @@ const chartConfig = {
 type PnlTab = 'total' | 'realized' | 'unrealized'
 
 function RealizedYieldContent() {
+  const { capture } = useAnalytics()
   const [mainChartTab, setMainChartTab] = useState<PnlTab>('total')
   const [sourceChartTab, setSourceChartTab] = useState<PnlTab>('total')
   const [poolChartTab, setPoolChartTab] = useState<PnlTab>('total')
@@ -98,38 +103,110 @@ function RealizedYieldContent() {
     handleSelectWallet,
     handleConnectWallet,
     handleDisconnect,
+    isHydrated,
   } = useWalletState()
+
+  // Track page view
+  useEffect(() => {
+    capture('page_viewed', { page: 'performance' })
+  }, [capture])
 
   const publicKey = activeWallet?.publicKey
 
   // Get blend positions for current prices and balances
-  const { blndPrice, lpTokenPrice, data: blendSnapshot, backstopPositions, totalBackstopUsd, isLoading: isLoadingPositions, totalEmissions: unclaimedBlndTokens } = useBlendPositions(publicKey)
+  const { balanceData: initialBalanceData, assetCards, blndPrice, lpTokenPrice, data: blendSnapshot, backstopPositions, totalBackstopUsd, isLoading: isLoadingPositions, totalEmissions: unclaimedBlndTokens } = useBlendPositions(publicKey)
 
-  // Build SDK prices map
+  // Fetch balance history data for all assets (same as home page)
+  const {
+    uniqueAssetAddresses,
+    balanceHistoryQueries,
+    backstopBalanceHistoryQuery,
+    poolAssetCostBasisMap,
+    balanceHistoryDataMap,
+  } = useBalanceHistoryData(publicKey, assetCards, blendSnapshot)
+
+  // Build SDK prices map (as Map for historical prices hook)
   const sdkPricesMap = useMemo(() => {
-    const map: Record<string, number> = {}
-    if (blendSnapshot?.positions) {
-      blendSnapshot.positions.forEach(pos => {
-        if (pos.assetId && pos.price?.usdPrice && pos.price.usdPrice > 0) {
-          map[pos.assetId] = pos.price.usdPrice
-        }
-      })
-    }
+    const map = new Map<string, number>()
+    if (!blendSnapshot?.positions) return map
+
+    blendSnapshot.positions.forEach(pos => {
+      if (pos.assetId && pos.price?.usdPrice && pos.price.usdPrice > 0) {
+        map.set(pos.assetId, pos.price.usdPrice)
+      }
+    })
+
     if (lpTokenPrice && lpTokenPrice > 0) {
-      map[LP_TOKEN_ADDRESS] = lpTokenPrice
+      map.set(LP_TOKEN_ADDRESS, lpTokenPrice)
     }
+
     return map
   }, [blendSnapshot?.positions, lpTokenPrice])
 
+  // Build SDK prices as Record for useRealizedYield
+  const sdkPricesRecord = useMemo(() => {
+    const record: Record<string, number> = {}
+    sdkPricesMap.forEach((value, key) => {
+      record[key] = value
+    })
+    return record
+  }, [sdkPricesMap])
+
+  // Extract all unique dates from balance history for historical price lookups
+  const chartDates = useMemo(() => {
+    const datesSet = new Set<string>()
+    balanceHistoryDataMap.forEach((historyData) => {
+      historyData.chartData.forEach((point) => {
+        datesSet.add(point.date)
+      })
+    })
+    backstopBalanceHistoryQuery.data?.history?.forEach((point) => {
+      datesSet.add(point.date)
+    })
+    return Array.from(datesSet).sort()
+  }, [balanceHistoryDataMap, backstopBalanceHistoryQuery.data?.history])
+
+  // Build the full list of token addresses for historical prices
+  const allTokenAddresses = useMemo(() => {
+    const addresses = [...uniqueAssetAddresses]
+    if (backstopPositions.length > 0 && !addresses.includes(LP_TOKEN_ADDRESS)) {
+      addresses.push(LP_TOKEN_ADDRESS)
+    }
+    return addresses
+  }, [uniqueAssetAddresses, backstopPositions.length])
+
+  // Fetch historical prices for chart data
+  const historicalPrices = useChartHistoricalPrices({
+    tokenAddresses: allTokenAddresses,
+    dates: chartDates,
+    sdkPrices: sdkPricesMap,
+    enabled: chartDates.length > 0 && allTokenAddresses.length > 0,
+  })
+
+  // Compute derived balance data using same logic as home page
+  const { aggregatedHistoryData } = useComputedBalance(
+    initialBalanceData,
+    assetCards,
+    blendSnapshot,
+    backstopPositions,
+    lpTokenPrice,
+    poolAssetCostBasisMap,
+    balanceHistoryDataMap,
+    balanceHistoryQueries,
+    backstopBalanceHistoryQuery,
+    uniqueAssetAddresses,
+    historicalPrices.hasHistoricalData ? historicalPrices : undefined,
+    showPriceChanges
+  )
+
   // Wait for SDK prices to be ready before fetching performance data
-  // This prevents a flash of incorrect values when prices load
   const sdkReady = !isLoadingPositions && blendSnapshot !== undefined
 
   const { data, isLoading } = useRealizedYield({
     publicKey,
     sdkBlndPrice: blndPrice ?? 0,
     sdkLpPrice: lpTokenPrice ?? 0,
-    sdkPrices: sdkPricesMap,
+    sdkPrices: sdkPricesRecord,
     enabled: !!publicKey && sdkReady,
   })
 
@@ -359,27 +436,185 @@ function RealizedYieldContent() {
     }
   }, [showPriceChanges, yieldBreakdown, emissionsBySource, data])
 
+  // Build P&L chart data from aggregatedHistoryData (same source as home page)
+  // This uses the yield field from balance history which is calculated correctly
+  const pnlChartData = useMemo(() => {
+    if (!aggregatedHistoryData?.chartData || aggregatedHistoryData.chartData.length === 0) {
+      return []
+    }
+
+    // Build cumulative realized P&L from claim transactions by date
+    const cumulativeRealizedByDate = new Map<string, number>()
+    let runningRealized = 0
+
+    if (data?.transactions) {
+      // Sort claims by date and accumulate
+      const claims = data.transactions
+        .filter(tx => tx.type === 'claim')
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+      for (const tx of claims) {
+        // Use historical or current price based on setting
+        let claimValue = tx.valueUsd
+        if (tx.asset === 'BLND' && !useHistoricalBlndPrices) {
+          claimValue = tx.amount * (blndPrice ?? 0)
+        }
+        runningRealized += claimValue
+
+        // Use the date field directly
+        cumulativeRealizedByDate.set(tx.date, runningRealized)
+      }
+    }
+
+    // Transform chart data into P&L format
+    let lastRealized = 0
+    return aggregatedHistoryData.chartData.map(point => {
+      // Unrealized P&L = yield from balance history (already in USD)
+      const unrealizedPnl = point.yield || 0
+
+      // Get cumulative realized P&L up to this date
+      if (cumulativeRealizedByDate.has(point.date)) {
+        lastRealized = cumulativeRealizedByDate.get(point.date)!
+      }
+
+      return {
+        date: point.date,
+        unrealizedPnl,
+        realizedPnl: lastRealized,
+        totalPnl: unrealizedPnl + lastRealized,
+      }
+    })
+  }, [aggregatedHistoryData?.chartData, data?.transactions, useHistoricalBlndPrices, blndPrice])
+
+  // Override the latest chart point with correct displayPnl values for consistency
+  const adjustedChartData = useMemo(() => {
+    if (pnlChartData.length === 0) return []
+    if (yieldBreakdown.isLoading) return pnlChartData
+
+    // Clone the array and update the last point to match displayPnl exactly
+    const result = [...pnlChartData]
+    const lastIndex = result.length - 1
+
+    if (lastIndex >= 0) {
+      result[lastIndex] = {
+        ...result[lastIndex],
+        unrealizedPnl: displayPnl.totalUnrealized,
+        realizedPnl: displayPnl.realizedFromWithdrawals,
+        totalPnl: displayPnl.totalPnl,
+      }
+    }
+
+    return result
+  }, [pnlChartData, displayPnl, yieldBreakdown.isLoading])
+
+  // Build source breakdown chart data (pools vs backstop) from adjustedChartData
+  const sourceBreakdownChartData = useMemo(() => {
+    if (adjustedChartData.length === 0) return []
+
+    // Calculate ratios for splitting between pools and backstop
+    const totalUnrealized = displayPnl.totalUnrealized || 1
+    const poolsUnrealizedRatio = totalUnrealized !== 0 ? displayPnl.poolsUnrealized / totalUnrealized : 0.5
+    const backstopUnrealizedRatio = totalUnrealized !== 0 ? displayPnl.backstopUnrealized / totalUnrealized : 0.5
+
+    const totalRealized = displayPnl.realizedFromWithdrawals || 1
+    const poolsRealizedRatio = totalRealized !== 0 ? emissionsBySource.pools.usd / totalRealized : 0.5
+    const backstopRealizedRatio = totalRealized !== 0 ? emissionsBySource.backstop.usd / totalRealized : 0.5
+
+    return adjustedChartData.map(point => {
+      const poolsUnrealized = point.unrealizedPnl * poolsUnrealizedRatio
+      const backstopUnrealized = point.unrealizedPnl * backstopUnrealizedRatio
+      const poolsRealized = point.realizedPnl * poolsRealizedRatio
+      const backstopRealized = point.realizedPnl * backstopRealizedRatio
+
+      return {
+        date: point.date,
+        poolsUnrealized,
+        backstopUnrealized,
+        poolsRealized,
+        backstopRealized,
+        poolsTotal: poolsUnrealized + poolsRealized,
+        backstopTotal: backstopUnrealized + backstopRealized,
+      }
+    })
+  }, [adjustedChartData, displayPnl, emissionsBySource])
+
+  // Build per-pool chart data from adjustedChartData
+  const perPoolChartData = useMemo(() => {
+    if (adjustedChartData.length === 0 || perPoolBreakdown.length === 0) return { data: [], pools: [] }
+
+    // Calculate total deposits for proportional distribution
+    const totalPoolsDeposited = data?.pools?.deposited || 1
+    const totalBackstopDeposited = data?.backstop?.deposited || 1
+
+    // Build pool info with ratios
+    const poolInfos = perPoolBreakdown.map(poolData => {
+      const poolKey = poolData.poolName || poolData.poolId.slice(0, 8)
+      const lendingRatio = totalPoolsDeposited > 0 ? poolData.lending.deposited / totalPoolsDeposited : 0
+      const backstopRatio = totalBackstopDeposited > 0 ? poolData.backstop.deposited / totalBackstopDeposited : 0
+
+      // Calculate realized emissions ratios per pool
+      const totalPoolsEmissions = emissionsBySource.pools.usd || 1
+      const totalBackstopEmissions = emissionsBySource.backstop.usd || 1
+      const lendingEmissionsRatio = totalPoolsEmissions > 0 ? poolData.lending.emissionsClaimed / totalPoolsEmissions : 0
+      const backstopEmissionsRatio = totalBackstopEmissions > 0 ? poolData.backstop.emissionsClaimed / totalBackstopEmissions : 0
+
+      return {
+        poolId: poolData.poolId,
+        poolKey,
+        lendingRatio,
+        backstopRatio,
+        lendingEmissionsRatio,
+        backstopEmissionsRatio,
+      }
+    })
+
+    // Transform chart data to include per-pool breakdowns
+    const chartData = adjustedChartData.map(point => {
+      const result: Record<string, string | number> = { date: point.date }
+
+      // Calculate pools vs backstop split from sourceBreakdownChartData
+      const sourcePoint = sourceBreakdownChartData.find(s => s.date === point.date)
+      const poolsUnrealized = sourcePoint?.poolsUnrealized || 0
+      const backstopUnrealized = sourcePoint?.backstopUnrealized || 0
+      const poolsRealized = sourcePoint?.poolsRealized || 0
+      const backstopRealized = sourcePoint?.backstopRealized || 0
+
+      for (const pool of poolInfos) {
+        // Distribute based on deposit ratios
+        const lendingUnrealized = poolsUnrealized * pool.lendingRatio
+        const backstopUnrealizedVal = backstopUnrealized * pool.backstopRatio
+        const lendingRealized = poolsRealized * pool.lendingEmissionsRatio
+        const backstopRealizedVal = backstopRealized * pool.backstopEmissionsRatio
+
+        result[`${pool.poolKey}_lending_realized`] = lendingRealized
+        result[`${pool.poolKey}_backstop_realized`] = backstopRealizedVal
+        result[`${pool.poolKey}_lending_unrealized`] = lendingUnrealized
+        result[`${pool.poolKey}_backstop_unrealized`] = backstopUnrealizedVal
+        result[`${pool.poolKey}_lending_total`] = lendingRealized + lendingUnrealized
+        result[`${pool.poolKey}_backstop_total`] = backstopRealizedVal + backstopUnrealizedVal
+      }
+
+      return result
+    })
+
+    return { data: chartData, pools: poolInfos }
+  }, [adjustedChartData, perPoolBreakdown, data?.pools?.deposited, data?.backstop?.deposited, emissionsBySource, sourceBreakdownChartData])
+
   // Determine display state based on whether user has current positions
   const hasCurrentPositions = unrealizedData.totalCurrentUsd > 0
   const totalPnlPositive = displayPnl.totalPnl >= 0
 
+  // Show landing page for non-logged-in users
   if (!activeWallet) {
     return (
-      <DashboardLayout
+      <LandingPage
         wallets={wallets}
         activeWallet={activeWallet}
         onSelectWallet={handleSelectWallet}
         onConnectWallet={handleConnectWallet}
         onDisconnect={handleDisconnect}
-      >
-        <div className="text-center py-12 px-4">
-          <Wallet className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-          <h2 className="text-xl font-semibold mb-2">Connect a wallet</h2>
-          <p className="text-muted-foreground max-w-md mx-auto">
-            Connect a wallet to view your realized yield and P&L history.
-          </p>
-        </div>
-      </DashboardLayout>
+        isHydrated={isHydrated}
+      />
     )
   }
 
@@ -390,44 +625,143 @@ function RealizedYieldContent() {
       onSelectWallet={handleSelectWallet}
       onConnectWallet={handleConnectWallet}
       onDisconnect={handleDisconnect}
+      isHydrated={isHydrated}
     >
-      <div className="space-y-4 sm:space-y-6">
-        {/* Header */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <Link href="/">
-            <Button variant="ghost" size="icon" className="h-8 w-8">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-xl font-bold">Performance</h1>
-            <p className="text-xs text-muted-foreground">
-              Track your P&L and activity over time
-            </p>
-          </div>
-        </div>
+      <div>
+        <PageTitle>Performance</PageTitle>
 
+        <div className="space-y-4 sm:space-y-6">
         {(isLoading || !sdkReady) ? (
-          <div className="space-y-4">
+          <div className="space-y-4 sm:space-y-6">
+            {/* Hero Summary Card Skeleton */}
             <Card>
               <CardContent>
-                <div className="space-y-4">
-                  <Skeleton className="h-6 w-40" />
-                  <Skeleton className="h-10 w-48" />
-                  <Skeleton className="h-4 w-64" />
+                <div className="flex items-start justify-between mb-4">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-24" />
+                    <div className="flex items-baseline gap-3">
+                      <Skeleton className="h-8 sm:h-9 w-32 sm:w-40" />
+                      <Skeleton className="h-5 w-14 rounded-full" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-9 w-9 rounded-full" />
+                </div>
+                <Separator className="my-4" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3 w-16" />
+                    <Skeleton className="h-5 w-20 sm:w-24" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-3 w-18" />
+                    <Skeleton className="h-5 w-20 sm:w-24" />
+                  </div>
+                  <div className="space-y-1.5 col-span-2 sm:col-span-1">
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-5 w-20 sm:w-24" />
+                  </div>
                 </div>
               </CardContent>
             </Card>
-            <div className="grid grid-cols-2 gap-3">
-              {[...Array(2)].map((_, i) => (
-                <Card key={i} className="py-4">
-                  <CardContent>
-                    <Skeleton className="h-4 w-20 mb-2" />
-                    <Skeleton className="h-6 w-28" />
-                  </CardContent>
-                </Card>
-              ))}
+
+            {/* Strategy Stats Skeleton */}
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              <Card className="py-4">
+                <CardContent>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Skeleton className="h-3 w-3 rounded-sm" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                  <Skeleton className="h-5 w-24" />
+                </CardContent>
+              </Card>
+              <Card className="py-4">
+                <CardContent>
+                  <Skeleton className="h-3 w-16 mb-1" />
+                  <Skeleton className="h-5 w-16" />
+                </CardContent>
+              </Card>
             </div>
+
+            {/* Chart Skeleton */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-7 w-36 rounded-md" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="h-40 w-full flex items-end gap-1 pt-4">
+                  {[35, 45, 55, 40, 60, 50, 65, 55, 70, 60, 75, 80].map((height, i) => (
+                    <Skeleton
+                      key={i}
+                      className="flex-1 rounded-t-sm"
+                      style={{ height: `${height}%` }}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Breakdown by Source Skeleton */}
+            <Card>
+              <CardHeader className="pb-2 sm:pb-3">
+                <Skeleton className="h-5 w-36" />
+              </CardHeader>
+              <CardContent className="space-y-2 sm:space-y-3">
+                {/* Pools Section */}
+                <div className="p-2 sm:p-3 rounded-lg bg-muted/50 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-6 w-6 rounded-full" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                  <div className="space-y-2">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="flex justify-between">
+                        <Skeleton className="h-3.5 w-20" />
+                        <Skeleton className="h-3.5 w-16" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Backstop Section */}
+                <div className="p-2 sm:p-3 rounded-lg bg-muted/50 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-6 w-6 rounded-full" />
+                    <Skeleton className="h-4 w-16" />
+                  </div>
+                  <div className="space-y-2">
+                    {[...Array(4)].map((_, i) => (
+                      <div key={i} className="flex justify-between">
+                        <Skeleton className="h-3.5 w-20" />
+                        <Skeleton className="h-3.5 w-16" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Summary */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex justify-between">
+                    <Skeleton className="h-3.5 w-24" />
+                    <Skeleton className="h-3.5 w-20" />
+                  </div>
+                  <div className="flex justify-between">
+                    <Skeleton className="h-3.5 w-28" />
+                    <Skeleton className="h-3.5 w-20" />
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between items-center">
+                    <Skeleton className="h-5 w-20" />
+                    <Skeleton className="h-6 w-24" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         ) : !data || (data.totalDepositedUsd === 0 && data.totalWithdrawnUsd === 0) ? (
           <Card>
@@ -554,7 +888,7 @@ function RealizedYieldContent() {
             )}
 
             {/* P&L Chart with tabs */}
-            {data.cumulativeRealized.length > 1 && (data.emissions.usdValue > 0 || unrealizedData.totalUnrealized !== 0) && (
+            {adjustedChartData.length > 1 && (data.emissions.usdValue > 0 || unrealizedData.totalUnrealized !== 0) && (
               <Card>
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
@@ -571,18 +905,7 @@ function RealizedYieldContent() {
                 <CardContent>
                   <ChartContainer config={chartConfig} className="h-40 w-full">
                     <AreaChart
-                      data={data.cumulativeRealized.map((d, i, arr) => {
-                        // For unrealized, we estimate based on the final unrealized value
-                        // distributed proportionally based on cost basis at each point
-                        const costBasis = d.cumulativeDeposited - (d.cumulativeWithdrawn - d.cumulativeRealizedPnl)
-                        const finalCostBasis = unrealizedData.totalCostBasis || 1
-                        const unrealizedEstimate = costBasis > 0 ? (costBasis / finalCostBasis) * displayPnl.totalUnrealized : 0
-                        return {
-                          ...d,
-                          unrealized: unrealizedEstimate,
-                          total: d.cumulativeRealizedPnl + unrealizedEstimate,
-                        }
-                      })}
+                      data={adjustedChartData}
                       margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
                     >
                       <defs>
@@ -604,7 +927,7 @@ function RealizedYieldContent() {
                         tickLine={false}
                         axisLine={false}
                         tickFormatter={formatShortDate}
-                        tick={{ fontSize: 10 }}
+                        tick={{ fontSize: 9 }}
                         interval="preserveStartEnd"
                       />
                       <YAxis
@@ -612,13 +935,16 @@ function RealizedYieldContent() {
                         axisLine={false}
                         tickFormatter={(value) => {
                           const absValue = Math.abs(value)
+                          const sign = value < 0 ? '-' : ''
                           if (absValue >= 1000) {
-                            return `$${formatNumber(absValue / 1000, 0)}k`
+                            return `${sign}$${formatNumber(absValue / 1000, 0)}k`
                           }
-                          return `$${formatNumber(absValue, 0)}`
+                          return `${sign}$${formatNumber(absValue, 0)}`
                         }}
                         tick={{ fontSize: 9 }}
-                        width={45}
+                        width={50}
+                        domain={['dataMin', 'dataMax']}
+                        allowDataOverflow={false}
                       />
                       <ChartTooltip
                         content={({ active, payload }) => {
@@ -630,17 +956,17 @@ function RealizedYieldContent() {
                                 <div className="space-y-0.5">
                                   {mainChartTab === 'total' && (
                                     <p className="font-medium text-purple-500">
-                                      P&L: {chartData.total >= 0 ? '+' : ''}{formatUsd(chartData.total)}
+                                      P&L: {chartData.totalPnl >= 0 ? '+' : ''}{formatUsd(chartData.totalPnl)}
                                     </p>
                                   )}
                                   {mainChartTab === 'realized' && (
                                     <p className="font-medium text-emerald-400">
-                                      Realized: +{formatUsd(chartData.cumulativeRealizedPnl)}
+                                      Realized: +{formatUsd(chartData.realizedPnl)}
                                     </p>
                                   )}
                                   {mainChartTab === 'unrealized' && (
                                     <p className="font-medium text-blue-500">
-                                      Unrealized: {chartData.unrealized >= 0 ? '+' : ''}{formatUsd(chartData.unrealized)}
+                                      Unrealized: {chartData.unrealizedPnl >= 0 ? '+' : ''}{formatUsd(chartData.unrealizedPnl)}
                                     </p>
                                   )}
                                 </div>
@@ -652,8 +978,8 @@ function RealizedYieldContent() {
                       />
                       {mainChartTab === 'realized' && (
                         <Area
-                          type="stepAfter"
-                          dataKey="cumulativeRealizedPnl"
+                          type="monotone"
+                          dataKey="realizedPnl"
                           stroke="rgb(34, 197, 94)"
                           strokeWidth={2}
                           fill="url(#realizedGradientPositive)"
@@ -662,7 +988,7 @@ function RealizedYieldContent() {
                       {mainChartTab === 'unrealized' && (
                         <Area
                           type="monotone"
-                          dataKey="unrealized"
+                          dataKey="unrealizedPnl"
                           stroke="rgb(59, 130, 246)"
                           strokeWidth={2}
                           fill="url(#unrealizedGradient)"
@@ -671,7 +997,7 @@ function RealizedYieldContent() {
                       {mainChartTab === 'total' && (
                         <Area
                           type="monotone"
-                          dataKey="total"
+                          dataKey="totalPnl"
                           stroke="rgb(168, 85, 247)"
                           strokeWidth={2}
                           fill="url(#totalGradient)"
@@ -686,19 +1012,19 @@ function RealizedYieldContent() {
             {/* Breakdown by Source */}
             <Card>
               <CardHeader className="pb-2 sm:pb-3">
-                <CardTitle className="text-sm font-medium">Breakdown by Source</CardTitle>
+                <CardTitle className="text-base font-semibold">Breakdown by Source</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 sm:space-y-3">
                 {/* Pools */}
                 {(data.pools.deposited > 0 || data.pools.withdrawn > 0) && (
-                  <div className="p-3 rounded-lg bg-muted/50 space-y-2">
+                  <div className="p-2 sm:p-3 rounded-lg bg-muted/50 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 rounded-full bg-blue-500/10">
                         <PiggyBank className="h-3.5 w-3.5 text-blue-500" />
                       </div>
                       <p className="font-medium text-sm">Lending Pools</p>
                     </div>
-                    <div className="pl-7 space-y-1 text-sm">
+                    <div className="space-y-1 text-sm">
                       {unrealizedData.poolsCurrentUsd > 0 && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Current Balance</span>
@@ -792,14 +1118,14 @@ function RealizedYieldContent() {
 
                 {/* Backstop */}
                 {(data.backstop.deposited > 0 || data.backstop.withdrawn > 0) && (
-                  <div className="p-3 rounded-lg bg-muted/50 space-y-2">
+                  <div className="p-2 sm:p-3 rounded-lg bg-muted/50 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 rounded-full bg-purple-500/10">
                         <Shield className="h-3.5 w-3.5 text-purple-500" />
                       </div>
                       <p className="font-medium text-sm">Backstop</p>
                     </div>
-                    <div className="pl-7 space-y-1 text-sm">
+                    <div className="space-y-1 text-sm">
                       {unrealizedData.backstopCurrentUsd > 0 && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Current Balance</span>
@@ -891,8 +1217,48 @@ function RealizedYieldContent() {
                   </div>
                 )}
 
+                <Separator />
+
+                {/* Summary */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <p className="text-muted-foreground">Total Deposited</p>
+                    <p className="font-medium tabular-nums">{formatUsd(data.totalDepositedUsd)}</p>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <p className="text-muted-foreground">Total Withdrawn</p>
+                    <p className="font-medium tabular-nums">{formatUsd(data.totalWithdrawnUsd)}</p>
+                  </div>
+                  {unrealizedData.totalCurrentUsd > 0 && (
+                    <>
+                      <div className="flex items-center justify-between text-sm">
+                        <p className="text-muted-foreground">Current Balance</p>
+                        <p className="font-medium tabular-nums">{formatUsd(unrealizedData.totalCurrentUsd)}</p>
+                      </div>
+                      <Separator />
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold">Total P&L</p>
+                        <p className={`text-lg font-bold tabular-nums ${displayPnl.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {displayPnl.totalPnl >= 0 ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                  {unrealizedData.totalCurrentUsd === 0 && (
+                    <>
+                      <Separator />
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold">{data.realizedPnl >= 0 ? "Realized Profit" : "Net Cash Flow"}</p>
+                        <p className={`text-lg font-bold tabular-nums ${data.realizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {data.realizedPnl >= 0 ? "+" : ""}{formatUsd(data.realizedPnl)}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 {/* Combined P&L Chart by Source */}
-                {((data.cumulativeBySource?.pools?.length > 1) || (data.cumulativeBySource?.backstop?.length > 1)) && (
+                {sourceBreakdownChartData.length > 1 && (
                   <div className="pt-2">
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-xs text-muted-foreground">P&L over time</p>
@@ -904,58 +1270,10 @@ function RealizedYieldContent() {
                         </TabsList>
                       </Tabs>
                     </div>
-                    <ChartContainer config={chartConfig} className="h-24 w-full">
+                    <ChartContainer config={chartConfig} className="h-32 w-full">
                       <AreaChart
-                        data={(() => {
-                          // Create lookup maps for each source
-                          const poolsRealizedMap = new Map<string, number>()
-                          const backstopRealizedMap = new Map<string, number>()
-                          const poolsCostBasisMap = new Map<string, number>()
-                          const backstopCostBasisMap = new Map<string, number>()
-
-                          for (const d of data.cumulativeBySource?.pools || []) {
-                            poolsRealizedMap.set(d.date, d.cumulativeRealizedPnl)
-                            poolsCostBasisMap.set(d.date, d.cumulativeDeposited - (d.cumulativeWithdrawn - d.cumulativeRealizedPnl))
-                          }
-                          for (const d of data.cumulativeBySource?.backstop || []) {
-                            backstopRealizedMap.set(d.date, d.cumulativeRealizedPnl)
-                            backstopCostBasisMap.set(d.date, d.cumulativeDeposited - (d.cumulativeWithdrawn - d.cumulativeRealizedPnl))
-                          }
-
-                          // Get all unique dates and sort them
-                          const allDates = new Set<string>([...poolsRealizedMap.keys(), ...backstopRealizedMap.keys()])
-                          const sortedDates = Array.from(allDates).sort()
-
-                          // Build merged array with carried forward values
-                          let lastPoolsRealized = 0, lastBackstopRealized = 0
-                          let lastPoolsCostBasis = 0, lastBackstopCostBasis = 0
-                          const finalPoolsCostBasis = unrealizedData.poolsCostBasis || 1
-                          const finalBackstopCostBasis = unrealizedData.backstopCostBasis || 1
-
-                          return sortedDates.map(date => {
-                            if (poolsRealizedMap.has(date)) {
-                              lastPoolsRealized = poolsRealizedMap.get(date)!
-                              lastPoolsCostBasis = poolsCostBasisMap.get(date)!
-                            }
-                            if (backstopRealizedMap.has(date)) {
-                              lastBackstopRealized = backstopRealizedMap.get(date)!
-                              lastBackstopCostBasis = backstopCostBasisMap.get(date)!
-                            }
-                            // Estimate unrealized based on cost basis proportion
-                            const poolsUnrealizedEst = lastPoolsCostBasis > 0 ? (lastPoolsCostBasis / finalPoolsCostBasis) * displayPnl.poolsUnrealized : 0
-                            const backstopUnrealizedEst = lastBackstopCostBasis > 0 ? (lastBackstopCostBasis / finalBackstopCostBasis) * displayPnl.backstopUnrealized : 0
-                            return {
-                              date,
-                              poolsRealized: lastPoolsRealized,
-                              backstopRealized: lastBackstopRealized,
-                              poolsUnrealized: poolsUnrealizedEst,
-                              backstopUnrealized: backstopUnrealizedEst,
-                              poolsTotal: lastPoolsRealized + poolsUnrealizedEst,
-                              backstopTotal: lastBackstopRealized + backstopUnrealizedEst,
-                            }
-                          })
-                        })()}
-                        margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
+                        data={sourceBreakdownChartData}
+                        margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
                       >
                         <defs>
                           <linearGradient id="poolsGradient" x1="0" y1="0" x2="0" y2="1">
@@ -967,7 +1285,30 @@ function RealizedYieldContent() {
                             <stop offset="95%" stopColor="rgb(168, 85, 247)" stopOpacity={0} />
                           </linearGradient>
                         </defs>
-                        <YAxis domain={['dataMin', 'dataMax']} hide />
+                        <XAxis
+                          dataKey="date"
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={formatShortDate}
+                          tick={{ fontSize: 9 }}
+                          interval="preserveStartEnd"
+                        />
+                        <YAxis
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(value) => {
+                            const absValue = Math.abs(value)
+                            const sign = value < 0 ? '-' : ''
+                            if (absValue >= 1000) {
+                              return `${sign}$${formatNumber(absValue / 1000, 0)}k`
+                            }
+                            return `${sign}$${formatNumber(absValue, 0)}`
+                          }}
+                          tick={{ fontSize: 9 }}
+                          width={50}
+                          domain={['dataMin', 'dataMax']}
+                          allowDataOverflow={false}
+                        />
                         <ChartTooltip
                           content={({ active, payload }) => {
                             if (active && payload && payload.length) {
@@ -1017,46 +1358,6 @@ function RealizedYieldContent() {
                     </div>
                   </div>
                 )}
-
-                <Separator />
-
-                {/* Summary */}
-                <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between text-sm">
-                    <p className="text-muted-foreground">Total Deposited</p>
-                    <p className="font-medium tabular-nums">{formatUsd(data.totalDepositedUsd)}</p>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <p className="text-muted-foreground">Total Withdrawn</p>
-                    <p className="font-medium tabular-nums">{formatUsd(data.totalWithdrawnUsd)}</p>
-                  </div>
-                  {unrealizedData.totalCurrentUsd > 0 && (
-                    <>
-                      <div className="flex items-center justify-between text-sm">
-                        <p className="text-muted-foreground">Current Balance</p>
-                        <p className="font-medium tabular-nums">{formatUsd(unrealizedData.totalCurrentUsd)}</p>
-                      </div>
-                      <Separator />
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold">Total P&L</p>
-                        <p className={`text-lg font-bold tabular-nums ${displayPnl.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {displayPnl.totalPnl >= 0 ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
-                        </p>
-                      </div>
-                    </>
-                  )}
-                  {unrealizedData.totalCurrentUsd === 0 && (
-                    <>
-                      <Separator />
-                      <div className="flex items-center justify-between">
-                        <p className="font-semibold">{data.realizedPnl >= 0 ? "Realized Profit" : "Net Cash Flow"}</p>
-                        <p className={`text-lg font-bold tabular-nums ${data.realizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {data.realizedPnl >= 0 ? "+" : ""}{formatUsd(data.realizedPnl)}
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </div>
               </CardContent>
             </Card>
 
@@ -1064,7 +1365,7 @@ function RealizedYieldContent() {
             {perPoolBreakdown.length > 0 && (
               <Card>
                 <CardHeader className="pb-2 sm:pb-3">
-                  <CardTitle className="text-sm font-medium">Activity by Pool</CardTitle>
+                  <CardTitle className="text-base font-semibold">Activity by Pool</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 sm:space-y-3">
                   {perPoolBreakdown.map((poolData) => {
@@ -1094,7 +1395,7 @@ function RealizedYieldContent() {
                     return (
                       <div
                         key={poolData.poolId}
-                        className="p-3 rounded-lg bg-muted/50 space-y-3"
+                        className="p-2 sm:p-3 rounded-lg bg-muted/50 space-y-3"
                       >
                         {/* Pool Header */}
                         <div className="flex items-center justify-between pb-1 border-b border-border/50">
@@ -1112,7 +1413,7 @@ function RealizedYieldContent() {
                               </div>
                               <p className="font-medium text-sm">Lending</p>
                             </div>
-                            <div className="pl-7 space-y-1 text-sm">
+                            <div className="space-y-1 text-sm">
                               {lendingCurrentBalance > 0 && (
                                 <div className="flex justify-between">
                                   <span className="text-muted-foreground">Current Balance</span>
@@ -1197,7 +1498,7 @@ function RealizedYieldContent() {
                               </div>
                               <p className="font-medium text-sm">Backstop</p>
                             </div>
-                            <div className="pl-7 space-y-1 text-sm">
+                            <div className="space-y-1 text-sm">
                               {backstopCurrentBalance > 0 && (
                                 <div className="flex justify-between">
                                   <span className="text-muted-foreground">Current Balance</span>
@@ -1319,9 +1620,7 @@ function RealizedYieldContent() {
                   })}
 
                   {/* Per-Pool P&L Stacked Bar Chart Over Time */}
-                  {data.cumulativeByPool && data.cumulativeByPool.length > 0 && data.cumulativeByPool.some(p =>
-                    p.timeSeries.some(ts => ts.lendingRealizedPnl > 0 || ts.backstopRealizedPnl > 0)
-                  ) && (
+                  {perPoolChartData.data.length > 1 && perPoolChartData.pools.length > 0 && (
                     <div className="pt-2">
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs text-muted-foreground">P&L over time by Pool</p>
@@ -1333,57 +1632,9 @@ function RealizedYieldContent() {
                           </TabsList>
                         </Tabs>
                       </div>
-                      <ChartContainer config={chartConfig} className="h-40 w-full">
+                      <ChartContainer config={chartConfig} className="h-56 w-full">
                         <BarChart
-                          data={(() => {
-                            // Calculate total deposits per pool for proportional unrealized distribution
-                            const poolDeposits = new Map<string, { lending: number; backstop: number }>()
-                            for (const poolData of perPoolBreakdown) {
-                              const poolKey = data.cumulativeByPool?.find(p => p.poolId === poolData.poolId)?.poolName || poolData.poolId.slice(0, 8)
-                              poolDeposits.set(poolKey, {
-                                lending: poolData.lending.deposited,
-                                backstop: poolData.backstop.deposited,
-                              })
-                            }
-
-                            // Calculate totals for proportional distribution
-                            const totalPoolsDeposited = data.pools.deposited || 1
-                            const totalBackstopDeposited = data.backstop.deposited || 1
-
-                            // Merge all pool time series into a single dataset
-                            const dateMap = new Map<string, Record<string, string | number>>()
-
-                            for (const pool of data.cumulativeByPool || []) {
-                              const poolKey = pool.poolName || pool.poolId.slice(0, 8)
-                              const deposits = poolDeposits.get(poolKey) || { lending: 0, backstop: 0 }
-
-                              // Calculate this pool's share of unrealized P&L
-                              const lendingUnrealizedShare = deposits.lending > 0
-                                ? (deposits.lending / totalPoolsDeposited) * displayPnl.poolsUnrealized
-                                : 0
-                              const backstopUnrealizedShare = deposits.backstop > 0
-                                ? (deposits.backstop / totalBackstopDeposited) * displayPnl.backstopUnrealized
-                                : 0
-
-                              for (const ts of pool.timeSeries) {
-                                const existing = dateMap.get(ts.date) || { date: ts.date }
-                                // Realized
-                                existing[`${poolKey}_lending_realized`] = ts.lendingRealizedPnl
-                                existing[`${poolKey}_backstop_realized`] = ts.backstopRealizedPnl
-                                // Unrealized (estimate based on proportion)
-                                existing[`${poolKey}_lending_unrealized`] = lendingUnrealizedShare
-                                existing[`${poolKey}_backstop_unrealized`] = backstopUnrealizedShare
-                                // Total
-                                existing[`${poolKey}_lending_total`] = ts.lendingRealizedPnl + lendingUnrealizedShare
-                                existing[`${poolKey}_backstop_total`] = ts.backstopRealizedPnl + backstopUnrealizedShare
-                                dateMap.set(ts.date, existing)
-                              }
-                            }
-
-                            // Convert to array and sort by date
-                            return Array.from(dateMap.values())
-                              .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-                          })()}
+                          data={perPoolChartData.data}
                           margin={{ top: 5, right: 5, left: 0, bottom: 5 }}
                         >
                           <XAxis
@@ -1398,11 +1649,17 @@ function RealizedYieldContent() {
                             tickLine={false}
                             axisLine={false}
                             tickFormatter={(value) => {
-                              if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`
-                              return `$${value.toFixed(0)}`
+                              const absValue = Math.abs(value)
+                              const sign = value < 0 ? '-' : ''
+                              if (absValue >= 1000) {
+                                return `${sign}$${formatNumber(absValue / 1000, 0)}k`
+                              }
+                              return `${sign}$${formatNumber(absValue, 0)}`
                             }}
                             tick={{ fontSize: 9 }}
-                            width={40}
+                            width={50}
+                            domain={['dataMin', 'dataMax']}
+                            allowDataOverflow={false}
                           />
                           <ChartTooltip
                             content={({ active, payload }) => {
@@ -1413,14 +1670,13 @@ function RealizedYieldContent() {
                                   <div className="bg-background border rounded-lg p-2 shadow-lg text-xs">
                                     <p className="font-medium mb-1.5">{formatShortDate(chartData.date)}</p>
                                     <div className="space-y-1">
-                                      {(data.cumulativeByPool || []).map(pool => {
-                                        const poolKey = pool.poolName || pool.poolId.slice(0, 8)
-                                        const lending = chartData[`${poolKey}_lending${suffix}`] || 0
-                                        const backstop = chartData[`${poolKey}_backstop${suffix}`] || 0
+                                      {perPoolChartData.pools.map(pool => {
+                                        const lending = chartData[`${pool.poolKey}_lending${suffix}`] || 0
+                                        const backstop = chartData[`${pool.poolKey}_backstop${suffix}`] || 0
                                         if (lending === 0 && backstop === 0) return null
                                         return (
                                           <div key={pool.poolId}>
-                                            <p className="font-medium text-muted-foreground">{poolKey}</p>
+                                            <p className="font-medium text-muted-foreground">{pool.poolKey}</p>
                                             {lending !== 0 && <p className="text-blue-500 pl-2">Lending: {lending >= 0 ? '+' : ''}{formatUsd(lending)}</p>}
                                             {backstop !== 0 && <p className="text-purple-500 pl-2">Backstop: {backstop >= 0 ? '+' : ''}{formatUsd(backstop)}</p>}
                                           </div>
@@ -1434,8 +1690,7 @@ function RealizedYieldContent() {
                             }}
                           />
                           {/* Render stacked bars for each pool */}
-                          {(data.cumulativeByPool || []).map((pool, index) => {
-                            const poolKey = pool.poolName || pool.poolId.slice(0, 8)
+                          {perPoolChartData.pools.map((pool, index) => {
                             const suffix = poolChartTab === 'realized' ? '_realized' : poolChartTab === 'unrealized' ? '_unrealized' : '_total'
                             // Generate colors based on index
                             const colors = [
@@ -1449,14 +1704,14 @@ function RealizedYieldContent() {
                             return [
                               <Bar
                                 key={`${pool.poolId}_lending`}
-                                dataKey={`${poolKey}_lending${suffix}`}
+                                dataKey={`${pool.poolKey}_lending${suffix}`}
                                 stackId={pool.poolId}
                                 fill={colorPair.lending}
                                 radius={[0, 0, 0, 0]}
                               />,
                               <Bar
                                 key={`${pool.poolId}_backstop`}
-                                dataKey={`${poolKey}_backstop${suffix}`}
+                                dataKey={`${pool.poolKey}_backstop${suffix}`}
                                 stackId={pool.poolId}
                                 fill={colorPair.backstop}
                                 radius={[2, 2, 0, 0]}
@@ -1467,8 +1722,7 @@ function RealizedYieldContent() {
                       </ChartContainer>
                       {/* Legend */}
                       <div className="flex flex-wrap justify-center gap-3 mt-2">
-                        {(data.cumulativeByPool || []).map((pool, index) => {
-                          const poolKey = pool.poolName || pool.poolId.slice(0, 8)
+                        {perPoolChartData.pools.map((pool, index) => {
                           const colors = [
                             { lending: 'rgb(59, 130, 246)', backstop: 'rgb(147, 197, 253)' },
                             { lending: 'rgb(168, 85, 247)', backstop: 'rgb(216, 180, 254)' },
@@ -1483,7 +1737,7 @@ function RealizedYieldContent() {
                                 <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: colorPair.lending }} />
                                 <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: colorPair.backstop }} />
                               </div>
-                              <span className="text-muted-foreground">{poolKey}</span>
+                              <span className="text-muted-foreground">{pool.poolKey}</span>
                             </div>
                           )
                         })}
@@ -1496,6 +1750,7 @@ function RealizedYieldContent() {
 
           </>
         )}
+        </div>
       </div>
     </DashboardLayout>
   )

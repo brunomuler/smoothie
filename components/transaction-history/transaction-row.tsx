@@ -20,8 +20,8 @@ export function TransactionRow({
   const explorerUrl = `https://stellar.expert/explorer/public/tx/${firstAction.transaction_hash}`
 
   return (
-    <TableRow className="hover:bg-transparent">
-      <TableCell>
+    <TableRow className="hover:bg-transparent border-b border-border/50 last:border-b-0">
+      <TableCell className="pl-4">
         <div className="flex flex-col">
           <span className="font-medium">
             {firstAction.pool_name || firstAction.pool_short_name || firstAction.pool_id?.slice(0, 8)}
@@ -87,7 +87,7 @@ export function MobileTransactionCard({
   const explorerUrl = `https://stellar.expert/explorer/public/tx/${firstAction.transaction_hash}`
 
   return (
-    <div className="py-3 space-y-3 border-b last:border-0">
+    <div className="py-3 px-4 space-y-3 border-b border-border/50 last:border-b-0">
       <div className="flex justify-between items-center">
         <div className="text-sm font-medium">
           {firstAction.pool_name || firstAction.pool_short_name || firstAction.pool_id?.slice(0, 8)}

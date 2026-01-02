@@ -10,64 +10,26 @@ import {
   Tooltip,
   Rectangle,
 } from "recharts"
+import { Shield } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
-import { TokenLogo } from "@/components/token-logo"
-import type { SupplyExploreItem, SortBy } from "@/types/explore"
+import type { BackstopExploreItem } from "@/types/explore"
 
-interface TopTokensChartProps {
-  items: SupplyExploreItem[]
+interface BackstopChartProps {
+  items: BackstopExploreItem[]
   isLoading: boolean
-  sortBy: SortBy
-}
-
-const ASSET_LOGO_MAP: Record<string, string> = {
-  USDC: "/tokens/usdc.png",
-  USDT: "/tokens/usdc.png",
-  XLM: "/tokens/xlm.png",
-  AQUA: "/tokens/aqua.png",
-  EURC: "/tokens/eurc.png",
-  CETES: "/tokens/cetes.png",
-  USDGLO: "/tokens/usdglo.png",
-  USTRY: "/tokens/ustry.png",
-  BLND: "/tokens/blnd.png",
-}
-
-function resolveAssetLogo(symbol: string): string {
-  const normalized = symbol.toUpperCase()
-  return ASSET_LOGO_MAP[normalized] ?? `/tokens/${symbol.toLowerCase()}.png`
-}
-
-function getTotalApy(item: SupplyExploreItem): number {
-  return (item.supplyApy ?? 0) + (item.blndApy ?? 0)
-}
-
-function sortItems(items: SupplyExploreItem[], sortBy: SortBy): SupplyExploreItem[] {
-  return [...items].sort((a, b) => {
-    switch (sortBy) {
-      case "apy":
-        return (b.supplyApy ?? 0) - (a.supplyApy ?? 0)
-      case "blnd":
-        return (b.blndApy ?? 0) - (a.blndApy ?? 0)
-      case "total":
-      default:
-        return getTotalApy(b) - getTotalApy(a)
-    }
-  })
 }
 
 interface ChartDataPoint {
   name: string
-  symbol: string
   poolName: string
-  logoUrl: string
-  apy: number
+  apr: number
   blnd: number
   total: number
 }
 
-// Custom shape for APY bar - full rounded corners when no BLND, bottom only when BLND exists
-function ApyBarShape(props: any) {
-  const { x, y, width, height, payload } = props
+// Custom shape for APR bar - full rounded corners when no BLND, bottom only when BLND exists
+function AprBarShape(props: any) {
+  const { payload } = props
   const hasBlnd = payload.blnd > 0
   const radius = hasBlnd ? [0, 0, 4, 4] : [4, 4, 4, 4]
   return <Rectangle {...props} radius={radius} />
@@ -94,14 +56,15 @@ function CustomTooltip({
   return (
     <div className="bg-black text-white border border-zinc-800 rounded-md shadow-lg p-2.5 min-w-[140px] select-none z-50">
       <div className="font-medium text-[11px] mb-1.5">
-        {data.symbol}
-        <span className="text-zinc-400 ml-1 font-normal">({data.poolName})</span>
+        {data.poolName}
       </div>
       <div className="space-y-1 text-[11px]">
-        <div className="flex justify-between">
-          <span className="text-zinc-400">APY:</span>
-          <span className="font-medium text-emerald-400">{data.apy.toFixed(2)}%</span>
-        </div>
+        {data.apr > 0 && (
+          <div className="flex justify-between">
+            <span className="text-zinc-400">APR:</span>
+            <span className="font-medium text-emerald-400">{data.apr.toFixed(2)}%</span>
+          </div>
+        )}
         {data.blnd > 0 && (
           <div className="flex justify-between">
             <span className="text-zinc-400">BLND:</span>
@@ -117,34 +80,36 @@ function CustomTooltip({
   )
 }
 
-export function TopTokensChart({ items, isLoading, sortBy }: TopTokensChartProps) {
+export function BackstopChart({ items, isLoading }: BackstopChartProps) {
   const chartData = useMemo(() => {
-    const sorted = sortItems(items, sortBy)
+    // Sort by total APY and take top 5
+    const sorted = [...items].sort((a, b) => b.totalApy - a.totalApy)
     const top5 = sorted.slice(0, 5)
 
     return top5.map((item) => ({
-      name: `${item.tokenSymbol}-${item.poolName}`,
-      symbol: item.tokenSymbol,
+      name: item.poolId,
       poolName: item.poolName,
-      logoUrl: resolveAssetLogo(item.tokenSymbol),
-      apy: item.supplyApy ?? 0,
-      blnd: item.blndApy ?? 0,
-      total: getTotalApy(item),
+      apr: item.interestApr,
+      blnd: item.emissionApy,
+      total: item.totalApy,
     }))
-  }, [items, sortBy])
+  }, [items])
 
   const maxValue = useMemo(() => {
     if (chartData.length === 0) return 10
     return Math.max(...chartData.map((d) => d.total), 1) * 1.1
   }, [chartData])
 
+  const hasAnyApr = useMemo(() => {
+    return chartData.some((d) => d.apr > 0)
+  }, [chartData])
+
+  const hasAnyBlnd = useMemo(() => {
+    return chartData.some((d) => d.blnd > 0)
+  }, [chartData])
+
   if (isLoading) {
-    return (
-      <div>
-        <h2 className="text-lg font-semibold mb-3">Top Pools</h2>
-        <Skeleton className="h-48 w-full" />
-      </div>
-    )
+    return <Skeleton className="h-48 w-full" />
   }
 
   if (chartData.length === 0) {
@@ -153,29 +118,20 @@ export function TopTokensChart({ items, isLoading, sortBy }: TopTokensChartProps
 
   return (
     <div>
-      <h2 className="text-lg font-semibold mb-3">Top Pools</h2>
-      {/* Percentage labels row */}
-      <div className="flex justify-around px-4 mb-1">
-        {chartData.map((item) => (
-          <div key={item.name} className="flex-1 text-center">
-            <span className="text-xs font-semibold">{item.total.toFixed(1)}%</span>
-          </div>
-        ))}
-      </div>
       {/* Bar chart */}
-      <div className="h-24 w-full">
+      <div className="h-32 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
             data={chartData}
-            margin={{ top: 4, right: 16, left: 16, bottom: 4 }}
+            margin={{ top: 8, right: 16, left: 16, bottom: 4 }}
             barCategoryGap="20%"
           >
             <defs>
-              <linearGradient id="supplyApyGradient" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="backstopAprGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(142 76% 46%)" stopOpacity={1} />
                 <stop offset="100%" stopColor="hsl(142 70% 38%)" stopOpacity={0.8} />
               </linearGradient>
-              <linearGradient id="supplyBlndGradient" x1="0" y1="0" x2="0" y2="1">
+              <linearGradient id="backstopBlndGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(270 70% 60%)" stopOpacity={1} />
                 <stop offset="100%" stopColor="hsl(270 65% 50%)" stopOpacity={0.8} />
               </linearGradient>
@@ -185,17 +141,17 @@ export function TopTokensChart({ items, isLoading, sortBy }: TopTokensChartProps
             <YAxis hide domain={[0, maxValue]} />
 
             <Bar
-              dataKey="apy"
+              dataKey="apr"
               stackId="stack"
-              fill="url(#supplyApyGradient)"
-              shape={ApyBarShape}
+              fill="url(#backstopAprGradient)"
+              shape={AprBarShape}
               maxBarSize={48}
               isAnimationActive={false}
             />
             <Bar
               dataKey="blnd"
               stackId="stack"
-              fill="url(#supplyBlndGradient)"
+              fill="url(#backstopBlndGradient)"
               shape={BlndBarShape}
               maxBarSize={48}
               isAnimationActive={false}
@@ -210,25 +166,35 @@ export function TopTokensChart({ items, isLoading, sortBy }: TopTokensChartProps
         </ResponsiveContainer>
       </div>
 
-      {/* Token icons row */}
+      {/* Pool icons row */}
       <div className="flex justify-around mt-2 px-4">
         {chartData.map((item) => (
           <div key={item.name} className="flex flex-col items-center">
-            <TokenLogo
-              src={item.logoUrl}
-              symbol={item.symbol}
-              size={32}
-            />
+            <div className="h-8 w-8 rounded-full bg-purple-500/10 flex items-center justify-center">
+              <Shield className="h-4 w-4 text-purple-500" />
+            </div>
             <span className="text-[10px] font-medium mt-1 truncate max-w-[60px] text-center">
-              {item.symbol}
-            </span>
-            <span className="text-[9px] text-muted-foreground truncate max-w-[60px] text-center">
               {item.poolName}
             </span>
           </div>
         ))}
       </div>
 
+      {/* Legend */}
+      <div className="flex justify-center gap-4 mt-2 text-xs">
+        {hasAnyApr && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+            <span className="text-muted-foreground">APR</span>
+          </div>
+        )}
+        {hasAnyBlnd && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-sm bg-purple-500" />
+            <span className="text-muted-foreground">BLND</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

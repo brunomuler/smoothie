@@ -1,6 +1,6 @@
 "use client"
 
-import { ExternalLink, TrendingUp, Flame } from "lucide-react"
+import { TrendingUp, Flame } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -62,7 +62,7 @@ function SupplyRow({ item }: { item: SupplyExploreItem }) {
       href={blendUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex items-center justify-between py-3 px-4 hover:bg-muted/50 transition-colors group border-b border-border/50 last:border-b-0"
+      className="flex items-center justify-between py-3 px-4 hover:bg-muted/50 transition-colors border-b border-border/50 last:border-b-0"
     >
       {/* Left side: Token info */}
       <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -80,27 +80,24 @@ function SupplyRow({ item }: { item: SupplyExploreItem }) {
       </div>
 
       {/* Right side: APY badges */}
-      <div className="flex items-center gap-2 shrink-0">
-        <div className="flex flex-col gap-1 items-end">
-          <Badge variant="default" className="text-xs font-semibold">
-            {formatApy(getTotalApy(item))} Total
-          </Badge>
-          <div className="flex gap-1">
-            {item.supplyApy !== null && (
-              <Badge variant="secondary" className="text-xs">
-                <TrendingUp className="mr-1 h-3 w-3" />
-                {formatApy(item.supplyApy)}
-              </Badge>
-            )}
-            {item.blndApy !== null && item.blndApy > 0.005 && (
-              <Badge variant="secondary" className="text-xs">
-                <Flame className="mr-1 h-3 w-3" />
-                {formatApy(item.blndApy)}
-              </Badge>
-            )}
-          </div>
+      <div className="flex flex-col gap-1 items-end shrink-0">
+        <Badge variant="outline" className="text-xs font-medium">
+          {formatApy(getTotalApy(item))} Total
+        </Badge>
+        <div className="flex gap-1">
+          {item.supplyApy !== null && (
+            <Badge variant="secondary" className="text-xs">
+              <TrendingUp className="mr-1 h-3 w-3" />
+              {formatApy(item.supplyApy)}
+            </Badge>
+          )}
+          {item.blndApy !== null && item.blndApy > 0.005 && (
+            <Badge variant="secondary" className="text-xs">
+              <Flame className="mr-1 h-3 w-3" />
+              {formatApy(item.blndApy)}
+            </Badge>
+          )}
         </div>
-        <ExternalLink className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity ml-2" />
       </div>
     </a>
   )
@@ -127,20 +124,26 @@ function SupplyRowSkeleton() {
 export function SupplyResults({ items, isLoading, sortBy }: SupplyResultsProps) {
   if (isLoading) {
     return (
-      <Card className="py-0">
-        <CardContent className="p-0">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SupplyRowSkeleton key={i} />
-          ))}
-        </CardContent>
-      </Card>
+      <div>
+        <h2 className="text-lg font-semibold mb-3">All Pools</h2>
+        <Card className="py-0">
+          <CardContent className="p-0">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SupplyRowSkeleton key={i} />
+            ))}
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
   if (items.length === 0) {
     return (
-      <div className="text-center py-12 text-muted-foreground">
-        No supply positions found
+      <div>
+        <h2 className="text-lg font-semibold mb-3">All Pools</h2>
+        <div className="text-center py-12 text-muted-foreground">
+          No supply positions found
+        </div>
       </div>
     )
   }
@@ -148,15 +151,18 @@ export function SupplyResults({ items, isLoading, sortBy }: SupplyResultsProps) 
   const sortedItems = sortItems(items, sortBy)
 
   return (
-    <Card className="py-0">
-      <CardContent className="p-0">
-        {sortedItems.map((item) => (
-          <SupplyRow
-            key={`${item.poolId}-${item.assetAddress}`}
-            item={item}
-          />
-        ))}
-      </CardContent>
-    </Card>
+    <div>
+      <h2 className="text-lg font-semibold mb-3">All Pools</h2>
+      <Card className="py-0">
+        <CardContent className="p-0">
+          {sortedItems.map((item) => (
+            <SupplyRow
+              key={`${item.poolId}-${item.assetAddress}`}
+              item={item}
+            />
+          ))}
+        </CardContent>
+      </Card>
+    </div>
   )
 }

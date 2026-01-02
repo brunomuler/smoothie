@@ -590,8 +590,10 @@ export class EventsRepository {
       const net_balance = supply_balance + collateral_balance - debt_balance
 
       // Calculate yield as difference between current value and cost basis
+      // Clamp to 0 minimum to prevent small negative values from precision mismatches
+      // (b_rate at end of day may differ slightly from implied rate at deposit time)
       const total_asset_value = supply_balance + collateral_balance
-      const total_yield = total_asset_value - cost_basis
+      const total_yield = Math.max(0, total_asset_value - cost_basis)
 
       // Calculate interest accrued on debt (how much debt grew from original borrow)
       const total_interest_accrued = debt_balance - borrow_cost_basis

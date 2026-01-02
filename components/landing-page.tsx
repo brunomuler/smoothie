@@ -15,6 +15,7 @@ interface LandingPageProps {
   onSelectWallet: (walletId: string) => void
   onConnectWallet: (address: string, walletName?: string) => void
   onDisconnect: (walletId: string) => void
+  isHydrated?: boolean
 }
 
 export function LandingPage({
@@ -23,6 +24,7 @@ export function LandingPage({
   onSelectWallet,
   onConnectWallet,
   onDisconnect,
+  isHydrated = true,
 }: LandingPageProps) {
   return (
     <div className="min-h-screen relative overflow-hidden bg-black">
@@ -84,6 +86,7 @@ export function LandingPage({
                 onConnectWallet={onConnectWallet}
                 onDisconnect={onDisconnect}
                 variant="landing"
+                isHydrated={isHydrated}
               />
             </div>
           </div>

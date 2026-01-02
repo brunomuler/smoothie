@@ -2,12 +2,10 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import {
-  ChevronDown,
-  ChevronUp,
   Loader2,
   Download,
 } from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Table, TableBody } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,7 +16,7 @@ import {
 import { format } from "date-fns"
 import { useQuery } from "@tanstack/react-query"
 import { useInfiniteUserActions } from "@/hooks/use-user-actions"
-import type { UserAction, ActionType } from "@/lib/db/types"
+import type { ActionType } from "@/lib/db/types"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useTokensOnly } from "@/hooks/use-metadata"
 import type { HistoricalPricesResponse } from "@/app/api/historical-prices/route"
@@ -27,15 +25,18 @@ import { LP_TOKEN_ADDRESS } from "./constants"
 import { TransactionRow, MobileTransactionCard } from "./transaction-row"
 import { Filters } from "./filters"
 
+interface TransactionHistoryFullProps extends TransactionHistoryProps {
+  showControls?: boolean
+}
+
 export function TransactionHistory({
   publicKey,
   assetAddress,
   poolId,
   limit = 50,
-  defaultOpen = false,
   hideToggle = false,
-}: TransactionHistoryProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen || hideToggle)
+  showControls = true,
+}: TransactionHistoryFullProps) {
   const [selectedActionTypes, setSelectedActionTypes] = useState<ActionType[]>([])
   const [startDate, setStartDate] = useState<Date | undefined>(undefined)
   const [endDate, setEndDate] = useState<Date | undefined>(undefined)
@@ -70,7 +71,7 @@ export function TransactionHistory({
     actionTypes,
     startDate: startDateStr,
     endDate: endDateStr,
-    enabled: (hideToggle || isOpen) && !!publicKey,
+    enabled: !!publicKey,
   })
 
   // Group actions by transaction_hash to merge related events (e.g., claim + deposit)
@@ -177,10 +178,6 @@ export function TransactionHistory({
     return () => observer.disconnect()
   }, [handleObserver])
 
-  if (!publicKey) {
-    return null
-  }
-
   const clearFilters = () => {
     setSelectedActionTypes([])
     setStartDate(undefined)
@@ -234,37 +231,59 @@ export function TransactionHistory({
     }
   }
 
-  return (
-    <Card className="py-2 gap-0">
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 py-3 px-4">
-        <CardTitle className="flex items-center gap-2">Transaction History</CardTitle>
-        <div className="flex items-center gap-2">
-          {/* Export Button */}
-          {(hideToggle || isOpen) && (
+  if (!publicKey) {
+    return null
+  }
+
+  if (error) {
+    return (
+      <div className="text-sm text-destructive py-8 text-center">
+        Error loading transactions: {error.message}
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <>
+        {showControls && (
+          <div className="flex items-center justify-end gap-2 mb-4">
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled>
+              <Download className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled>
+              <span className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+        <Card className="py-0">
+          <CardContent className="p-0">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="py-3 px-4 border-b border-border/50 last:border-b-0">
+                <div className="h-14 rounded bg-muted animate-pulse" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </>
+    )
+  }
+
+  if (actions.length === 0) {
+    return (
+      <>
+        {showControls && (
+          <div className="flex items-center justify-end gap-2 mb-4">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={handleExport}
-                  disabled={isExporting || actions.length === 0}
-                >
-                  {isExporting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled>
+                  <Download className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent className="bg-black text-white border-black" arrowClassName="bg-black fill-black">
                 Download CSV
               </TooltipContent>
             </Tooltip>
-          )}
-
-          {/* Filter Button with Popover */}
-          {(hideToggle || isOpen) && (
             <Filters
               selectedActionTypes={selectedActionTypes}
               onToggleActionType={toggleActionType}
@@ -274,109 +293,106 @@ export function TransactionHistory({
               onEndDateChange={setEndDate}
               onClear={clearFilters}
             />
-          )}
+          </div>
+        )}
+        <p className="text-sm text-muted-foreground text-center py-12">
+          No transactions found
+        </p>
+      </>
+    )
+  }
 
-          {/* Toggle Button */}
-          {!hideToggle && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsOpen(!isOpen)}
-              className="flex items-center gap-1"
-            >
-              {isOpen ? (
-                <>
-                  <ChevronUp className="h-4 w-4" />
-                  Hide
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="h-4 w-4" />
-                  Show
-                </>
-              )}
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-
-      {(hideToggle || isOpen) && (
-        <CardContent className="px-4 pt-0 pb-3">
-          {error && (
-            <div className="text-sm text-destructive mb-4">
-              Error loading transactions: {error.message}
-            </div>
-          )}
-
-          {isLoading ? (
-            <div className="space-y-3">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-16 rounded-lg bg-muted animate-pulse" />
-              ))}
-            </div>
-          ) : actions.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">
-              No transactions found
-            </p>
-          ) : (
-            <>
-              {/* Mobile Card View */}
-              <div className="md:hidden">
-                <div className="[&>*:last-child]:border-0">
-                  {groupedActions.map((group) => (
-                    <MobileTransactionCard
-                      key={group.key}
-                      actions={group.actions}
-                      currentUserAddress={publicKey}
-                      historicalPrices={historicalPricesData?.prices}
-                      currency={currency}
-                      formatCurrency={formatCurrency}
-                      tokensMap={tokensMap}
-                      blndTokenAddress={blndTokenAddress}
-                    />
-                  ))}
-                </div>
-                {/* Load more trigger */}
-                <div ref={mobileLoadMoreRef} className="h-1" />
-                {isFetchingNextPage && (
-                  <div className="flex justify-center py-4">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
+  return (
+    <>
+      {/* Controls - outside the card */}
+      {showControls && (
+        <div className="flex items-center justify-end gap-2 mb-4">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleExport}
+                disabled={isExporting || actions.length === 0}
+              >
+                {isExporting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
                 )}
-              </div>
-
-              {/* Desktop Table View */}
-              <div className="hidden md:block overflow-hidden">
-                <div className="max-h-[500px] overflow-auto">
-                  <Table>
-                    <TableBody>
-                      {groupedActions.map((group) => (
-                        <TransactionRow
-                          key={group.key}
-                          actions={group.actions}
-                          currentUserAddress={publicKey}
-                          historicalPrices={historicalPricesData?.prices}
-                          currency={currency}
-                          formatCurrency={formatCurrency}
-                          tokensMap={tokensMap}
-                          blndTokenAddress={blndTokenAddress}
-                        />
-                      ))}
-                    </TableBody>
-                  </Table>
-                  {/* Load more trigger */}
-                  <div ref={desktopLoadMoreRef} className="h-1" />
-                  {isFetchingNextPage && (
-                    <div className="flex justify-center py-4">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-        </CardContent>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="bg-black text-white border-black" arrowClassName="bg-black fill-black">
+              Download CSV
+            </TooltipContent>
+          </Tooltip>
+          <Filters
+            selectedActionTypes={selectedActionTypes}
+            onToggleActionType={toggleActionType}
+            startDate={startDate}
+            endDate={endDate}
+            onStartDateChange={setStartDate}
+            onEndDateChange={setEndDate}
+            onClear={clearFilters}
+          />
+        </div>
       )}
-    </Card>
+
+      {/* Transaction list - clean card */}
+      <Card className="py-0">
+        <CardContent className="p-0">
+          {/* Mobile Card View */}
+          <div className="md:hidden">
+            {groupedActions.map((group) => (
+              <MobileTransactionCard
+                key={group.key}
+                actions={group.actions}
+                currentUserAddress={publicKey}
+                historicalPrices={historicalPricesData?.prices}
+                currency={currency}
+                formatCurrency={formatCurrency}
+                tokensMap={tokensMap}
+                blndTokenAddress={blndTokenAddress}
+              />
+            ))}
+            {/* Load more trigger */}
+            <div ref={mobileLoadMoreRef} className="h-1" />
+            {isFetchingNextPage && (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden md:block">
+            <Table>
+              <TableBody>
+                {groupedActions.map((group) => (
+                  <TransactionRow
+                    key={group.key}
+                    actions={group.actions}
+                    currentUserAddress={publicKey}
+                    historicalPrices={historicalPricesData?.prices}
+                    currency={currency}
+                    formatCurrency={formatCurrency}
+                    tokensMap={tokensMap}
+                    blndTokenAddress={blndTokenAddress}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+            {/* Load more trigger */}
+            <div ref={desktopLoadMoreRef} className="h-1" />
+            {isFetchingNextPage && (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </>
   )
 }

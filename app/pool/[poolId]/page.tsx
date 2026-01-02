@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Lock, Unlock, Flame, Shield, Clock, Coins } from "lucide-react"
+import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Flame, Shield, Clock } from "lucide-react"
 import { ApySparkline } from "@/components/apy-sparkline"
 import { BackstopApySparkline } from "@/components/backstop-apy-sparkline"
 import { LpPriceSparkline } from "@/components/lp-price-sparkline"
@@ -20,6 +20,8 @@ import { toTrackedPools } from "@/lib/blend/pools"
 import { usePoolsOnly } from "@/hooks/use-metadata"
 import { TokenLogo } from "@/components/token-logo"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
+import { useWalletState } from "@/hooks/use-wallet-state"
+import { LandingPage } from "@/components/landing-page"
 
 // Extended position type with yield data
 interface PositionWithYield extends BlendReservePosition {
@@ -58,15 +60,6 @@ interface BalanceHistoryResult {
   }
 }
 
-const WALLETS_STORAGE_KEY = "stellar-wallet-tracked-addresses"
-const ACTIVE_WALLET_STORAGE_KEY = "stellar-wallet-active-id"
-
-interface Wallet {
-  id: string
-  publicKey: string
-  name?: string
-  isActive: boolean
-}
 
 function formatNumber(value: number, decimals = 2): string {
   if (!Number.isFinite(value)) return "0"
@@ -717,7 +710,16 @@ function PageHeader({ title, subtitle, explorerUrl }: { title: string; subtitle?
 export default function PoolDetailsPage() {
   const params = useParams()
   const poolId = decodeURIComponent(params.poolId as string)
-  const [activeWallet, setActiveWallet] = useState<Wallet | null>(null)
+
+  // Use the shared wallet state hook
+  const {
+    wallets,
+    activeWallet,
+    handleSelectWallet,
+    handleConnectWallet,
+    handleDisconnect,
+    isHydrated,
+  } = useWalletState()
 
   // Currency preference hook
   const { format: formatInCurrency } = useCurrencyPreference()
@@ -748,23 +750,6 @@ export default function PoolDetailsPage() {
 
   const { pools: dbPools } = usePoolsOnly()
   const trackedPools = useMemo(() => toTrackedPools(dbPools), [dbPools])
-
-  useEffect(() => {
-    try {
-      const savedWallets = localStorage.getItem(WALLETS_STORAGE_KEY)
-      const savedActiveId = localStorage.getItem(ACTIVE_WALLET_STORAGE_KEY)
-
-      if (savedWallets && savedActiveId) {
-        const parsedWallets = JSON.parse(savedWallets) as Wallet[]
-        const active = parsedWallets.find((w) => w.id === savedActiveId)
-        if (active) {
-          setActiveWallet(active)
-        }
-      }
-    } catch (error) {
-      console.error("Error loading wallet from localStorage:", error)
-    }
-  }, [])
 
   const { data: snapshot, isLoading, error } = useQuery({
     queryKey: ["blend-wallet-snapshot", activeWallet?.publicKey, trackedPools.map(p => p.id).join(',')],
@@ -988,22 +973,17 @@ export default function PoolDetailsPage() {
   // Get pool info from tracked pools for explorer link
   const poolInfo = trackedPools.find(p => p.id === poolId)
 
+  // Show landing page for non-logged-in users
   if (!activeWallet) {
     return (
-      <div className="min-h-screen bg-background">
-        <PageHeader title="Pool Details" />
-        <main className="container mx-auto px-4 py-8">
-          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-            <h2 className="text-2xl font-semibold mb-4">No Wallet Connected</h2>
-            <p className="text-muted-foreground mb-8 max-w-md">
-              Please connect a wallet to view pool details.
-            </p>
-            <Link href="/">
-              <Button>Go to Home</Button>
-            </Link>
-          </div>
-        </main>
-      </div>
+      <LandingPage
+        wallets={wallets}
+        activeWallet={activeWallet}
+        onSelectWallet={handleSelectWallet}
+        onConnectWallet={handleConnectWallet}
+        onDisconnect={handleDisconnect}
+        isHydrated={isHydrated}
+      />
     )
   }
 
