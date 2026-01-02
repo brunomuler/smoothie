@@ -709,7 +709,7 @@ function RealizedYieldContent() {
 
             {/* Strategy Performance Stats */}
             {data.firstActivityDate && (
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" />
                   <span>Since {formatDate(data.firstActivityDate)}</span>
@@ -720,10 +720,10 @@ function RealizedYieldContent() {
             )}
 
             {/* Breakdown by Source */}
-            <div className="space-y-3">
+            <div className="space-y-3 mt-8">
               <h2 className="text-base font-semibold">Breakdown by Source</h2>
               <Card>
-                <CardContent className="space-y-4 pt-4">
+                <CardContent className="space-y-4">
                 {/* Pools */}
                 {(data.pools.deposited > 0 || data.pools.withdrawn > 0) && (
                   <div className="space-y-2">
@@ -971,10 +971,10 @@ function RealizedYieldContent() {
 
             {/* Per-Pool Breakdown */}
             {perPoolBreakdown.length > 0 && (
-              <div className="space-y-3">
+              <div className="space-y-3 mt-8">
                 <h2 className="text-base font-semibold">Breakdown by Pool</h2>
                 <Card>
-                  <CardContent className="space-y-4 pt-4">
+                  <CardContent className="space-y-4">
                   {perPoolBreakdown.map((poolData, poolIndex) => {
                     const totalDeposited = poolData.lending.deposited + poolData.backstop.deposited
                     const totalEmissions = poolData.lending.emissionsClaimed + poolData.backstop.emissionsClaimed
