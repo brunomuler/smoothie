@@ -8,4 +8,5 @@ export interface Wallet {
   publicKey: string;
   name?: string;
   isActive: boolean;
+  isDemoWallet?: boolean;
 }

@@ -23,7 +23,7 @@ import { usePeriodYieldBreakdownAPI } from "@/hooks/use-period-yield-breakdown-a
 import type { PeriodType as APIPeriodType } from "@/app/api/period-yield-breakdown/route"
 import type { WalletBalanceProps } from "./types"
 import { formatPercentage, formatSignedPercentage, hasNonZeroPercentage, hasSignificantAmount } from "./helpers"
-import { SELECTED_PERIOD_KEY, DUMMY_DATA, DUMMY_CHART_DATA } from "./constants"
+import { SELECTED_PERIOD_KEY } from "./constants"
 import { WalletBalanceSkeleton } from "./skeleton"
 
 const BalanceBarChart = dynamic(
@@ -34,7 +34,7 @@ const BalanceBarChart = dynamic(
   }
 )
 
-const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, isDemoMode = false, onToggleDemoMode, usdcPrice = 1, poolInputs = [], yieldBreakdown, balanceHistoryDataMap, historicalPrices, blendPositions, backstopPositions, lpTokenPrice }: WalletBalanceProps) => {
+const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, usdcPrice = 1, poolInputs = [], yieldBreakdown, balanceHistoryDataMap, historicalPrices, blendPositions, backstopPositions, lpTokenPrice }: WalletBalanceProps) => {
   // State for time period selection with localStorage persistence
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>(() => {
     if (typeof window !== 'undefined') {
@@ -59,17 +59,13 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
   // Display preferences (show price changes toggle)
   const { preferences: displayPreferences } = useDisplayPreferences()
 
-  // Use dummy data when in demo mode
-  const activeData = isDemoMode ? DUMMY_DATA : data
-  const activeChartData = isDemoMode ? DUMMY_CHART_DATA : chartData
-
-  const initialBalance = Number.isFinite(activeData.rawBalance) ? Math.max(activeData.rawBalance, 0) : 0
-  const apyDecimal = Number.isFinite(activeData.apyPercentage)
-    ? Math.max(activeData.apyPercentage, 0) / 100
+  const initialBalance = Number.isFinite(data.rawBalance) ? Math.max(data.rawBalance, 0) : 0
+  const apyDecimal = Number.isFinite(data.apyPercentage)
+    ? Math.max(data.apyPercentage, 0) / 100
     : 0
 
-  // Use balance history data from props if available (not in demo mode)
-  const historyChartData = isDemoMode ? [] : (balanceHistoryData?.chartData || [])
+  // Use balance history data from props if available
+  const historyChartData = balanceHistoryData?.chartData || []
 
   // Map TimePeriod to API PeriodType for period yield breakdown
   const apiPeriodTypeMap: Record<TimePeriod, APIPeriodType> = {
@@ -86,7 +82,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     blendPositions,
     backstopPositions,
     lpTokenPrice,
-    enabled: !isDemoMode && !!publicKey && (
+    enabled: !!publicKey && (
       (!!blendPositions && blendPositions.length > 0) ||
       (!!backstopPositions && backstopPositions.length > 0)
     ),
@@ -118,7 +114,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     }
 
     // Fallback: transform wallet chart data
-    return activeChartData.map(point => {
+    return chartData.map(point => {
       const date = new Date(point.date)
       return {
         date: point.date,
@@ -134,7 +130,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
         pools: [],
       }
     })
-  }, [historyChartData, activeChartData, usdcPrice])
+  }, [historyChartData, chartData, usdcPrice])
 
   // Calculate current total borrow from the latest chart data
   const currentBorrow = useMemo(() => {
@@ -149,12 +145,12 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
   const { actions: userActions } = useUserActions({
     publicKey: publicKey || '',
     limit: 100,
-    enabled: !!publicKey && !isDemoMode,
+    enabled: !!publicKey,
     selectActionsOnly: true, // Only re-render when actions change
   })
 
   // Use yield calculated from: SDK Balance - Dune Cost Basis
-  const totalYield = activeData.rawInterestEarned
+  const totalYield = data.rawInterestEarned
 
   // Get first event date from history data
   const firstEventDate = useMemo(() => {
@@ -340,11 +336,11 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
 
   // Derive cost basis from SDK: costBasis = totalYield / (growthPercentage / 100)
   const costBasis = useMemo(() => {
-    if (!Number.isFinite(totalYield) || !Number.isFinite(activeData.growthPercentage) || activeData.growthPercentage === 0) {
+    if (!Number.isFinite(totalYield) || !Number.isFinite(data.growthPercentage) || data.growthPercentage === 0) {
       return initialBalance // Fallback to current balance if we can't derive cost basis
     }
-    return totalYield / (activeData.growthPercentage / 100)
-  }, [totalYield, activeData.growthPercentage, initialBalance])
+    return totalYield / (data.growthPercentage / 100)
+  }, [totalYield, data.growthPercentage, initialBalance])
 
   // Calculate period-specific percentage gain
   // All periods use: periodYield / costBasis * 100
@@ -378,7 +374,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
 
     // For "All" and "Projection", use SDK's growthPercentage directly (most precise)
     if (selectedPeriod === "All" || selectedPeriod === "Projection") {
-      return activeData.growthPercentage
+      return data.growthPercentage
     }
 
     // For sub-periods, calculate: periodYield / costBasis * 100
@@ -387,7 +383,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     }
 
     return (calculatedPeriodYield / costBasis) * 100
-  }, [selectedPeriod, calculatedPeriodYield, activeData.growthPercentage, costBasis, periodYieldBreakdownAPI.isLoading, periodYieldBreakdownAPI.totals, displayPreferences.showPriceChanges, yieldBreakdown])
+  }, [selectedPeriod, calculatedPeriodYield, data.growthPercentage, costBasis, periodYieldBreakdownAPI.isLoading, periodYieldBreakdownAPI.totals, displayPreferences.showPriceChanges, yieldBreakdown])
 
   // Get period label for yield display
   // When showPriceChanges is OFF, show "yield" instead of "total"
@@ -451,7 +447,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
   // APY is already the effective annual rate (accounts for compounding)
   // To get sub-annual yields, we extract the equivalent periodic rate from the APY
   // Use initialBalance (stable SDK value) for calculations, not displayBalance (animated)
-  const apyDecimalRate = activeData.apyPercentage / 100
+  const apyDecimalRate = data.apyPercentage / 100
   // Daily yield: Balance × ((1 + APY)^(1/365) - 1)
   const dailyYield = initialBalance * (Math.pow(1 + apyDecimalRate, 1 / 365) - 1)
   // Monthly yield: Balance × ((1 + APY)^(1/12) - 1)
@@ -474,32 +470,17 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
       <div className="flex flex-col space-y-1.5 pt-6">
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Current APY from SDK (primary) */}
-          {!isDemoMode && hasNonZeroPercentage(activeData.apyPercentage) && (
+          {hasNonZeroPercentage(data.apyPercentage) && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger>
                   <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600">
                     <TrendingUp className="mr-1 h-3 w-3" />
-                    {formatPercentage(activeData.apyPercentage)}% APY
+                    {formatPercentage(data.apyPercentage)}% APY
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>Current weighted average APY from pool positions</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-          {isDemoMode && (
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600">
-                    <TrendingUp className="mr-1 h-3 w-3" />
-                    {formatPercentage(DUMMY_DATA.apyPercentage)}% APY
-                  </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Demo APY</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -513,7 +494,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           >
             <FormattedBalance value={formattedLiveBalance} />
           </h3>
-          {!isDemoMode && currentBorrow > 0 && (
+          {currentBorrow > 0 && (
             <Badge variant="outline" className="text-xs py-0.5 px-2 whitespace-nowrap bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800">
               <TrendingDown className="mr-1 h-3 w-3" />
               {formatYield(currentBorrow)} borrowed
@@ -526,7 +507,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
               <Skeleton className="h-5 w-20" />
               <Skeleton className="h-5 w-12" />
             </div>
-          ) : !isDemoMode && (
+          ) : (
             (balanceHistoryData?.earningsStats?.currentAPY && balanceHistoryData.earningsStats.currentAPY > 0) ||
             (!periodYieldBreakdownAPI.isLoading && periodYieldBreakdownAPI.totals.valueNow > 0) ||
             (backstopPositions && backstopPositions.some(bp => bp.lpTokens > 0))
@@ -727,8 +708,8 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           userActions={userActions}
           currentBalance={initialBalance}
           currentDeposit={initialBalance - chartProtocolYield}
-          apy={activeData.apyPercentage}
-          blndApy={activeData.blndApy}
+          apy={data.apyPercentage}
+          blndApy={data.blndApy}
           firstEventDate={firstEventDate}
           isLoading={loading}
           selectedPeriod={selectedPeriod}
@@ -781,7 +762,6 @@ export const WalletBalance = React.memo(WalletBalanceComponent, (prevProps, next
     prevProps.publicKey === nextProps.publicKey &&
     prevProps.balanceHistoryData === nextProps.balanceHistoryData &&
     prevProps.loading === nextProps.loading &&
-    prevProps.isDemoMode === nextProps.isDemoMode &&
     prevProps.usdcPrice === nextProps.usdcPrice &&
     prevProps.poolInputs === nextProps.poolInputs
   )

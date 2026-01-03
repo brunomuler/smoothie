@@ -51,8 +51,6 @@ export interface WalletBalanceProps {
     positionChanges: PositionChange[]
   }
   loading?: boolean
-  isDemoMode?: boolean
-  onToggleDemoMode?: () => void
   usdcPrice?: number // USDC price from SDK oracle for normalizing historical data
   poolInputs?: PoolProjectionInput[] // Per-pool data for projection breakdown
   yieldBreakdown?: YieldBreakdownTotals // Historical yield breakdown (protocol yield vs price change)

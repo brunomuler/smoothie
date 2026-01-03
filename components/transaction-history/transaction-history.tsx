@@ -38,6 +38,7 @@ export function TransactionHistory({
   hideToggle = false,
   showControls = true,
   title,
+  isDemoWallet,
 }: TransactionHistoryFullProps) {
   const [selectedActionTypes, setSelectedActionTypes] = useState<ActionType[]>([])
   const [startDate, setStartDate] = useState<Date | undefined>(undefined)
@@ -371,6 +372,7 @@ export function TransactionHistory({
                 formatCurrency={formatCurrency}
                 tokensMap={tokensMap}
                 blndTokenAddress={blndTokenAddress}
+                isDemoWallet={isDemoWallet}
               />
             ))}
             {/* Load more trigger */}
@@ -396,6 +398,7 @@ export function TransactionHistory({
                     formatCurrency={formatCurrency}
                     tokensMap={tokensMap}
                     blndTokenAddress={blndTokenAddress}
+                    isDemoWallet={isDemoWallet}
                   />
                 ))}
               </TableBody>

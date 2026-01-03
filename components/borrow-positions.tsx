@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { TokenLogo } from "@/components/token-logo"
 import { formatAmount } from "@/lib/format-utils"
-import { DEMO_BORROW_POSITIONS } from "@/lib/demo-data"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -24,7 +23,6 @@ interface BlendPosition {
 }
 
 interface BorrowPositionsProps {
-  isDemoMode: boolean
   blendSnapshot: { positions: BlendPosition[] } | null | undefined
   enrichedAssetCards: AssetCardData[]
   poolAssetBorrowCostBasisMap: Map<string, number>
@@ -32,7 +30,6 @@ interface BorrowPositionsProps {
 }
 
 export function BorrowPositions({
-  isDemoMode,
   blendSnapshot,
   enrichedAssetCards,
   poolAssetBorrowCostBasisMap,
@@ -53,114 +50,6 @@ export function BorrowPositions({
       maximumFractionDigits: 2,
       signDisplay: "always",
     })
-  }
-
-  if (isDemoMode) {
-    return (
-      <div className="grid gap-4 grid-cols-1">
-        {DEMO_BORROW_POSITIONS.map((pool) => (
-          <Card key={pool.poolId} className="py-2 gap-0">
-            <CardHeader className="flex flex-row items-center justify-between py-3 px-4">
-              <CardTitle>{pool.poolName} Pool</CardTitle>
-              <Link
-                href="#"
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                onClick={(e) => e.preventDefault()}
-              >
-                <ChevronRight className="h-5 w-5" />
-              </Link>
-            </CardHeader>
-            <CardContent className="px-4 pt-0 pb-1">
-              <div className="space-y-1">
-                {pool.positions.map((position) => {
-                  const formattedInterest = formatInterestValue(position.interestAccrued)
-                  const hasSignificantInterest = Math.abs(position.interestAccrued) >= 0.01
-                  const formattedInterestPercentage = position.interestPercentage !== 0 ? ` (${position.interestPercentage >= 0 ? '+' : ''}${position.interestPercentage.toFixed(2)}%)` : ''
-
-                  return (
-                    <div key={position.id} className="flex items-center justify-between py-2 gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <TokenLogo
-                          src={position.logoUrl}
-                          symbol={position.symbol}
-                          size={36}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium truncate">{position.symbol}</p>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {formatUsdAmount(position.borrowUsdValue)}
-                            <span className="text-xs ml-1">
-                              ({formatAmount(position.borrowAmount)} {position.symbol})
-                            </span>
-                          </p>
-                          {hasSignificantInterest && (
-                            position.originalBorrowedTokens ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <p className="text-xs text-orange-600 dark:text-orange-400 cursor-pointer flex items-center gap-1">
-                                    {formattedInterest} interest{formattedInterestPercentage}
-                                    <Info className="h-3 w-3" />
-                                  </p>
-                                </TooltipTrigger>
-                                <TooltipContent className="p-2.5">
-                                  <p className="font-semibold text-xs text-zinc-200 mb-2">Debt Breakdown</p>
-                                  <div className="space-y-1">
-                                    <div className="flex justify-between gap-6">
-                                      <span className="text-zinc-400">Original Borrowed</span>
-                                      <span className="text-zinc-300">
-                                        {formatAmount(position.originalBorrowedTokens)} {position.symbol}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between gap-6">
-                                      <span className="text-zinc-400">Interest Accrued</span>
-                                      <span className="text-orange-400">
-                                        +{formatAmount(position.interestTokens || 0)} {position.symbol}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between gap-6 border-t border-zinc-700 pt-1 mt-1">
-                                      <span className="text-zinc-300 font-medium">Total Owed</span>
-                                      <span className="text-zinc-300">
-                                        {formatAmount(position.borrowAmount)} {position.symbol}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between gap-6 pt-1">
-                                      <span className="text-zinc-500 text-xs">At current price</span>
-                                      <span className="text-zinc-400 text-xs">
-                                        {formatUsdAmount(position.borrowUsdValue)}
-                                      </span>
-                                    </div>
-                                  </div>
-                                </TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <p className="text-xs text-orange-600 dark:text-orange-400">
-                                {formattedInterest} interest{formattedInterestPercentage}
-                              </p>
-                            )
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
-                        <Badge variant="secondary" className="text-xs">
-                          <TrendingDown className="mr-1 h-3 w-3" />
-                          {position.borrowApy.toFixed(2)}% APY
-                        </Badge>
-                        {position.borrowBlndApy > 0 && (
-                          <Badge variant="secondary" className="text-xs">
-                            <Flame className="mr-1 h-3 w-3" />
-                            {position.borrowBlndApy.toFixed(2)}% BLND
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    )
   }
 
   if (blendSnapshot && blendSnapshot.positions.some(pos => pos.borrowUsdValue > 0)) {

@@ -29,7 +29,6 @@ import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 interface AssetCardProps {
   data: AssetCardData
   onAction?: (action: AssetAction, assetId: string) => void
-  isDemoMode?: boolean
 }
 
 function formatPercentage(value: number): string {
@@ -54,35 +53,14 @@ function hasNonZeroPercentage(value: number): boolean {
   return Math.abs(value) >= 0.005
 }
 
-// Generate dummy data for each asset card based on index
-function generateDummyAssetData(originalData: AssetCardData, index: number): AssetCardData {
-  const baseAmounts = [5000, 3500, 2800, 1500]
-  const baseAmount = baseAmounts[index % baseAmounts.length]
-
-  return {
-    ...originalData,
-    rawBalance: baseAmount + (baseAmount * 0.08), // Add 8% yield
-    apyPercentage: 7.5 + (index * 0.5), // Varying APYs
-    growthPercentage: index % 2 === 0 ? 2.5 : 0, // Some have BLND APY
-    earnedYield: baseAmount * 0.08,
-    yieldPercentage: 8.0,
-  }
-}
-
-const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardProps) => {
-  // Use dummy data in demo mode - generate based on data.id to maintain consistency
-  const cardIndex = React.useMemo(() => {
-    return parseInt(data.id.split('-')[0].slice(-1)) || 0
-  }, [data.id])
-
-  const activeData = isDemoMode ? generateDummyAssetData(data, cardIndex) : data
+const AssetCardComponent = ({ data, onAction }: AssetCardProps) => {
   const handleAction = React.useCallback((action: AssetAction) => {
-    onAction?.(action, activeData.id)
-  }, [onAction, activeData.id])
+    onAction?.(action, data.id)
+  }, [onAction, data.id])
 
-  const initialBalance = Number.isFinite(activeData.rawBalance) ? Math.max(activeData.rawBalance, 0) : 0
-  const apyDecimal = Number.isFinite(activeData.apyPercentage)
-    ? Math.max(activeData.apyPercentage, 0) / 100
+  const initialBalance = Number.isFinite(data.rawBalance) ? Math.max(data.rawBalance, 0) : 0
+  const apyDecimal = Number.isFinite(data.apyPercentage)
+    ? Math.max(data.apyPercentage, 0) / 100
     : 0
 
   const { displayBalance } = useLiveBalance(initialBalance, apyDecimal, null, 0)
@@ -96,7 +74,7 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
   })
 
   // Use yield calculated as: SDK Balance - Dune Cost Basis
-  const yieldToShow = activeData.earnedYield ?? 0
+  const yieldToShow = data.earnedYield ?? 0
   const formattedYield = formatInCurrency(yieldToShow, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -105,26 +83,26 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
   const hasSignificantYield = Math.abs(yieldToShow) >= 0.01
 
   // Use yield percentage: (Yield / Cost Basis) * 100
-  const yieldPercentage = activeData.yieldPercentage ?? 0
+  const yieldPercentage = data.yieldPercentage ?? 0
   const formattedYieldPercentage = yieldPercentage !== 0 ? ` (${yieldPercentage >= 0 ? '+' : ''}${yieldPercentage.toFixed(2)}%)` : ''
 
   // Yield breakdown for tooltip
-  const breakdown = activeData.yieldBreakdown
+  const breakdown = data.yieldBreakdown
   const hasBreakdown = breakdown && (breakdown.protocolYieldUsd !== 0 || breakdown.priceChangeUsd !== 0)
 
   return (
     <Card className="@container/asset-card">
       <CardContent className="flex items-center gap-4">
         <TokenLogo
-          src={activeData.logoUrl}
-          symbol={activeData.assetName}
+          src={data.logoUrl}
+          symbol={data.assetName}
           size={44}
         />
 
         <div className="flex flex-col gap-1.5 flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
-            <h3 className="text-base font-semibold truncate">{activeData.protocolName}</h3>
-            <span className="text-sm text-muted-foreground shrink-0">{activeData.assetName}</span>
+            <h3 className="text-base font-semibold truncate">{data.protocolName}</h3>
+            <span className="text-sm text-muted-foreground shrink-0">{data.assetName}</span>
           </div>
 
           <div className="flex flex-col gap-1.5 @[400px]/asset-card:flex-row @[400px]/asset-card:items-center @[400px]/asset-card:gap-2">
@@ -152,7 +130,7 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
                             </span>
                           </div>
                           <div className="text-zinc-500 text-[10px]">
-                            ({breakdown.protocolYieldTokens.toFixed(4)} {activeData.assetName} earned)
+                            ({breakdown.protocolYieldTokens.toFixed(4)} {data.assetName} earned)
                           </div>
                           <div className="flex justify-between gap-4">
                             <span className="text-zinc-400">Price Change:</span>
@@ -195,7 +173,7 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
                   <TooltipTrigger>
                     <Badge variant="secondary" className="text-xs">
                       <TrendingUp className="mr-1 h-3 w-3" />
-                      {formatPercentage(activeData.apyPercentage)}% APY
+                      {formatPercentage(data.apyPercentage)}% APY
                     </Badge>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -204,13 +182,13 @@ const AssetCardComponent = ({ data, onAction, isDemoMode = false }: AssetCardPro
                 </Tooltip>
               </TooltipProvider>
 
-              {hasNonZeroPercentage(activeData.growthPercentage) && (
+              {hasNonZeroPercentage(data.growthPercentage) && (
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger>
                       <Badge variant="secondary" className="text-xs">
                         <Flame className="mr-1 h-3 w-3" />
-                        {formatSignedPercentage(activeData.growthPercentage)}% BLND APY
+                        {formatSignedPercentage(data.growthPercentage)}% BLND APY
                       </Badge>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -275,7 +253,6 @@ export const AssetCard = React.memo(AssetCardComponent, (prevProps, nextProps) =
     prevProps.data.yieldPercentage === nextProps.data.yieldPercentage &&
     prevProps.data.yieldBreakdown?.protocolYieldUsd === nextProps.data.yieldBreakdown?.protocolYieldUsd &&
     prevProps.data.yieldBreakdown?.priceChangeUsd === nextProps.data.yieldBreakdown?.priceChangeUsd &&
-    prevProps.onAction === nextProps.onAction &&
-    prevProps.isDemoMode === nextProps.isDemoMode
+    prevProps.onAction === nextProps.onAction
   )
 })

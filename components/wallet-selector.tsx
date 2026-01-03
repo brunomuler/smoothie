@@ -158,6 +158,14 @@ export function WalletSelector({
   const isAddressAlreadyAdded = (address: string) =>
     wallets.some((w) => w.publicKey.toLowerCase() === address.toLowerCase())
 
+  // Format wallet address display - show "DEMO...WLLT" for demo wallets
+  const formatWalletAddress = (wallet: WalletType, charCount?: number) => {
+    if (wallet.isDemoWallet) {
+      return 'DEMO...WLLT'
+    }
+    return shortenAddress(wallet.publicKey, charCount)
+  }
+
   // Show skeleton while hydrating wallet state from localStorage
   if (!isHydrated) {
     return (
@@ -219,7 +227,7 @@ export function WalletSelector({
                 size="sm"
               />
               <span className="font-medium text-sm truncate max-w-[100px]">
-                {shortenAddress(activeWallet.publicKey)}
+                {formatWalletAddress(activeWallet)}
               </span>
               <ChevronDown className={cn(
                 "h-4 w-4 text-muted-foreground transition-transform duration-200",
@@ -304,7 +312,7 @@ export function WalletSelector({
                             </p>
                           )}
                           <p className="text-xs text-muted-foreground font-mono truncate">
-                            {shortenAddress(wallet.publicKey, 6)}
+                            {formatWalletAddress(wallet, 6)}
                           </p>
                         </div>
 
@@ -317,32 +325,37 @@ export function WalletSelector({
 
                       {isActive && (
                         <div className="flex items-center gap-1 px-2 pb-2">
+                          {!wallet.isDemoWallet && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className={cn(
+                                "h-7 px-2.5 text-xs flex-1",
+                                "hover:bg-background/80",
+                                copiedAddress === wallet.publicKey && "text-green-600"
+                              )}
+                              onClick={(e) => handleCopyAddress(e, wallet.publicKey)}
+                            >
+                              {copiedAddress === wallet.publicKey ? (
+                                <>
+                                  <Check className="h-3 w-3 mr-1.5" />
+                                  Copied!
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-3 w-3 mr-1.5" />
+                                  Copy Address
+                                </>
+                              )}
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
                             className={cn(
-                              "h-7 px-2.5 text-xs flex-1",
-                              "hover:bg-background/80",
-                              copiedAddress === wallet.publicKey && "text-green-600"
+                              "h-7 px-2.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10",
+                              wallet.isDemoWallet && "flex-1"
                             )}
-                            onClick={(e) => handleCopyAddress(e, wallet.publicKey)}
-                          >
-                            {copiedAddress === wallet.publicKey ? (
-                              <>
-                                <Check className="h-3 w-3 mr-1.5" />
-                                Copied!
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-3 w-3 mr-1.5" />
-                                Copy Address
-                              </>
-                            )}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                             onClick={(e) => handleDisconnect(e, wallet)}
                           >
                             <LogOut className="h-3 w-3 mr-1.5" />

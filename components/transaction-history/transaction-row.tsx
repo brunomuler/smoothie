@@ -15,6 +15,7 @@ export function TransactionRow({
   formatCurrency,
   tokensMap,
   blndTokenAddress,
+  isDemoWallet,
 }: TransactionRowProps) {
   const firstAction = actions[0]
   const explorerUrl = `https://stellar.expert/explorer/public/tx/${firstAction.transaction_hash}`
@@ -60,15 +61,21 @@ export function TransactionRow({
         </div>
       </TableCell>
       <TableCell>
-        <a
-          href={explorerUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <span className="font-mono text-xs">{firstAction.transaction_hash.slice(0, 8)}...</span>
-          <ExternalLink className="h-3 w-3" />
-        </a>
+        {isDemoWallet ? (
+          <span className="font-mono text-xs text-muted-foreground">
+            {firstAction.transaction_hash.slice(0, 8)}...
+          </span>
+        ) : (
+          <a
+            href={explorerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <span className="font-mono text-xs">{firstAction.transaction_hash.slice(0, 8)}...</span>
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
       </TableCell>
     </TableRow>
   )
@@ -82,6 +89,7 @@ export function MobileTransactionCard({
   formatCurrency,
   tokensMap,
   blndTokenAddress,
+  isDemoWallet,
 }: TransactionRowProps) {
   const firstAction = actions[0]
   const explorerUrl = `https://stellar.expert/explorer/public/tx/${firstAction.transaction_hash}`
@@ -96,14 +104,16 @@ export function MobileTransactionCard({
           <div className="text-right text-xs text-muted-foreground">
             {formatDate(firstAction.ledger_closed_at)} {formatTime(firstAction.ledger_closed_at)}
           </div>
-          <a
-            href={explorerUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ExternalLink className="h-4 w-4" />
-          </a>
+          {!isDemoWallet && (
+            <a
+              href={explorerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ExternalLink className="h-4 w-4" />
+            </a>
+          )}
         </div>
       </div>
 

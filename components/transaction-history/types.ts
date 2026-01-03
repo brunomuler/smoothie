@@ -14,6 +14,7 @@ export interface TransactionHistoryProps {
   limit?: number
   defaultOpen?: boolean
   hideToggle?: boolean
+  isDemoWallet?: boolean
 }
 
 export interface ActionTypeOption {
@@ -36,6 +37,7 @@ export interface TransactionRowProps {
   formatCurrency: (amountUsd: number) => string
   tokensMap: Map<string, { pegged_currency: string | null }>
   blndTokenAddress?: string
+  isDemoWallet?: boolean
 }
 
 export interface AmountWithCurrencyProps {

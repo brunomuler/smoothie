@@ -47,7 +47,6 @@ export interface BlendPosition {
 
 export interface SupplyPositionsProps {
   isLoading: boolean
-  isDemoMode: boolean
   enrichedAssetCards: AssetCardData[]
   backstopPositions: BackstopPositionData[]
   blendSnapshot: { positions: BlendPosition[] } | null | undefined

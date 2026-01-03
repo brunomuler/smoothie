@@ -18,14 +18,21 @@ function HistoryContent() {
     capture('page_viewed', { page: 'history' })
   }, [capture])
 
+  // Guard against null activeWallet during static generation
+  // AuthenticatedPage will show the landing page if no wallet is connected
+  if (!activeWallet) {
+    return <AuthenticatedPage><div /></AuthenticatedPage>
+  }
+
   return (
     <AuthenticatedPage>
       <div>
         <PageTitle>History</PageTitle>
         <TransactionHistory
-          publicKey={activeWallet!.publicKey}
+          publicKey={activeWallet.publicKey}
           limit={50}
           showControls={true}
+          isDemoWallet={activeWallet.isDemoWallet}
         />
       </div>
     </AuthenticatedPage>

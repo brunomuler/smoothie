@@ -23,6 +23,7 @@ export function AuthenticatedPage({
     activeWallet,
     handleSelectWallet,
     handleConnectWallet,
+    handleConnectDemoWallet,
     handleDisconnect,
     isHydrated,
   } = useWalletState()
@@ -40,6 +41,7 @@ export function AuthenticatedPage({
         activeWallet={activeWallet}
         onSelectWallet={handleSelectWallet}
         onConnectWallet={handleConnectWallet}
+        onConnectDemoWallet={handleConnectDemoWallet}
         onDisconnect={handleDisconnect}
         isHydrated={isHydrated}
       />

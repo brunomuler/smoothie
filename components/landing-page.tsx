@@ -4,6 +4,9 @@ import dynamic from "next/dynamic"
 import Image from "next/image"
 import { WalletSelector } from "@/components/wallet-selector"
 import { Footer } from "@/components/footer"
+import { Button } from "@/components/ui/button"
+import { isDemoWalletEnabled, getRandomDemoWallet } from "@/lib/config/demo-wallet"
+import { useAnalytics, hashWalletAddress } from "@/hooks/use-analytics"
 import type { Wallet } from "@/types/wallet"
 
 // Dynamically import Dither to avoid SSR issues with three.js
@@ -14,6 +17,7 @@ interface LandingPageProps {
   activeWallet: Wallet | null
   onSelectWallet: (walletId: string) => void
   onConnectWallet: (address: string, walletName?: string) => void
+  onConnectDemoWallet: (address: string) => void
   onDisconnect: (walletId: string) => void
   isHydrated?: boolean
 }
@@ -23,9 +27,23 @@ export function LandingPage({
   activeWallet,
   onSelectWallet,
   onConnectWallet,
+  onConnectDemoWallet,
   onDisconnect,
   isHydrated = true,
 }: LandingPageProps) {
+  const { capture } = useAnalytics()
+  const showDemoButton = isDemoWalletEnabled()
+
+  const handleDemoClick = () => {
+    const demoAddress = getRandomDemoWallet()
+    if (demoAddress) {
+      capture('demo_wallet_clicked')
+      hashWalletAddress(demoAddress).then(hash => {
+        capture('demo_wallet_connected', { address_hash: hash })
+      })
+      onConnectDemoWallet(demoAddress)
+    }
+  }
   return (
     <div className="min-h-screen relative overflow-hidden bg-black">
       {/* Dither Background */}
@@ -78,7 +96,7 @@ export function LandingPage({
             </p>
 
             {/* CTA */}
-            <div className="pt-8">
+            <div className="pt-8 flex flex-col items-center gap-3">
               <WalletSelector
                 wallets={wallets}
                 activeWallet={activeWallet}
@@ -88,6 +106,15 @@ export function LandingPage({
                 variant="landing"
                 isHydrated={isHydrated}
               />
+              {showDemoButton && (
+                <Button
+                  variant="ghost"
+                  onClick={handleDemoClick}
+                  className="text-white/70 hover:text-white hover:bg-white/10"
+                >
+                  Try Demo Account
+                </Button>
+              )}
             </div>
           </div>
         </main>

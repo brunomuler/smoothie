@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { TokenLogo } from "@/components/token-logo"
 import { formatAmount } from "@/lib/format-utils"
-import { DEMO_SUPPLY_POSITIONS } from "@/lib/demo-data"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
@@ -17,7 +16,6 @@ import { SupplyPositionsEmptyState } from "./empty-state"
 
 export function SupplyPositions({
   isLoading,
-  isDemoMode,
   enrichedAssetCards,
   backstopPositions,
   blendSnapshot,
@@ -43,123 +41,8 @@ export function SupplyPositions({
     showSign: true,
   })
 
-  if (isLoading && !isDemoMode) {
+  if (isLoading) {
     return <SupplyPositionsSkeleton />
-  }
-
-  if (isDemoMode) {
-    return (
-      <div className="grid gap-4 grid-cols-1">
-        {DEMO_SUPPLY_POSITIONS.map((pool) => (
-          <Card key={pool.id} className="py-2 gap-0">
-            <CardHeader className="flex flex-row items-center justify-between py-3 px-4">
-              <CardTitle>{pool.poolName} Pool</CardTitle>
-              <Link
-                href="#"
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                onClick={(e) => e.preventDefault()}
-              >
-                <ChevronRight className="h-5 w-5" />
-              </Link>
-            </CardHeader>
-            <CardContent className="px-4 pt-0 pb-1">
-              <div className="space-y-1">
-                {pool.assets.map((asset) => {
-                  const formattedYield = formatYieldValue(asset.earnedYield)
-                  const hasSignificantYield = Math.abs(asset.earnedYield) >= 0.01
-                  const formattedYieldPercentage = asset.yieldPercentage !== 0 ? ` (${asset.yieldPercentage >= 0 ? '+' : ''}${asset.yieldPercentage.toFixed(2)}%)` : ''
-                  return (
-                    <div key={asset.id} className="flex items-center justify-between py-2 gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <TokenLogo
-                          src={asset.logoUrl}
-                          symbol={asset.assetName}
-                          size={36}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium truncate">{asset.assetName}</p>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {formatUsdAmount(asset.rawBalance)}
-                            <span className="text-xs ml-1">
-                              ({formatAmount(asset.tokenAmount)} {asset.symbol})
-                            </span>
-                          </p>
-                          {hasSignificantYield && (
-                            <p className={`text-xs ${asset.earnedYield >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                              {formattedYield}{formattedYieldPercentage}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
-                        <Badge variant="secondary" className="text-xs">
-                          <TrendingUp className="mr-1 h-3 w-3" />
-                          {asset.apyPercentage.toFixed(2)}% APY
-                        </Badge>
-                        {asset.growthPercentage > 0.005 && (
-                          <Badge variant="secondary" className="text-xs">
-                            <Flame className="mr-1 h-3 w-3" />
-                            {asset.growthPercentage.toFixed(2)}% BLND
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-
-                {/* Demo Backstop Position */}
-                {pool.backstop && (
-                  <div className={`flex items-center justify-between py-2 gap-3 ${pool.assets.length > 0 ? 'border-t border-border/50 mt-2 pt-3' : ''}`}>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="h-10 w-10 rounded-full bg-purple-500/10 flex items-center justify-center">
-                        <Shield className="h-5 w-5 text-purple-500" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium truncate">Backstop</p>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {formatUsdAmount(pool.backstop.lpTokensUsd)}
-                          <span className="text-xs ml-1">
-                            ({formatAmount(pool.backstop.lpTokens, 2)} LP)
-                          </span>
-                        </p>
-                        {(() => {
-                          const lpTokenPrice = pool.backstop.lpTokens > 0
-                            ? pool.backstop.lpTokensUsd / pool.backstop.lpTokens
-                            : 0
-                          const yieldUsd = pool.backstop.yieldLp * lpTokenPrice
-                          const formattedYieldPercentage = pool.backstop.yieldPercent !== 0
-                            ? ` (${pool.backstop.yieldPercent >= 0 ? '+' : ''}${pool.backstop.yieldPercent.toFixed(2)}%)`
-                            : ''
-                          return (
-                            <p className={`text-xs ${yieldUsd >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
-                              {formatYieldValue(yieldUsd)}{formattedYieldPercentage}
-                            </p>
-                          )
-                        })()}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-1 items-start shrink-0 w-[110px]">
-                      {pool.backstop.interestApr > 0 && (
-                        <Badge variant="secondary" className="text-xs">
-                          <TrendingUp className="mr-1 h-3 w-3" />
-                          {pool.backstop.interestApr.toFixed(2)}% APR
-                        </Badge>
-                      )}
-                      {pool.backstop.emissionApy > 0 && (
-                        <Badge variant="secondary" className="text-xs">
-                          <Flame className="mr-1 h-3 w-3" />
-                          {pool.backstop.emissionApy.toFixed(2)}% BLND
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    )
   }
 
   if (enrichedAssetCards.length > 0 || backstopPositions.length > 0) {
@@ -494,9 +377,5 @@ export function SupplyPositions({
   }
 
   // Empty state
-  if (!isLoading && !isDemoMode) {
-    return <SupplyPositionsEmptyState />
-  }
-
-  return null
+  return <SupplyPositionsEmptyState />
 }

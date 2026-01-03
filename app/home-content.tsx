@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useMemo, useEffect, useCallback } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useAnalytics } from "@/hooks/use-analytics"
 import { generateChartData, type PoolProjectionInput } from "@/lib/chart-utils"
@@ -24,7 +24,6 @@ import { LP_TOKEN_ADDRESS } from "@/lib/constants"
 export function HomeContent() {
   const queryClient = useQueryClient()
   const { activeWallet } = useWalletState()
-  const [isDemoMode, setIsDemoMode] = useState(false)
   const { capture } = useAnalytics()
   const { preferences: displayPreferences } = useDisplayPreferences()
 
@@ -346,8 +345,6 @@ export function HomeContent() {
             publicKey={activeWallet!.publicKey}
             balanceHistoryData={aggregatedHistoryDataWithCorrectYield ?? undefined}
             loading={isLoading || !aggregatedHistoryDataWithCorrectYield || aggregatedHistoryDataWithCorrectYield.isLoading}
-            isDemoMode={isDemoMode}
-            onToggleDemoMode={() => setIsDemoMode(!isDemoMode)}
             usdcPrice={1}
             poolInputs={poolInputs}
             yieldBreakdown={!yieldBreakdown.isLoading && yieldBreakdown.totalCostBasisHistorical > 0 ? {
@@ -363,34 +360,34 @@ export function HomeContent() {
             lpTokenPrice={lpTokenPrice}
           />
 
-          {(isLoading || totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0) || isDemoMode) && (
+          {(isLoading || totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0)) && (
             <BlndRewardsCard
               publicKey={activeWallet!.publicKey}
-              pendingEmissions={isDemoMode ? 156.75 : totalEmissions}
-              pendingSupplyEmissions={isDemoMode ? 120.5 : blendSnapshot?.totalSupplyEmissions}
-              pendingBorrowEmissions={isDemoMode ? 36.25 : blendSnapshot?.totalBorrowEmissions}
-              backstopClaimableBlnd={isDemoMode ? 25.5 : backstopPositions.reduce((sum, bp) => sum + (bp.claimableBlnd || 0), 0)}
-              blndPrice={isDemoMode ? 0.0125 : blndPrice}
-              blndPerLpToken={isDemoMode ? 0.85 : (backstopPositions[0]?.blndAmount && backstopPositions[0]?.lpTokens
+              pendingEmissions={totalEmissions}
+              pendingSupplyEmissions={blendSnapshot?.totalSupplyEmissions}
+              pendingBorrowEmissions={blendSnapshot?.totalBorrowEmissions}
+              backstopClaimableBlnd={backstopPositions.reduce((sum, bp) => sum + (bp.claimableBlnd || 0), 0)}
+              blndPrice={blndPrice}
+              blndPerLpToken={backstopPositions[0]?.blndAmount && backstopPositions[0]?.lpTokens
                 ? backstopPositions[0].blndAmount / backstopPositions[0].lpTokens
-                : 0)}
-              blndApy={isDemoMode ? 0.91 : balanceData.blndApy}
-              totalPositionUsd={isDemoMode ? 50000 : ((blendSnapshot?.totalSupplyUsd || 0) + (blendSnapshot?.totalBorrowUsd || 0) + (blendSnapshot?.totalBackstopUsd || 0))}
-              isLoading={isDemoMode ? false : isLoading}
-              perPoolEmissions={isDemoMode ? { "demo-pool-1": 156.75 } : blendSnapshot?.perPoolEmissions}
-              perPoolSupplyEmissions={isDemoMode ? { "demo-pool-1": 120.5 } : blendSnapshot?.perPoolSupplyEmissions}
-              perPoolBorrowEmissions={isDemoMode ? { "demo-pool-1": 36.25 } : blendSnapshot?.perPoolBorrowEmissions}
-              backstopPositions={isDemoMode ? [{ poolId: "demo-pool-1", poolName: "YieldBlox", claimableBlnd: 25.5 }] : backstopPositions.map(bp => ({
+                : 0}
+              blndApy={balanceData.blndApy}
+              totalPositionUsd={(blendSnapshot?.totalSupplyUsd || 0) + (blendSnapshot?.totalBorrowUsd || 0) + (blendSnapshot?.totalBackstopUsd || 0)}
+              isLoading={isLoading}
+              perPoolEmissions={blendSnapshot?.perPoolEmissions}
+              perPoolSupplyEmissions={blendSnapshot?.perPoolSupplyEmissions}
+              perPoolBorrowEmissions={blendSnapshot?.perPoolBorrowEmissions}
+              backstopPositions={backstopPositions.map(bp => ({
                 poolId: bp.poolId,
                 poolName: bp.poolName,
                 claimableBlnd: bp.claimableBlnd,
               }))}
-              poolNames={isDemoMode ? { "demo-pool-1": "YieldBlox", "demo-pool-2": "Blend" } : (blendSnapshot?.positions?.reduce((acc, pos) => {
+              poolNames={blendSnapshot?.positions?.reduce((acc, pos) => {
                 if (pos.poolId && pos.poolName) {
                   acc[pos.poolId] = pos.poolName
                 }
                 return acc
-              }, {} as Record<string, string>) || {})}
+              }, {} as Record<string, string>) || {}}
             />
           )}
 
@@ -415,7 +412,6 @@ export function HomeContent() {
 
               <SupplyPositions
                 isLoading={isLoading}
-                isDemoMode={isDemoMode}
                 enrichedAssetCards={enrichedAssetCardsWithBreakdown}
                 backstopPositions={backstopPositionsWithBreakdown}
                 blendSnapshot={blendSnapshot}
@@ -425,7 +421,6 @@ export function HomeContent() {
 
             <TabsContent value="borrows" className="space-y-4">
               <BorrowPositions
-                isDemoMode={isDemoMode}
                 blendSnapshot={blendSnapshot}
                 enrichedAssetCards={enrichedAssetCardsWithBreakdown}
                 poolAssetBorrowCostBasisMap={poolAssetBorrowCostBasisMap}
