@@ -62,6 +62,7 @@ interface BalanceBarChartProps {
   historyData: ChartDataPoint[]
   userActions: UserAction[]
   currentBalance: number
+  currentDeposit?: number // Total cost basis (SDK balance - this = yield) to fix latest bar calculation
   apy: number
   blndApy?: number // BLND APY for projection calculations
   firstEventDate: string | null
@@ -511,6 +512,7 @@ export const BalanceBarChart = memo(function BalanceBarChart({
   historyData,
   userActions,
   currentBalance,
+  currentDeposit,
   apy,
   blndApy = 0,
   firstEventDate,
@@ -577,7 +579,7 @@ export const BalanceBarChart = memo(function BalanceBarChart({
   // Note: We explicitly include projectionSettings properties in deps to ensure React detects changes
   const chartData = useMemo(() => {
     try {
-      return aggregateDataByPeriod(
+      const data = aggregateDataByPeriod(
         historyData,
         userActions,
         selectedPeriod,
@@ -587,13 +589,16 @@ export const BalanceBarChart = memo(function BalanceBarChart({
         currentBorrow,
         blndApy,
         projectionSettings,
-        poolInputs
+        poolInputs,
+        currentDeposit  // Pass SDK cost basis to fix current month yield calculation
       )
+
+      return data
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to aggregate chart data'))
       return []
     }
-  }, [historyData, userActions, selectedPeriod, currentBalance, apy, firstEventDate, currentBorrow, blndApy, projectionSettings.blndReinvestment, projectionSettings.compoundFrequency, projectionSettings.projectionYears, poolInputs])
+  }, [historyData, userActions, selectedPeriod, currentBalance, currentDeposit, apy, firstEventDate, currentBorrow, blndApy, projectionSettings.blndReinvestment, projectionSettings.compoundFrequency, projectionSettings.projectionYears, poolInputs])
 
   // Calculate max value for Y axis (include balance + borrow for proper scaling)
   const maxBalance = useMemo(() => {

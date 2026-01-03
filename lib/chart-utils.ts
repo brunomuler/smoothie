@@ -248,7 +248,8 @@ function generateMonthlyBars(
   startDate: Date,
   endDate: Date,
   currentBalance: number,
-  currentBorrow: number = 0
+  currentBorrow: number = 0,
+  currentDeposit?: number
 ): BarChartDataPoint[] {
   const bars: BarChartDataPoint[] = []
   const today = new Date()
@@ -277,11 +278,17 @@ function generateMonthlyBars(
     const balance = isCurrentMonth ? currentBalance : (balanceData?.total || 0)
 
     // For deposit, use balanceData if available, or find the most recent deposit for current month
+    // For current month: prefer currentDeposit (from SDK cost basis) over historical data
     let deposit = balanceData?.deposit || 0
-    if (isCurrentMonth && deposit === 0 && chartData.length > 0) {
-      // Use the most recent deposit value from historical data
-      const mostRecent = chartData[chartData.length - 1]
-      deposit = mostRecent?.deposit || 0
+    if (isCurrentMonth) {
+      if (currentDeposit !== undefined && Number.isFinite(currentDeposit)) {
+        // Use SDK-calculated cost basis (includes backstop)
+        deposit = currentDeposit
+      } else if (deposit === 0 && chartData.length > 0) {
+        // Fallback to most recent historical deposit value
+        const mostRecent = chartData[chartData.length - 1]
+        deposit = mostRecent?.deposit || 0
+      }
     }
 
     const borrow = isCurrentMonth ? currentBorrow : (balanceData?.borrow || 0)
@@ -590,7 +597,8 @@ export function aggregateDataByPeriod(
   currentBorrow: number = 0,
   blndApy: number = 0,
   projectionSettings: ProjectionSettings = DEFAULT_PROJECTION_SETTINGS,
-  poolInputs: PoolProjectionInput[] = []
+  poolInputs: PoolProjectionInput[] = [],
+  currentDeposit?: number
 ): BarChartDataPoint[] {
   const { start, end } = getDateRangeForPeriod(period, firstEventDate)
 
@@ -602,10 +610,10 @@ export function aggregateDataByPeriod(
       return generateDailyBars(chartData, userActions, 30, currentBalance, currentBorrow)
 
     case '1Y':
-      return generateMonthlyBars(chartData, userActions, start, end, currentBalance, currentBorrow)
+      return generateMonthlyBars(chartData, userActions, start, end, currentBalance, currentBorrow, currentDeposit)
 
     case 'All':
-      return generateMonthlyBars(chartData, userActions, start, end, currentBalance, currentBorrow)
+      return generateMonthlyBars(chartData, userActions, start, end, currentBalance, currentBorrow, currentDeposit)
 
     case 'Projection':
       return generateProjectionData(

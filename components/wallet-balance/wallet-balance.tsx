@@ -323,6 +323,21 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     return calculatedPeriodYield
   }, [periodYieldBreakdownAPI.isLoading, periodYieldBreakdownAPI.totals, calculatedPeriodYield, displayPreferences.showPriceChanges, yieldBreakdown])
 
+  // Protocol yield only for chart bars (not affected by showPriceChanges setting)
+  // Historical bars show protocol yield, so current month should match
+  const chartProtocolYield = useMemo(() => {
+    // For periods with API data, use protocol yield only
+    if (!periodYieldBreakdownAPI.isLoading && periodYieldBreakdownAPI.totals.valueAtStart > 0) {
+      return periodYieldBreakdownAPI.totals.protocolYieldUsd
+    }
+    // Secondary fallback: use yieldBreakdown prop if available
+    if (yieldBreakdown && yieldBreakdown.totalCostBasisHistorical > 0) {
+      return yieldBreakdown.totalProtocolYieldUsd
+    }
+    // Final fallback to chart-based calculation
+    return calculatedPeriodYield
+  }, [periodYieldBreakdownAPI.isLoading, periodYieldBreakdownAPI.totals, calculatedPeriodYield, yieldBreakdown])
+
   // Derive cost basis from SDK: costBasis = totalYield / (growthPercentage / 100)
   const costBasis = useMemo(() => {
     if (!Number.isFinite(totalYield) || !Number.isFinite(activeData.growthPercentage) || activeData.growthPercentage === 0) {
@@ -711,6 +726,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           historyData={displayChartData}
           userActions={userActions}
           currentBalance={initialBalance}
+          currentDeposit={initialBalance - chartProtocolYield}
           apy={activeData.apyPercentage}
           blndApy={activeData.blndApy}
           firstEventDate={firstEventDate}
