@@ -481,7 +481,7 @@ function RealizedYieldContent() {
             </Card>
 
             {/* Date Info Skeleton */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center justify-center gap-4">
               <Skeleton className="h-4 w-32" />
               <Skeleton className="h-4 w-24" />
             </div>
@@ -641,7 +641,7 @@ function RealizedYieldContent() {
                             tooltip="(Current Balance + Withdrawn) - Deposited. Your total profit from Blend protocol."
                           />
                         </p>
-                        <div className="flex items-baseline gap-2 sm:gap-3 flex-wrap">
+                        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                           <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${totalPnlPositive ? "text-emerald-400" : "text-red-400"}`}>
                             {totalPnlPositive ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
                           </p>
@@ -720,7 +720,7 @@ function RealizedYieldContent() {
 
             {/* Strategy Performance Stats */}
             {data.firstActivityDate && (
-              <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center justify-center gap-4 text-xs sm:text-sm text-muted-foreground">
                 <div className="flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" />
                   <span>Since {formatDate(data.firstActivityDate)}</span>
@@ -1260,7 +1260,7 @@ function PerformanceSkeleton() {
         </Card>
 
         {/* Date Info Skeleton */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center justify-center gap-4">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-4 w-24" />
         </div>
