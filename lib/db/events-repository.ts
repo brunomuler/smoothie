@@ -943,15 +943,15 @@ export class EventsRepository {
     // 1. Gets user's cumulative shares at each date they had activity
     // 2. Gets pool's share rate at each date
     // 3. Calculates LP token value = shares × rate
-    // NOTE: All timestamps are converted to user's timezone before extracting date
-    // to ensure consistency with regular balance history data
+    // NOTE: ledger_closed_at is stored as "timestamp without time zone" but contains UTC values.
+    // We must use double AT TIME ZONE: first interpret as UTC, then convert to user's timezone.
     const result = await pool.query(
       `
       WITH date_range AS (
         SELECT generate_series(
           GREATEST(
             (CURRENT_TIMESTAMP AT TIME ZONE $4)::date - $3::integer,
-            (SELECT MIN((ledger_closed_at AT TIME ZONE $4)::date) FROM backstop_events
+            (SELECT MIN((ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date) FROM backstop_events
              WHERE user_address = $1 AND pool_address = $2)
           ),
           (CURRENT_TIMESTAMP AT TIME ZONE $4)::date,
@@ -961,7 +961,7 @@ export class EventsRepository {
       -- User's cumulative shares over time
       user_events AS (
         SELECT
-          (ledger_closed_at AT TIME ZONE $4)::date AS event_date,
+          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type = 'deposit' THEN shares::numeric
             WHEN action_type = 'withdraw' THEN -shares::numeric
@@ -970,7 +970,7 @@ export class EventsRepository {
         FROM backstop_events
         WHERE user_address = $1
           AND pool_address = $2
-        GROUP BY (ledger_closed_at AT TIME ZONE $4)::date
+        GROUP BY (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
       ),
       user_cumulative AS (
         SELECT
@@ -989,7 +989,7 @@ export class EventsRepository {
       --   - SDK calculates user value directly from on-chain state, not shares × rate
       pool_events AS (
         SELECT
-          (ledger_closed_at AT TIME ZONE $4)::date AS event_date,
+          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
             WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
@@ -1002,7 +1002,7 @@ export class EventsRepository {
           END) AS shares_change
         FROM backstop_events
         WHERE pool_address = $2
-        GROUP BY (ledger_closed_at AT TIME ZONE $4)::date
+        GROUP BY (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
       ),
       pool_cumulative AS (
         SELECT
@@ -1077,7 +1077,7 @@ export class EventsRepository {
         SELECT generate_series(
           GREATEST(
             (CURRENT_TIMESTAMP AT TIME ZONE $4)::date - $3::integer,
-            (SELECT MIN((ledger_closed_at AT TIME ZONE $4)::date) FROM backstop_events
+            (SELECT MIN((ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date) FROM backstop_events
              WHERE user_address = $1 AND pool_address = ANY($2))
           ),
           (CURRENT_TIMESTAMP AT TIME ZONE $4)::date,
@@ -1089,10 +1089,12 @@ export class EventsRepository {
         SELECT unnest($2::text[]) AS pool_address
       ),
       -- User's cumulative shares over time per pool
+      -- NOTE: ledger_closed_at is stored as "timestamp without time zone" but contains UTC values.
+      -- We must use double AT TIME ZONE: first interpret as UTC, then convert to user's timezone.
       user_events AS (
         SELECT
           pool_address,
-          (ledger_closed_at AT TIME ZONE $4)::date AS event_date,
+          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type = 'deposit' THEN shares::numeric
             WHEN action_type = 'withdraw' THEN -shares::numeric
@@ -1101,7 +1103,7 @@ export class EventsRepository {
         FROM backstop_events
         WHERE user_address = $1
           AND pool_address = ANY($2)
-        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE $4)::date
+        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
       ),
       user_cumulative AS (
         SELECT
@@ -1114,7 +1116,7 @@ export class EventsRepository {
       pool_events AS (
         SELECT
           pool_address,
-          (ledger_closed_at AT TIME ZONE $4)::date AS event_date,
+          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
           SUM(CASE
             WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
             WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
@@ -1127,7 +1129,7 @@ export class EventsRepository {
           END) AS shares_change
         FROM backstop_events
         WHERE pool_address = ANY($2)
-        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE $4)::date
+        GROUP BY pool_address, (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
       ),
       pool_cumulative AS (
         SELECT

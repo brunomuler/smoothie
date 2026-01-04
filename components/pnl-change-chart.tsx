@@ -45,6 +45,41 @@ function formatCompact(value: number): string {
   return `${sign}$${absValue.toFixed(0)}`
 }
 
+// Custom bar shape that applies rounding based on position in stack
+function RoundedBar(props: any) {
+  const { x, y, width, height, fill, dataKey, payload } = props
+  if (!height || height === 0) return null
+
+  const topRadius = 4
+  const bottomRadius = 2
+
+  // Determine if this bar is the topmost positive bar
+  const isTopBar = payload?.topPositiveBar === dataKey
+  // Determine if this bar is the bottom bar (supplyApyBar)
+  const isBottomBar = dataKey === 'supplyApyBar'
+
+  // Build the path with conditional rounding
+  const tl = isTopBar ? topRadius : 0
+  const tr = isTopBar ? topRadius : 0
+  const br = isBottomBar ? bottomRadius : 0
+  const bl = isBottomBar ? bottomRadius : 0
+
+  const path = `
+    M ${x + tl} ${y}
+    L ${x + width - tr} ${y}
+    Q ${x + width} ${y} ${x + width} ${y + tr}
+    L ${x + width} ${y + height - br}
+    Q ${x + width} ${y + height} ${x + width - br} ${y + height}
+    L ${x + bl} ${y + height}
+    Q ${x} ${y + height} ${x} ${y + height - bl}
+    L ${x} ${y + tl}
+    Q ${x} ${y} ${x + tl} ${y}
+    Z
+  `
+
+  return <path d={path} fill={fill} />
+}
+
 // Transform data for yield chart (without price changes)
 function transformDataForYieldChart(
   data: PnlChangeDataPoint[]
@@ -62,9 +97,17 @@ function transformDataForYieldChart(
   priceChange: number
   isLive: boolean
   yieldTotal: number
+  topPositiveBar: string | null
 }> {
   return data.map(d => {
     const yieldTotal = d.supplyApy + d.supplyBlndApy + d.backstopYield + d.backstopBlndApy
+
+    // Determine which bar is the topmost positive bar (stacking order: supplyApy -> supplyBlndApy -> backstopYield -> backstopBlndApy)
+    let topPositiveBar: string | null = null
+    if (d.backstopBlndApy > 0) topPositiveBar = 'backstopBlndApyBar'
+    else if (d.backstopYield > 0) topPositiveBar = 'backstopYieldPositiveBar'
+    else if (d.supplyBlndApy > 0) topPositiveBar = 'supplyBlndApyBar'
+    else if (d.supplyApy > 0) topPositiveBar = 'supplyApyBar'
 
     return {
       period: d.period,
@@ -80,6 +123,7 @@ function transformDataForYieldChart(
       priceChange: d.priceChange,
       isLive: d.isLive,
       yieldTotal,
+      topPositiveBar,
     }
   })
 }
@@ -149,10 +193,10 @@ function YieldTooltip({
           {data.supplyApy !== 0 && (
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-sm bg-teal-500" />
+                <div className="w-2 h-2 rounded-sm bg-blue-500" />
                 <span className="text-zinc-400">Supply APY</span>
               </div>
-              <span className="tabular-nums text-teal-400">
+              <span className="tabular-nums text-blue-400">
                 {formatValue(data.supplyApy)}
               </span>
             </div>
@@ -161,10 +205,10 @@ function YieldTooltip({
           {data.supplyBlndApy !== 0 && (
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-sm bg-emerald-500" />
+                <div className="w-2 h-2 rounded-sm bg-sky-500" />
                 <span className="text-zinc-400">Supply BLND</span>
               </div>
-              <span className="tabular-nums text-emerald-400">
+              <span className="tabular-nums text-sky-400">
                 {formatValue(data.supplyBlndApy)}
               </span>
             </div>
@@ -369,12 +413,12 @@ export const PnlChangeChart = memo(function PnlChangeChart({
               >
                 <defs>
                   <linearGradient id="supplyApyGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(142 76% 46%)" stopOpacity={1} />
-                    <stop offset="100%" stopColor="hsl(142 76% 40%)" stopOpacity={0.8} />
+                    <stop offset="0%" stopColor="hsl(217 91% 60%)" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(217 91% 55%)" stopOpacity={0.8} />
                   </linearGradient>
                   <linearGradient id="supplyBlndGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(172 66% 50%)" stopOpacity={1} />
-                    <stop offset="100%" stopColor="hsl(172 66% 45%)" stopOpacity={0.8} />
+                    <stop offset="0%" stopColor="hsl(199 89% 48%)" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(199 89% 43%)" stopOpacity={0.8} />
                   </linearGradient>
                   <linearGradient id="backstopYieldGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="hsl(263 70% 57%)" stopOpacity={1} />
@@ -394,24 +438,28 @@ export const PnlChangeChart = memo(function PnlChangeChart({
                 <YAxis hide domain={[yieldDomain.min, yieldDomain.max]} />
                 <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
 
-                <Bar dataKey="supplyApyBar" stackId="yield" fill="url(#supplyApyGradient)" radius={[0, 0, 2, 2]} maxBarSize={barSize} isAnimationActive={false} />
-                <Bar dataKey="supplyBlndApyBar" stackId="yield" fill="url(#supplyBlndGradient)" radius={[0, 0, 0, 0]} maxBarSize={barSize} isAnimationActive={false} />
-                <Bar dataKey="backstopYieldPositiveBar" stackId="yield" fill="url(#backstopYieldGradient)" radius={[0, 0, 0, 0]} maxBarSize={barSize} isAnimationActive={false} />
-                <Bar dataKey="backstopBlndApyBar" stackId="yield" fill="url(#backstopBlndGradient)" radius={[4, 4, 0, 0]} maxBarSize={barSize} isAnimationActive={false}>
-                  <LabelList
-                    dataKey="yieldTotal"
-                    position="top"
-                    formatter={(value: number) => value > 0 ? formatCompact(value) : ""}
-                    style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
-                  />
+                <Bar dataKey="supplyApyBar" stackId="yield" fill="url(#supplyApyGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="supplyApyBar" />} maxBarSize={barSize} isAnimationActive={false} />
+                <Bar dataKey="supplyBlndApyBar" stackId="yield" fill="url(#supplyBlndGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="supplyBlndApyBar" />} maxBarSize={barSize} isAnimationActive={false} />
+                <Bar dataKey="backstopYieldPositiveBar" stackId="yield" fill="url(#backstopYieldGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="backstopYieldPositiveBar" />} maxBarSize={barSize} isAnimationActive={false} />
+                <Bar dataKey="backstopBlndApyBar" stackId="yield" fill="url(#backstopBlndGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="backstopBlndApyBar" />} maxBarSize={barSize} isAnimationActive={false}>
+                  {period !== "1M" && (
+                    <LabelList
+                      dataKey="yieldTotal"
+                      position="top"
+                      formatter={(value: number) => value > 0 ? formatCompact(value) : ""}
+                      style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
+                    />
+                  )}
                 </Bar>
                 <Bar dataKey="backstopYieldNegativeBar" stackId="yield" fill="url(#negativeGradient)" radius={[0, 0, 4, 4]} maxBarSize={barSize} isAnimationActive={false}>
-                  <LabelList
-                    dataKey="yieldTotal"
-                    position="bottom"
-                    formatter={(value: number) => value < 0 ? formatCompact(value) : ""}
-                    style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
-                  />
+                  {period !== "1M" && (
+                    <LabelList
+                      dataKey="yieldTotal"
+                      position="bottom"
+                      formatter={(value: number) => value < 0 ? formatCompact(value) : ""}
+                      style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
+                    />
+                  )}
                 </Bar>
 
                 <Tooltip
@@ -425,11 +473,11 @@ export const PnlChangeChart = memo(function PnlChangeChart({
           {/* Yield Legend */}
           <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-teal-500" />
+              <div className="w-2 h-2 rounded-sm bg-blue-500" />
               <span>Supply APY</span>
             </div>
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-emerald-500" />
+              <div className="w-2 h-2 rounded-sm bg-sky-500" />
               <span>Supply BLND</span>
             </div>
             <div className="flex items-center gap-1">
@@ -479,20 +527,24 @@ export const PnlChangeChart = memo(function PnlChangeChart({
                   <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
 
                   <Bar dataKey="priceChangePositive" stackId="price" fill="url(#pricePositiveGradient)" radius={[4, 4, 2, 2]} maxBarSize={barSize} isAnimationActive={false}>
-                    <LabelList
-                      dataKey="priceChange"
-                      position="top"
-                      formatter={(value: number) => value > 0 ? formatCompact(value) : ""}
-                      style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
-                    />
+                    {period !== "1M" && (
+                      <LabelList
+                        dataKey="priceChange"
+                        position="top"
+                        formatter={(value: number) => value > 0 ? formatCompact(value) : ""}
+                        style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
+                      />
+                    )}
                   </Bar>
                   <Bar dataKey="priceChangeNegative" stackId="price" fill="url(#priceNegativeGradient)" radius={[4, 4, 2, 2]} maxBarSize={barSize} isAnimationActive={false}>
-                    <LabelList
-                      dataKey="priceChange"
-                      position="bottom"
-                      formatter={(value: number) => value < 0 ? formatCompact(value) : ""}
-                      style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
-                    />
+                    {period !== "1M" && (
+                      <LabelList
+                        dataKey="priceChange"
+                        position="bottom"
+                        formatter={(value: number) => value < 0 ? formatCompact(value) : ""}
+                        style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
+                      />
+                    )}
                   </Bar>
 
                   <Tooltip

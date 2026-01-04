@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
-import { LP_TOKEN_ADDRESS } from '@/lib/constants'
+import { LP_TOKEN_ADDRESS, BLND_TOKEN_ADDRESS } from '@/lib/constants'
 
 export type PnlPeriodType = '1W' | '1M' | '6M'
 
@@ -310,9 +310,14 @@ export async function GET(request: NextRequest) {
     for (const date of allDates) {
       priceRequests.push({ tokenAddress: LP_TOKEN_ADDRESS, targetDate: date })
     }
+    // Add BLND token prices
+    for (const date of allDates) {
+      priceRequests.push({ tokenAddress: BLND_TOKEN_ADDRESS, targetDate: date })
+    }
 
     const sdkPricesMap = new Map<string, number>(Object.entries(sdkPrices))
     sdkPricesMap.set(LP_TOKEN_ADDRESS, sdkLpPrice)
+    sdkPricesMap.set(BLND_TOKEN_ADDRESS, sdkBlndPrice)
 
     const batchedPrices = await eventsRepository.getHistoricalPricesForMultipleTokensAndDates(
       priceRequests,
@@ -453,22 +458,43 @@ export async function GET(request: NextRequest) {
         const periodSupplyApy = interestTokens * priceAtEnd
         supplyApy += periodSupplyApy
 
-        // Estimate BLND earned from supply
-        // Use current BLND APY rate applied to average balance
-        const avgBalance = (tokensAtStart + tokensAtEnd) / 2
-        const avgBalanceUsd = avgBalance * ((priceAtStart + priceAtEnd) / 2)
-        const periodDays = granularity === 'monthly'
-          ? Math.max(1, Math.round((new Date(boundary.end).getTime() - new Date(boundary.start).getTime()) / (1000 * 60 * 60 * 24)))
-          : 1
+        // Estimate BLND earned from supply using time-weighted balance
+        const periodStartDate = new Date(boundary.start)
+        const periodEndDate = new Date(boundary.end)
+        // Add 1 day to end date since boundary.end is inclusive
+        periodEndDate.setDate(periodEndDate.getDate() + 1)
+        const periodMs = periodEndDate.getTime() - periodStartDate.getTime()
+        const periodDays = Math.max(1, periodMs / (1000 * 60 * 60 * 24))
         const dailyBlndRate = blndApyRate / 100 / 365
-        const estimatedBlndValue = avgBalanceUsd * dailyBlndRate * periodDays
 
-        // Apply historical price setting
+        // BLND on tokens held at start of period (earn for full period)
+        let blndEarnings = tokensAtStart * priceAtStart * dailyBlndRate * periodDays
+
+        // BLND on deposits (pro-rated from deposit date to period end)
+        for (const action of periodActions) {
+          const rawAmount = action.amount_underlying
+          if (rawAmount === null) continue
+          const decimals = action.asset_decimals || 7
+          const tokens = rawAmount / Math.pow(10, decimals)
+          const actionDate = new Date(action.ledger_closed_at)
+          const priceAtAction = getPriceAtDate(assetAddress, dateFormatter.format(actionDate))
+          const daysRemaining = Math.max(0, (periodEndDate.getTime() - actionDate.getTime()) / (1000 * 60 * 60 * 24))
+
+          if (action.action_type === 'supply' || action.action_type === 'supply_collateral') {
+            // Deposits earn BLND from deposit date to period end
+            blndEarnings += tokens * priceAtAction * dailyBlndRate * daysRemaining
+          } else if (action.action_type === 'withdraw' || action.action_type === 'withdraw_collateral') {
+            // Withdrawals stop earning BLND from withdrawal date
+            blndEarnings -= tokens * priceAtAction * dailyBlndRate * daysRemaining
+          }
+        }
+
+        // Get actual BLND price from database or SDK
         const blndPriceToUse = useHistoricalBlndPrices
-          ? getPriceAtDate(LP_TOKEN_ADDRESS, boundary.end) * 0.8 // Rough estimate of BLND from LP
+          ? getPriceAtDate(BLND_TOKEN_ADDRESS, boundary.end)
           : sdkBlndPrice
 
-        supplyBlndApy += blndPriceToUse > 0 ? estimatedBlndValue : 0
+        supplyBlndApy += blndPriceToUse > 0 ? Math.max(0, blndEarnings) : 0
 
         // Calculate price change
         const priceChangeOnStart = tokensAtStart * (priceAtEnd - priceAtStart)
@@ -583,20 +609,37 @@ export async function GET(request: NextRequest) {
 
         const lpYield = yieldOnStartShares + yieldOnDeposits - yieldOnWithdrawals
 
-        // Only add yield if it's positive
-        if (lpYield > 0) {
-          backstopYield += lpYield * lpPriceAtEnd
+        // Include both positive and negative yield
+        backstopYield += lpYield * lpPriceAtEnd
+
+        // Estimate backstop BLND emissions using time-weighted balance
+        const backstopPeriodStartDate = new Date(boundary.start)
+        const backstopPeriodEndDate = new Date(boundary.end)
+        backstopPeriodEndDate.setDate(backstopPeriodEndDate.getDate() + 1)
+        const backstopPeriodMs = backstopPeriodEndDate.getTime() - backstopPeriodStartDate.getTime()
+        const backstopPeriodDays = Math.max(1, backstopPeriodMs / (1000 * 60 * 60 * 24))
+        const dailyBackstopBlndRate = backstopBlndApyRate / 100 / 365
+
+        // BLND on LP tokens held at start of period (earn for full period)
+        let backstopBlndEarnings = lpAtStart * lpPriceAtStart * dailyBackstopBlndRate * backstopPeriodDays
+
+        // BLND on deposits (pro-rated from deposit date to period end)
+        for (const deposit of periodDeposits) {
+          const depositDate = new Date(deposit.timestamp)
+          const lpPriceAtDeposit = getPriceAtDate(LP_TOKEN_ADDRESS, backstopDateFormatter.format(depositDate))
+          const daysRemaining = Math.max(0, (backstopPeriodEndDate.getTime() - depositDate.getTime()) / (1000 * 60 * 60 * 24))
+          backstopBlndEarnings += deposit.lpTokens * lpPriceAtDeposit * dailyBackstopBlndRate * daysRemaining
         }
 
-        // Estimate backstop BLND emissions
-        const avgLp = (lpAtStart + lpAtEnd) / 2
-        const avgLpUsd = avgLp * ((lpPriceAtStart + lpPriceAtEnd) / 2)
-        const periodDays = granularity === 'monthly'
-          ? Math.max(1, Math.round((new Date(boundary.end).getTime() - new Date(boundary.start).getTime()) / (1000 * 60 * 60 * 24)))
-          : 1
-        const dailyBackstopBlndRate = backstopBlndApyRate / 100 / 365
-        const estimatedBackstopBlndValue = avgLpUsd * dailyBackstopBlndRate * periodDays
-        backstopBlndApy += estimatedBackstopBlndValue
+        // Subtract BLND that would have been earned on withdrawals
+        for (const withdrawal of periodWithdrawals) {
+          const withdrawDate = new Date(withdrawal.timestamp)
+          const lpPriceAtWithdraw = getPriceAtDate(LP_TOKEN_ADDRESS, backstopDateFormatter.format(withdrawDate))
+          const daysRemaining = Math.max(0, (backstopPeriodEndDate.getTime() - withdrawDate.getTime()) / (1000 * 60 * 60 * 24))
+          backstopBlndEarnings -= withdrawal.lpTokens * lpPriceAtWithdraw * dailyBackstopBlndRate * daysRemaining
+        }
+
+        backstopBlndApy += Math.max(0, backstopBlndEarnings)
 
         // LP price change (price appreciation on LP tokens)
         // 1. Price change on LP tokens held at start of period
