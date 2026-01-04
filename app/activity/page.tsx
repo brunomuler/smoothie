@@ -15,7 +15,7 @@ function HistoryContent() {
 
   // Track page view
   useEffect(() => {
-    capture('page_viewed', { page: 'history' })
+    capture('page_viewed', { page: 'activity' })
   }, [capture])
 
   // Guard against null activeWallet during static generation
@@ -27,7 +27,7 @@ function HistoryContent() {
   return (
     <AuthenticatedPage>
       <div>
-        <PageTitle>History</PageTitle>
+        <PageTitle>Activity</PageTitle>
         <TransactionHistory
           publicKey={activeWallet.publicKey}
           limit={50}

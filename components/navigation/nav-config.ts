@@ -23,8 +23,8 @@ export const navItems: NavItem[] = [
     icon: Compass,
   },
   {
-    title: "History",
-    href: "/history",
+    title: "Activity",
+    href: "/activity",
     icon: History,
   },
   {
