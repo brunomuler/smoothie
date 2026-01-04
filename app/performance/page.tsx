@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, Suspense, useEffect } from "react"
+import { useMemo, Suspense, useEffect, useState } from "react"
 import { TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +17,8 @@ import { AuthenticatedPage } from "@/components/authenticated-page"
 import { PageTitle } from "@/components/page-title"
 import { useWalletState } from "@/hooks/use-wallet-state"
 import { InfoLabel } from "@/components/performance"
+import { PnlChangeChart } from "@/components/pnl-change-chart"
+import { usePnlChangeChart, type PnlPeriodType } from "@/hooks/use-pnl-change-chart"
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
@@ -34,6 +36,8 @@ function RealizedYieldContent() {
   const { preferences: displayPreferences } = useDisplayPreferences()
   const showPriceChanges = displayPreferences.showPriceChanges
   const useHistoricalBlndPrices = displayPreferences.useHistoricalBlndPrices
+
+  const [pnlChartPeriod, setPnlChartPeriod] = useState<PnlPeriodType>("1W")
 
   const { activeWallet } = useWalletState()
 
@@ -79,6 +83,13 @@ function RealizedYieldContent() {
     backstopPositions,
     lpTokenPrice
   )
+
+  // P&L change chart data
+  const { data: pnlChartData, isLoading: isLoadingPnlChart } = usePnlChangeChart({
+    publicKey,
+    period: pnlChartPeriod,
+    enabled: !!publicKey && sdkReady,
+  })
 
   const formatUsd = (value: number) => {
     if (!Number.isFinite(value)) return formatInCurrency(0)
@@ -718,6 +729,18 @@ function RealizedYieldContent() {
                 <span>{data.daysActive} days active</span>
               </div>
             )}
+
+            {/* P&L Over Time Chart */}
+            <div className="space-y-3 mt-6">
+              <h2 className="text-base font-semibold">P&L Over Time</h2>
+              <PnlChangeChart
+                data={pnlChartData}
+                period={pnlChartPeriod}
+                onPeriodChange={setPnlChartPeriod}
+                showPriceChanges={showPriceChanges}
+                isLoading={isLoadingPnlChart}
+              />
+            </div>
 
             {/* Breakdown by Source */}
             <div className="space-y-3 mt-8">

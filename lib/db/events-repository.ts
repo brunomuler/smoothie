@@ -1651,7 +1651,9 @@ export class EventsRepository {
   ): Promise<{
     deposits: Array<{
       date: string
+      timestamp: string
       lpTokens: number
+      shares: number
       priceAtDeposit: number
       usdValue: number
       poolAddress: string
@@ -1659,7 +1661,9 @@ export class EventsRepository {
     }>
     withdrawals: Array<{
       date: string
+      timestamp: string
       lpTokens: number
+      shares: number
       priceAtWithdrawal: number
       usdValue: number
       poolAddress: string
@@ -1685,7 +1689,9 @@ export class EventsRepository {
           b.pool_address,
           b.action_type,
           (b.ledger_closed_at AT TIME ZONE 'UTC')::date::text AS event_date,
-          b.lp_tokens::numeric / 1e7 AS lp_tokens
+          to_char(b.ledger_closed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS event_timestamp,
+          b.lp_tokens::numeric / 1e7 AS lp_tokens,
+          COALESCE(b.shares::numeric / 1e7, 0) AS shares
         FROM backstop_events b
         ${whereClause}
           AND b.action_type IN ('deposit', 'withdraw')
@@ -1696,7 +1702,9 @@ export class EventsRepository {
         e.pool_address,
         e.action_type,
         e.event_date,
+        e.event_timestamp,
         e.lp_tokens,
+        e.shares,
         COALESCE(price_data.usd_price, NULL) AS price,
         price_data.price_date AS price_source_date
       FROM events e
@@ -1715,7 +1723,9 @@ export class EventsRepository {
 
     const deposits: Array<{
       date: string
+      timestamp: string
       lpTokens: number
+      shares: number
       priceAtDeposit: number
       usdValue: number
       poolAddress: string
@@ -1724,7 +1734,9 @@ export class EventsRepository {
 
     const withdrawals: Array<{
       date: string
+      timestamp: string
       lpTokens: number
+      shares: number
       priceAtWithdrawal: number
       usdValue: number
       poolAddress: string
@@ -1733,6 +1745,7 @@ export class EventsRepository {
 
     for (const row of result.rows) {
       const lpTokens = parseFloat(row.lp_tokens) || 0
+      const shares = parseFloat(row.shares) || 0
       let price = row.price ? parseFloat(row.price) : sdkLpPrice
       let priceSource: 'daily_token_prices' | 'forward_fill' | 'sdk_fallback'
 
@@ -1752,7 +1765,9 @@ export class EventsRepository {
       if (row.action_type === 'deposit') {
         deposits.push({
           date: row.event_date,
+          timestamp: row.event_timestamp,
           lpTokens,
+          shares,
           priceAtDeposit: price,
           usdValue,
           poolAddress: row.pool_address,
@@ -1761,7 +1776,9 @@ export class EventsRepository {
       } else {
         withdrawals.push({
           date: row.event_date,
+          timestamp: row.event_timestamp,
           lpTokens,
+          shares,
           priceAtWithdrawal: price,
           usdValue,
           poolAddress: row.pool_address,

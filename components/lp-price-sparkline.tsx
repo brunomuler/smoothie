@@ -48,10 +48,15 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
   const date = data.payload.date
   const price = data.value
 
+  // Parse date as local time to avoid timezone shift
+  // "2026-01-02" should display as "Jan 2, 2026" regardless of timezone
+  const [year, month, day] = date.split('-').map(Number)
+  const localDate = new Date(year, month - 1, day)
+
   return (
     <div className="bg-black text-white border border-zinc-800 rounded-md px-2 py-1.5 shadow-md text-[11px] whitespace-nowrap">
       <p className="text-zinc-400">
-        {format(new Date(date), "MMM d, yyyy")}
+        {format(localDate, "MMM d, yyyy")}
       </p>
       <p className="font-medium text-purple-400">{formatPrice(price)}</p>
     </div>
