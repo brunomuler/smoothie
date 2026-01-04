@@ -149,10 +149,10 @@ function YieldTooltip({
           {data.supplyApy !== 0 && (
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-sm bg-blue-500" />
+                <div className="w-2 h-2 rounded-sm bg-teal-500" />
                 <span className="text-zinc-400">Supply APY</span>
               </div>
-              <span className="tabular-nums text-blue-400">
+              <span className="tabular-nums text-teal-400">
                 {formatValue(data.supplyApy)}
               </span>
             </div>
@@ -161,10 +161,10 @@ function YieldTooltip({
           {data.supplyBlndApy !== 0 && (
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-sm bg-purple-500" />
+                <div className="w-2 h-2 rounded-sm bg-emerald-500" />
                 <span className="text-zinc-400">Supply BLND</span>
               </div>
-              <span className="tabular-nums text-purple-400">
+              <span className="tabular-nums text-emerald-400">
                 {formatValue(data.supplyBlndApy)}
               </span>
             </div>
@@ -173,10 +173,10 @@ function YieldTooltip({
           {data.backstopYield !== 0 && (
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-1.5">
-                <div className={`w-2 h-2 rounded-sm ${data.backstopYield >= 0 ? "bg-teal-500" : "bg-red-500"}`} />
+                <div className={`w-2 h-2 rounded-sm ${data.backstopYield >= 0 ? "bg-violet-500" : "bg-red-500"}`} />
                 <span className="text-zinc-400">Backstop Yield</span>
               </div>
-              <span className={`tabular-nums ${data.backstopYield >= 0 ? "text-teal-400" : "text-red-400"}`}>
+              <span className={`tabular-nums ${data.backstopYield >= 0 ? "text-violet-400" : "text-red-400"}`}>
                 {formatValue(data.backstopYield)}
               </span>
             </div>
@@ -185,10 +185,10 @@ function YieldTooltip({
           {data.backstopBlndApy !== 0 && (
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-sm bg-indigo-500" />
+                <div className="w-2 h-2 rounded-sm bg-purple-400" />
                 <span className="text-zinc-400">Backstop BLND</span>
               </div>
-              <span className="tabular-nums text-indigo-400">
+              <span className="tabular-nums text-purple-400">
                 {formatValue(data.backstopBlndApy)}
               </span>
             </div>
@@ -369,20 +369,20 @@ export const PnlChangeChart = memo(function PnlChangeChart({
               >
                 <defs>
                   <linearGradient id="supplyApyGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(217 91% 60%)" stopOpacity={1} />
-                    <stop offset="100%" stopColor="hsl(217 91% 55%)" stopOpacity={0.8} />
+                    <stop offset="0%" stopColor="hsl(142 76% 46%)" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(142 76% 40%)" stopOpacity={0.8} />
                   </linearGradient>
                   <linearGradient id="supplyBlndGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(258 90% 66%)" stopOpacity={1} />
-                    <stop offset="100%" stopColor="hsl(258 90% 60%)" stopOpacity={0.8} />
+                    <stop offset="0%" stopColor="hsl(172 66% 50%)" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(172 66% 45%)" stopOpacity={0.8} />
                   </linearGradient>
                   <linearGradient id="backstopYieldGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(168 76% 42%)" stopOpacity={1} />
-                    <stop offset="100%" stopColor="hsl(168 76% 38%)" stopOpacity={0.8} />
+                    <stop offset="0%" stopColor="hsl(263 70% 57%)" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(263 70% 52%)" stopOpacity={0.8} />
                   </linearGradient>
                   <linearGradient id="backstopBlndGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(239 84% 67%)" stopOpacity={1} />
-                    <stop offset="100%" stopColor="hsl(239 84% 62%)" stopOpacity={0.8} />
+                    <stop offset="0%" stopColor="hsl(271 81% 66%)" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(271 81% 61%)" stopOpacity={0.8} />
                   </linearGradient>
                   <linearGradient id="negativeGradient" x1="0" y1="1" x2="0" y2="0">
                     <stop offset="0%" stopColor="hsl(0 84% 60%)" stopOpacity={1} />
@@ -425,19 +425,19 @@ export const PnlChangeChart = memo(function PnlChangeChart({
           {/* Yield Legend */}
           <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-blue-500" />
+              <div className="w-2 h-2 rounded-sm bg-teal-500" />
               <span>Supply APY</span>
             </div>
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-purple-500" />
+              <div className="w-2 h-2 rounded-sm bg-emerald-500" />
               <span>Supply BLND</span>
             </div>
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-teal-500" />
+              <div className="w-2 h-2 rounded-sm bg-violet-500" />
               <span>Backstop Yield</span>
             </div>
             <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-indigo-500" />
+              <div className="w-2 h-2 rounded-sm bg-purple-400" />
               <span>Backstop BLND</span>
             </div>
           </div>
@@ -486,7 +486,7 @@ export const PnlChangeChart = memo(function PnlChangeChart({
                       style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
                     />
                   </Bar>
-                  <Bar dataKey="priceChangeNegative" stackId="price" fill="url(#priceNegativeGradient)" radius={[2, 2, 4, 4]} maxBarSize={barSize} isAnimationActive={false}>
+                  <Bar dataKey="priceChangeNegative" stackId="price" fill="url(#priceNegativeGradient)" radius={[4, 4, 2, 2]} maxBarSize={barSize} isAnimationActive={false}>
                     <LabelList
                       dataKey="priceChange"
                       position="bottom"
