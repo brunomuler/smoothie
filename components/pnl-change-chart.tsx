@@ -28,7 +28,8 @@ interface PnlChangeChartProps {
 const TIME_PERIODS: { value: PnlPeriodType; label: string }[] = [
   { value: "1W", label: "1W" },
   { value: "1M", label: "1M" },
-  { value: "6M", label: "6M" },
+  // 6M temporarily disabled - historical emission APY data only available for ~30 days
+  // { value: "6M", label: "6M" },
 ]
 
 // Compact currency formatter for bar labels
@@ -367,7 +368,7 @@ export const PnlChangeChart = memo(function PnlChangeChart({
     return (
       <div className="space-y-3">
         <Skeleton className="aspect-[3/1] md:aspect-[4/1] w-full" />
-        {showPriceChanges && <Skeleton className="aspect-[5/1] md:aspect-[6/1] w-full" />}
+        <Skeleton className="aspect-[5/1] md:aspect-[6/1] w-full" />
         <div className="flex justify-center">
           <Skeleton className="h-9 sm:h-10 w-40 rounded-md" />
         </div>
@@ -407,7 +408,7 @@ export const PnlChangeChart = memo(function PnlChangeChart({
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={yieldChartData}
-                margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
+                margin={{ top: 20, right: 10, left: 10, bottom: 5 }}
                 stackOffset="sign"
                 barCategoryGap={barGap}
               >
@@ -492,9 +493,8 @@ export const PnlChangeChart = memo(function PnlChangeChart({
         </div>
       )}
 
-      {/* Price Change Chart - Only show if enabled and has data */}
-      {showPriceChanges && (
-        <div className="space-y-1">
+      {/* Price Change Chart */}
+      <div className="space-y-1">
           <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide px-1">
             Price Changes
           </div>
@@ -507,7 +507,7 @@ export const PnlChangeChart = memo(function PnlChangeChart({
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={priceChartData}
-                  margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
+                  margin={{ top: 20, right: 10, left: 10, bottom: 5 }}
                   stackOffset="sign"
                   barCategoryGap={barGap}
                 >
@@ -556,8 +556,7 @@ export const PnlChangeChart = memo(function PnlChangeChart({
               </ResponsiveContainer>
             </div>
           )}
-        </div>
-      )}
+      </div>
 
       {/* Time period tabs */}
       <div className="flex justify-center pt-1">

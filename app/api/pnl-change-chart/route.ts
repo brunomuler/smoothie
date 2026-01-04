@@ -167,8 +167,9 @@ export async function GET(request: NextRequest) {
 
   const sdkBlndPrice = sdkBlndPriceParam ? parseFloat(sdkBlndPriceParam) : 0
   const sdkLpPrice = sdkLpPriceParam ? parseFloat(sdkLpPriceParam) : 0
-  const blndApyRate = blndApyParam ? parseFloat(blndApyParam) : 0 // Already in %
-  const backstopBlndApyRate = backstopBlndApyParam ? parseFloat(backstopBlndApyParam) : 0 // Already in %
+  // Fallback APY rates from SDK (used only when historical data not available)
+  const fallbackBlndApyRate = blndApyParam ? parseFloat(blndApyParam) : 0
+  const fallbackBackstopBlndApyRate = backstopBlndApyParam ? parseFloat(backstopBlndApyParam) : 0
 
   try {
     const periodBoundaries = generatePeriodBoundaries(period, timezone)
@@ -324,6 +325,57 @@ export async function GET(request: NextRequest) {
       sdkPricesMap
     )
 
+    // Fetch historical emission APY data
+    // Collect all pool addresses from lending positions and backstop
+    const allPoolAddresses = new Set<string>()
+    for (const { poolId } of poolAssetPairs.values()) {
+      allPoolAddresses.add(poolId)
+    }
+    for (const poolAddress of backstopPoolAddresses) {
+      allPoolAddresses.add(poolAddress)
+    }
+
+    const historicalEmissionApy = await eventsRepository.getHistoricalEmissionApy(
+      overallStart,
+      overallEnd,
+      Array.from(allPoolAddresses),
+      Array.from(uniqueAssets)
+    )
+
+    // Helper to get emission APY for a specific date (with forward-fill)
+    function getEmissionApyForDate(
+      date: string,
+      poolAddress: string,
+      apyType: 'lending_supply' | 'backstop',
+      assetAddress?: string
+    ): number {
+      const apyMap = apyType === 'lending_supply' ? historicalEmissionApy.lendingSupply : historicalEmissionApy.backstop
+
+      // Try exact date first
+      if (apyMap.has(date)) {
+        const dateData = apyMap.get(date)!
+        const key = apyType === 'lending_supply' ? `${poolAddress}-${assetAddress}` : poolAddress
+        if (dateData.has(key)) {
+          return dateData.get(key)!
+        }
+      }
+
+      // Forward-fill: find most recent date before this one
+      const sortedDates = Array.from(apyMap.keys()).sort().reverse()
+      for (const pastDate of sortedDates) {
+        if (pastDate <= date) {
+          const dateData = apyMap.get(pastDate)!
+          const key = apyType === 'lending_supply' ? `${poolAddress}-${assetAddress}` : poolAddress
+          if (dateData.has(key)) {
+            return dateData.get(key)!
+          }
+        }
+      }
+
+      // Fall back to SDK rate if no historical data
+      return apyType === 'lending_supply' ? fallbackBlndApyRate : fallbackBackstopBlndApyRate
+    }
+
     // Helper to get balance for a specific date
     function getBalanceAtDate(
       assetAddress: string,
@@ -465,7 +517,10 @@ export async function GET(request: NextRequest) {
         periodEndDate.setDate(periodEndDate.getDate() + 1)
         const periodMs = periodEndDate.getTime() - periodStartDate.getTime()
         const periodDays = Math.max(1, periodMs / (1000 * 60 * 60 * 24))
-        const dailyBlndRate = blndApyRate / 100 / 365
+
+        // Get historical emission APY for this period (use period start date)
+        const periodBlndApyRate = getEmissionApyForDate(boundary.start, poolId, 'lending_supply', assetAddress)
+        const dailyBlndRate = periodBlndApyRate / 100 / 365
 
         // BLND on tokens held at start of period (earn for full period)
         let blndEarnings = tokensAtStart * priceAtStart * dailyBlndRate * periodDays
@@ -618,7 +673,10 @@ export async function GET(request: NextRequest) {
         backstopPeriodEndDate.setDate(backstopPeriodEndDate.getDate() + 1)
         const backstopPeriodMs = backstopPeriodEndDate.getTime() - backstopPeriodStartDate.getTime()
         const backstopPeriodDays = Math.max(1, backstopPeriodMs / (1000 * 60 * 60 * 24))
-        const dailyBackstopBlndRate = backstopBlndApyRate / 100 / 365
+
+        // Get historical backstop emission APY for this period
+        const periodBackstopBlndApyRate = getEmissionApyForDate(boundary.start, poolAddress, 'backstop')
+        const dailyBackstopBlndRate = periodBackstopBlndApyRate / 100 / 365
 
         // BLND on LP tokens held at start of period (earn for full period)
         let backstopBlndEarnings = lpAtStart * lpPriceAtStart * dailyBackstopBlndRate * backstopPeriodDays

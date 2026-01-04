@@ -2568,6 +2568,139 @@ export class EventsRepository {
 
     return resultMap
   }
+
+  /**
+   * Get historical emission APY data from the daily_emission_apy table.
+   * Returns APY data keyed by date, then by composite key (poolAddress-assetAddress for lending, poolAddress for backstop).
+   */
+  async getHistoricalEmissionApy(
+    startDate: string,
+    endDate: string,
+    poolAddresses: string[],
+    assetAddresses?: string[]
+  ): Promise<{
+    // Map<date, Map<compositeKey, apy>>
+    lendingSupply: Map<string, Map<string, number>>
+    backstop: Map<string, Map<string, number>>
+  }> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    const lendingSupply = new Map<string, Map<string, number>>()
+    const backstop = new Map<string, Map<string, number>>()
+
+    if (poolAddresses.length === 0) {
+      return { lendingSupply, backstop }
+    }
+
+    // Fetch all emission APY data for the date range and pools
+    // Use DISTINCT ON to handle duplicate rows, preferring non-null APY values
+    const result = await pool.query(
+      `
+      SELECT rate_date, apy_type, pool_address, asset_address, emission_apy FROM (
+        SELECT DISTINCT ON (rate_date, apy_type, pool_address, COALESCE(asset_address, ''))
+          rate_date::text,
+          apy_type,
+          pool_address,
+          asset_address,
+          emission_apy
+        FROM daily_emission_apy
+        WHERE rate_date >= $1::date
+          AND rate_date <= $2::date
+          AND pool_address = ANY($3)
+          AND emission_apy IS NOT NULL
+        ORDER BY rate_date, apy_type, pool_address, COALESCE(asset_address, ''), emission_apy DESC NULLS LAST
+      ) sub
+      ORDER BY rate_date
+      `,
+      [startDate, endDate, poolAddresses]
+    )
+
+    for (const row of result.rows) {
+      const date = row.rate_date
+      const apyType = row.apy_type
+      const poolAddress = row.pool_address
+      const assetAddress = row.asset_address
+      const emissionApy = parseFloat(row.emission_apy)
+
+      // Skip if emission_apy is invalid
+      if (!Number.isFinite(emissionApy)) continue
+
+      if (apyType === 'lending_supply') {
+        // Skip if we have a filter and this asset isn't in it
+        if (assetAddresses && assetAddresses.length > 0 && !assetAddresses.includes(assetAddress)) {
+          continue
+        }
+
+        if (!lendingSupply.has(date)) {
+          lendingSupply.set(date, new Map())
+        }
+        const compositeKey = `${poolAddress}-${assetAddress}`
+        lendingSupply.get(date)!.set(compositeKey, emissionApy)
+      } else if (apyType === 'backstop') {
+        if (!backstop.has(date)) {
+          backstop.set(date, new Map())
+        }
+        backstop.get(date)!.set(poolAddress, emissionApy)
+      }
+    }
+
+    return { lendingSupply, backstop }
+  }
+
+  /**
+   * Get emission APY for a specific date with forward-fill.
+   * If no data exists for the exact date, returns the most recent APY before that date.
+   */
+  async getEmissionApyAtDate(
+    targetDate: string,
+    poolAddress: string,
+    apyType: 'lending_supply' | 'backstop',
+    assetAddress?: string
+  ): Promise<number> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    let query: string
+    let params: (string | null)[]
+
+    if (apyType === 'lending_supply' && assetAddress) {
+      query = `
+        SELECT emission_apy
+        FROM daily_emission_apy
+        WHERE rate_date <= $1::date
+          AND pool_address = $2
+          AND apy_type = 'lending_supply'
+          AND asset_address = $3
+          AND emission_apy IS NOT NULL
+        ORDER BY rate_date DESC
+        LIMIT 1
+      `
+      params = [targetDate, poolAddress, assetAddress]
+    } else {
+      query = `
+        SELECT emission_apy
+        FROM daily_emission_apy
+        WHERE rate_date <= $1::date
+          AND pool_address = $2
+          AND apy_type = 'backstop'
+          AND emission_apy IS NOT NULL
+        ORDER BY rate_date DESC
+        LIMIT 1
+      `
+      params = [targetDate, poolAddress]
+    }
+
+    const result = await pool.query(query, params)
+
+    if (result.rows.length === 0) {
+      return 0
+    }
+
+    return parseFloat(result.rows[0].emission_apy) || 0
+  }
 }
 
 export const eventsRepository = new EventsRepository()

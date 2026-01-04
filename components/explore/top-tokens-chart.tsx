@@ -41,6 +41,14 @@ function getTotalApy(item: SupplyExploreItem): number {
   return (item.supplyApy ?? 0) + (item.blndApy ?? 0)
 }
 
+function formatPercentage(value: number): string {
+  const firstDecimal = Math.floor((value * 10) % 10)
+  const secondDecimal = Math.floor((value * 100) % 10)
+  if (firstDecimal === 0 && secondDecimal === 0) return value.toFixed(0)
+  if (firstDecimal === 0) return value.toFixed(2)
+  return value.toFixed(1)
+}
+
 function sortItems(items: SupplyExploreItem[], sortBy: SortBy): SupplyExploreItem[] {
   return [...items].sort((a, b) => {
     switch (sortBy) {
@@ -162,7 +170,7 @@ export function TopTokensChart({ items, isLoading, sortBy }: TopTokensChartProps
           const displayValue = sortBy === "apy" ? item.apy : sortBy === "blnd" ? item.blnd : item.total
           return (
             <div key={item.name} className="flex-1 text-center">
-              <span className="text-xs font-semibold">{displayValue.toFixed(1)}%</span>
+              <span className="text-xs font-semibold">{formatPercentage(displayValue)}%</span>
             </div>
           )
         })}

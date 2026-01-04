@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Flame, Shield, Clock } from "lucide-react"
 import { ApySparkline } from "@/components/apy-sparkline"
 import { BackstopApySparkline } from "@/components/backstop-apy-sparkline"
+import { BlndApySparkline } from "@/components/blnd-apy-sparkline"
 import { LpPriceSparkline } from "@/components/lp-price-sparkline"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -212,14 +213,29 @@ function AssetRow({ position, blndPrice, formatUsd, formatYield }: {
         </div>
       </div>
 
-      {/* APY Sparkline - 6 month history - full width */}
-      <div className="mb-3">
-        <ApySparkline
-          poolId={position.poolId}
-          assetAddress={position.assetId}
-          currentApy={position.supplyApy}
-          className="w-full h-12"
-        />
+      {/* APY Sparklines - Supply APY (6mo) and BLND Emission APY (30d) */}
+      <div className="grid grid-cols-2 gap-4 mb-3">
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">Supply APY (6mo)</p>
+          <ApySparkline
+            poolId={position.poolId}
+            assetAddress={position.assetId}
+            currentApy={position.supplyApy}
+            className="w-full h-10"
+          />
+        </div>
+        {position.blndApy > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">BLND Emission APY (30d)</p>
+            <BlndApySparkline
+              poolId={position.poolId}
+              type="lending_supply"
+              assetAddress={position.assetId}
+              currentApy={position.blndApy}
+              className="w-full h-10"
+            />
+          </div>
+        )}
       </div>
 
       {/* Position details grid */}
@@ -387,14 +403,29 @@ function MobileAssetCard({ position, blndPrice, formatUsd, formatYield }: {
         )}
       </div>
 
-      {/* APY Sparkline - 6 month history - full width */}
-      <div className="mb-3">
-        <ApySparkline
-          poolId={position.poolId}
-          assetAddress={position.assetId}
-          currentApy={position.supplyApy}
-          className="w-full h-10"
-        />
+      {/* APY Sparklines - Supply APY (6mo) and BLND Emission APY (30d) */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">Supply APY</p>
+          <ApySparkline
+            poolId={position.poolId}
+            assetAddress={position.assetId}
+            currentApy={position.supplyApy}
+            className="w-full h-8"
+          />
+        </div>
+        {position.blndApy > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">BLND APY</p>
+            <BlndApySparkline
+              poolId={position.poolId}
+              type="lending_supply"
+              assetAddress={position.assetId}
+              currentApy={position.blndApy}
+              className="w-full h-8"
+            />
+          </div>
+        )}
       </div>
 
       {/* Position details */}
@@ -613,12 +644,21 @@ function BackstopSection({ position, claimedLp = 0, blndPerLpToken = 0, blndPric
         </div>
 
         {/* Charts Section */}
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div>
             <p className="text-xs text-muted-foreground mb-1">Interest APR (6mo)</p>
             <BackstopApySparkline
               poolId={position.poolId}
               currentApy={position.interestApr}
+              className="w-full h-10"
+            />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">BLND Emission APY (30d)</p>
+            <BlndApySparkline
+              poolId={position.poolId}
+              type="backstop"
+              currentApy={position.emissionApy}
               className="w-full h-10"
             />
           </div>
