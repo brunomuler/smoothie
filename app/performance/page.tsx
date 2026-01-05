@@ -731,7 +731,7 @@ function RealizedYieldContent() {
             )}
 
             {/* P&L Over Time Chart */}
-            <div className="space-y-3 mt-6">
+            <div className="space-y-3 mt-8">
               <h2 className="text-base font-semibold">P&L Over Time</h2>
               <PnlChangeChart
                 data={pnlChartData}
