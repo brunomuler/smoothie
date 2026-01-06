@@ -22,6 +22,12 @@ interface UsePnlChangeChartResult {
   granularity: 'daily' | 'monthly' | undefined
 }
 
+// Backstop position with both LP tokens and shares for consistent yield calculation
+interface BackstopPositionData {
+  lpTokens: number
+  shares: number
+}
+
 async function fetchPnlChangeChart(params: {
   userAddress: string
   period: PnlPeriodType
@@ -31,7 +37,7 @@ async function fetchPnlChangeChart(params: {
   sdkLpPrice: number
   currentBalances: Record<string, number>
   currentBorrowBalances: Record<string, number>
-  backstopPositions: Record<string, number>
+  backstopPositions: Record<string, BackstopPositionData>
   useHistoricalBlndPrices: boolean
   blndApy: number
   backstopBlndApy: number
@@ -127,19 +133,30 @@ export function usePnlChangeChart(
     return balances
   }, [blendSnapshot?.positions])
 
-  // Build backstop positions map
-  // NOTE: We intentionally pass an empty map for backstop positions.
-  // Using SDK values for live backstop yield calculation causes issues because:
-  // 1. SDK lpTokens use current on-chain share rate
-  // 2. Historical shares use rate computed from events
-  // 3. When these rates differ (even by 1-2%), the yield calculation (which depends on
-  //    the CHANGE in share rate) can be off by 8-10x.
-  // By using an empty map, the API falls back to historical data for both LP and shares,
-  // ensuring consistency in the yield calculation.
+  // Build backstop positions map with BOTH lpTokens AND shares from SDK.
+  // This ensures the API can calculate consistent share rates for live data.
+  // Previously, we only passed lpTokens and the API used historical shares,
+  // which caused yield calculation errors when SDK and historical share rates diverged.
   const backstopPositions = useMemo(() => {
-    // Return empty map to use historical data consistently
-    return {} as Record<string, number>
-  }, [])
+    const positions: Record<string, BackstopPositionData> = {}
+    if (!backstopPositionsData) return positions
+
+    backstopPositionsData.forEach(bp => {
+      // Include both regular and Q4W (queued withdrawal) - they're still user's assets
+      const totalLpTokens = bp.lpTokens + (bp.q4wLpTokens || 0)
+      // Convert bigint shares to number, scaled by 1e7 to match historical data format
+      const totalShares = Number(bp.shares + (bp.q4wShares || BigInt(0))) / 1e7
+
+      if (totalLpTokens > 0 && totalShares > 0) {
+        positions[bp.poolId] = {
+          lpTokens: totalLpTokens,
+          shares: totalShares,
+        }
+      }
+    })
+
+    return positions
+  }, [backstopPositionsData])
 
   // Calculate weighted BLND APY from positions
   const blndApy = useMemo(() => {

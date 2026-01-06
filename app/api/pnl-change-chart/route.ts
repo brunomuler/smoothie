@@ -168,7 +168,8 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  let backstopPositions: Record<string, number> = {}
+  // Backstop positions now include both lpTokens and shares for consistent yield calculation
+  let backstopPositions: Record<string, { lpTokens: number; shares: number }> = {}
   if (backstopPositionsParam) {
     try {
       backstopPositions = JSON.parse(backstopPositionsParam)
@@ -651,11 +652,11 @@ export async function GET(request: NextRequest) {
         let lpAtEnd: number
         let sharesAtEnd: number
 
-        if (isLive && backstopPositions[poolAddress] !== undefined) {
-          lpAtEnd = backstopPositions[poolAddress]
-          // For live data, we don't have shares directly, so get from history
-          const endPosition = getBackstopPositionAtDate(poolAddress, boundary.end)
-          sharesAtEnd = endPosition.shares > 0 ? endPosition.shares : positionAtStart.shares
+        const sdkPosition = backstopPositions[poolAddress]
+        if (isLive && sdkPosition?.lpTokens !== undefined && sdkPosition?.shares !== undefined) {
+          // Use SDK data for both lpTokens AND shares to ensure consistent share rate calculation
+          lpAtEnd = sdkPosition.lpTokens
+          sharesAtEnd = sdkPosition.shares
         } else {
           // Fall back to balance history (also handles live period when SDK data not provided)
           const endPosition = getBackstopPositionAtDate(poolAddress, boundary.end)
