@@ -63,7 +63,7 @@ export function DashboardLayout({
   )
 
   return (
-    <>
+    <div className="min-h-[calc(100dvh-3.5rem-env(safe-area-inset-bottom))] md:min-h-dvh flex flex-col">
       {/* Fixed header - Mobile */}
       <header className="md:hidden fixed top-0 left-0 right-0 z-[60] bg-background shadow-[0_4px_6px_0px_oklch(0.145_0_0),0_8px_20px_-2px_oklch(0.145_0_0)] dark:shadow-[0_4px_6px_0px_oklch(0.145_0_0),0_8px_20px_-2px_oklch(0.145_0_0)]">
         <div className="px-4 pt-1.5 pb-1 flex items-center justify-between gap-2">
@@ -119,7 +119,7 @@ export function DashboardLayout({
       <div className="hidden md:block h-[60px]" />
 
       {/* Main content */}
-      <main className={`container max-w-3xl mx-auto px-4 py-3 sm:py-4 md:pb-6 ${isHomePage ? "md:pt-0" : "md:pt-8"}`}>
+      <main className={`flex-1 container max-w-3xl mx-auto px-4 py-3 sm:py-4 md:pb-6 ${isHomePage ? "md:pt-0" : "md:pt-8"}`}>
         {onRefresh ? (
           <PullToRefresh onRefresh={onRefresh}>{pageContent}</PullToRefresh>
         ) : (
@@ -128,6 +128,6 @@ export function DashboardLayout({
       </main>
 
       <Footer />
-    </>
+    </div>
   )
 }
