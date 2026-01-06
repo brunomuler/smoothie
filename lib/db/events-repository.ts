@@ -627,6 +627,124 @@ export class EventsRepository {
   }
 
   /**
+   * Get the b_rate and d_rate from actual events at "start of today" in the user's timezone.
+   * Used for live bar calculations where we need a rate closer to the user's timezone boundary.
+   *
+   * @param poolId - The pool ID
+   * @param assetAddress - The asset address
+   * @param todayDateStr - Today's date in YYYY-MM-DD format (in user's timezone)
+   * @param timezone - User's timezone (e.g., 'America/Los_Angeles')
+   * @returns The most recent b_rate and d_rate before midnight today in user's timezone
+   */
+  async getRateAtStartOfDay(
+    poolId: string,
+    assetAddress: string,
+    todayDateStr: string,
+    timezone: string
+  ): Promise<{ b_rate: number | null; d_rate: number | null }> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    // PostgreSQL handles the timezone conversion correctly:
+    // "todayDateStr::date::timestamp AT TIME ZONE timezone AT TIME ZONE 'UTC'"
+    // converts midnight in the user's timezone to UTC timestamp
+    //
+    // Example for LA (UTC-8):
+    // '2026-01-06'::date::timestamp = '2026-01-06 00:00:00' (no TZ)
+    // AT TIME ZONE 'America/Los_Angeles' = interprets as LA time
+    // AT TIME ZONE 'UTC' = converts to '2026-01-06 08:00:00 UTC'
+
+    // Get the most recent b_rate (from supply/withdraw events) before start of today
+    const bRateResult = await pool.query(
+      `
+      SELECT implied_rate
+      FROM parsed_events
+      WHERE pool_id = $1
+        AND asset_address = $2
+        AND action_type IN ('supply', 'withdraw', 'supply_collateral', 'withdraw_collateral')
+        AND implied_rate IS NOT NULL
+        AND amount_tokens >= 1000000  -- Filter dust like daily_rates does
+        AND ledger_closed_at < ($3::date::timestamp AT TIME ZONE $4 AT TIME ZONE 'UTC')
+      ORDER BY ledger_closed_at DESC
+      LIMIT 1
+      `,
+      [poolId, assetAddress, todayDateStr, timezone]
+    )
+
+    // Get the most recent d_rate (from borrow/repay events) before start of today
+    const dRateResult = await pool.query(
+      `
+      SELECT implied_rate
+      FROM parsed_events
+      WHERE pool_id = $1
+        AND asset_address = $2
+        AND action_type IN ('borrow', 'repay')
+        AND implied_rate IS NOT NULL
+        AND amount_tokens >= 1000000  -- Filter dust like daily_rates does
+        AND ledger_closed_at < ($3::date::timestamp AT TIME ZONE $4 AT TIME ZONE 'UTC')
+      ORDER BY ledger_closed_at DESC
+      LIMIT 1
+      `,
+      [poolId, assetAddress, todayDateStr, timezone]
+    )
+
+    return {
+      b_rate: bRateResult.rows[0]?.implied_rate ? parseFloat(bRateResult.rows[0].implied_rate) : null,
+      d_rate: dRateResult.rows[0]?.implied_rate ? parseFloat(dRateResult.rows[0].implied_rate) : null,
+    }
+  }
+
+  /**
+   * Get backstop pool share rate at the start of today in user's timezone.
+   * This is used for the live bar to get the precise share rate at midnight in user's TZ.
+   */
+  async getBackstopShareRateAtStartOfDay(
+    poolAddress: string,
+    todayDateStr: string,
+    timezone: string
+  ): Promise<number | null> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    // Get cumulative LP tokens and shares from all events BEFORE midnight in user's timezone
+    // Uses same timezone conversion pattern as getRateAtStartOfDay
+    const result = await pool.query(
+      `
+      SELECT
+        SUM(CASE
+          WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
+          WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
+          ELSE 0
+        END) as total_lp_tokens,
+        SUM(CASE
+          WHEN action_type = 'deposit' THEN shares::numeric
+          WHEN action_type = 'withdraw' THEN -shares::numeric
+          ELSE 0
+        END) as total_shares
+      FROM backstop_events
+      WHERE pool_address = $1
+        AND ledger_closed_at < ($2::date::timestamp AT TIME ZONE $3 AT TIME ZONE 'UTC')
+      `,
+      [poolAddress, todayDateStr, timezone]
+    )
+
+    if (result.rows.length === 0 || result.rows[0].total_shares === null) {
+      return null
+    }
+
+    const totalLpTokens = parseFloat(result.rows[0].total_lp_tokens) / 1e7 || 0
+    const totalShares = parseFloat(result.rows[0].total_shares) / 1e7 || 0
+
+    if (totalShares <= 0) {
+      return null
+    }
+
+    return totalLpTokens / totalShares
+  }
+
+  /**
    * Get all pools metadata
    */
   async getPools(): Promise<Pool[]> {

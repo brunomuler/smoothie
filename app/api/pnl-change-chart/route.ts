@@ -228,12 +228,18 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch balance history for all assets (includes supply, collateral, and debt balances)
+    // Also include raw bTokens and rates for live bar recalculation
     const balanceHistoryByAsset = new Map<string, Array<{
       snapshot_date: string
       supply_balance: number
       collateral_balance: number
       debt_balance: number
       pool_id: string
+      supply_btokens: number
+      collateral_btokens: number
+      liabilities_dtokens: number
+      b_rate: number
+      d_rate: number
     }>>()
 
     for (const assetAddress of uniqueAssets) {
@@ -249,6 +255,11 @@ export async function GET(request: NextRequest) {
         collateral_balance: number
         debt_balance: number
         pool_id: string
+        supply_btokens: number
+        collateral_btokens: number
+        liabilities_dtokens: number
+        b_rate: number
+        d_rate: number
       }>)
     }
 
@@ -443,6 +454,32 @@ export async function GET(request: NextRequest) {
       return 0
     }
 
+    // Helper to get raw balance data (bTokens + rate) for a specific date
+    // Used for live bar recalculation with event-based rates
+    function getRawBalanceAtDate(
+      assetAddress: string,
+      poolId: string,
+      targetDate: string
+    ): { supplyBtokens: number; collateralBtokens: number; liabilitiesDtokens: number; bRate: number; dRate: number } | null {
+      const history = balanceHistoryByAsset.get(assetAddress) || []
+      const sorted = history
+        .filter(r => r.pool_id === poolId)
+        .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
+
+      for (const record of sorted) {
+        if (record.snapshot_date <= targetDate) {
+          return {
+            supplyBtokens: record.supply_btokens || 0,
+            collateralBtokens: record.collateral_btokens || 0,
+            liabilitiesDtokens: record.liabilities_dtokens || 0,
+            bRate: record.b_rate || 1,
+            dRate: record.d_rate || 1,
+          }
+        }
+      }
+      return null
+    }
+
     // Helper to get debt balance for a specific date
     function getDebtBalanceAtDate(
       assetAddress: string,
@@ -497,6 +534,47 @@ export async function GET(request: NextRequest) {
     })
     const todayStr = todayFormatter.format(new Date())
 
+    // For the live bar, pre-fetch event-based rates at "start of today in user's timezone"
+    // This gives more accurate starting balances for the live bar calculation
+    // PostgreSQL handles the timezone conversion correctly in the query
+    const eventBasedRates = new Map<string, { b_rate: number | null; d_rate: number | null }>()
+
+    // Fetch event-based rates for all pool/asset pairs (supply positions)
+    for (const [compositeKey, { poolId, assetAddress }] of poolAssetPairs) {
+      const rates = await eventsRepository.getRateAtStartOfDay(
+        poolId,
+        assetAddress,
+        todayStr,
+        timezone
+      )
+      eventBasedRates.set(compositeKey, rates)
+    }
+
+    // Also fetch event-based rates for borrow positions (for d_rate)
+    for (const [compositeKey, { poolId, assetAddress }] of borrowPoolAssetPairs) {
+      // Only fetch if not already fetched (some positions might be in both supply and borrow)
+      if (!eventBasedRates.has(compositeKey)) {
+        const rates = await eventsRepository.getRateAtStartOfDay(
+          poolId,
+          assetAddress,
+          todayStr,
+          timezone
+        )
+        eventBasedRates.set(compositeKey, rates)
+      }
+    }
+
+    // Fetch event-based backstop share rates for live bar
+    const eventBasedBackstopRates = new Map<string, number | null>()
+    for (const poolAddress of backstopPoolAddresses) {
+      const shareRate = await eventsRepository.getBackstopShareRateAtStartOfDay(
+        poolAddress,
+        todayStr,
+        timezone
+      )
+      eventBasedBackstopRates.set(poolAddress, shareRate)
+    }
+
     // Calculate P&L for each period
     const data: PnlChangeDataPoint[] = []
 
@@ -517,7 +595,26 @@ export async function GET(request: NextRequest) {
       // Calculate for each asset
       for (const [compositeKey, { poolId, assetAddress }] of poolAssetPairs) {
         // Get balances
-        const tokensAtStart = getBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+        let tokensAtStart: number
+
+        if (isLive) {
+          // For live bar, use event-based rate for more accurate starting balance
+          // This avoids the timezone mismatch between daily_rates (UTC) and user's timezone
+          const rawBalance = getRawBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+          const eventRates = eventBasedRates.get(compositeKey)
+
+          if (rawBalance && eventRates?.b_rate) {
+            // Recalculate using event-based rate at the precise timezone boundary
+            tokensAtStart = (rawBalance.supplyBtokens + rawBalance.collateralBtokens) * eventRates.b_rate
+          } else {
+            // Fall back to historical balance if no event-based rate available
+            tokensAtStart = getBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+          }
+        } else {
+          // For historical bars, use the standard balance calculation
+          tokensAtStart = getBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+        }
+
         let tokensAtEnd: number
 
         if (isLive && currentBalances[compositeKey] !== undefined) {
@@ -578,12 +675,18 @@ export async function GET(request: NextRequest) {
         supplyApy += periodSupplyApy
 
         // Estimate BLND earned from supply using time-weighted balance
-        const periodStartDate = new Date(boundary.start)
-        const periodEndDate = new Date(boundary.end)
-        // Add 1 day to end date since boundary.end is inclusive
-        periodEndDate.setDate(periodEndDate.getDate() + 1)
+        const periodStartDate = new Date(boundary.start + 'T00:00:00')
+        let periodEndDate: Date
+        if (isLive) {
+          // For live bar, use current time to get partial day elapsed
+          periodEndDate = new Date()
+        } else {
+          // For historical bars, add 1 day to end date since boundary.end is inclusive
+          periodEndDate = new Date(boundary.end + 'T00:00:00')
+          periodEndDate.setDate(periodEndDate.getDate() + 1)
+        }
         const periodMs = periodEndDate.getTime() - periodStartDate.getTime()
-        const periodDays = Math.max(1, periodMs / (1000 * 60 * 60 * 24))
+        const periodDays = Math.max(0.01, periodMs / (1000 * 60 * 60 * 24)) // min 0.01 to avoid division issues
 
         // Get historical emission APY for this period (use period start date)
         const periodBlndApyRate = getEmissionApyForDate(boundary.start, poolId, 'lending_supply', assetAddress)
@@ -664,8 +767,21 @@ export async function GET(request: NextRequest) {
           sharesAtEnd = endPosition.shares
         }
 
-        const lpAtStart = positionAtStart.lpValue
+        let lpAtStart: number
         const sharesAtStart = positionAtStart.shares
+
+        // For live bar, use event-based share rate for more accurate starting LP value
+        // This avoids timezone mismatch between balance history and user's timezone
+        if (isLive) {
+          const eventShareRate = eventBasedBackstopRates.get(poolAddress)
+          if (eventShareRate !== null && eventShareRate !== undefined) {
+            lpAtStart = sharesAtStart * eventShareRate
+          } else {
+            lpAtStart = positionAtStart.lpValue
+          }
+        } else {
+          lpAtStart = positionAtStart.lpValue
+        }
 
         // Skip if no position in this period
         if (sharesAtStart <= 0 && sharesAtEnd <= 0) continue
@@ -735,11 +851,18 @@ export async function GET(request: NextRequest) {
         backstopYield += lpYield * lpPriceAtEnd
 
         // Estimate backstop BLND emissions using time-weighted balance
-        const backstopPeriodStartDate = new Date(boundary.start)
-        const backstopPeriodEndDate = new Date(boundary.end)
-        backstopPeriodEndDate.setDate(backstopPeriodEndDate.getDate() + 1)
+        const backstopPeriodStartDate = new Date(boundary.start + 'T00:00:00')
+        let backstopPeriodEndDate: Date
+        if (isLive) {
+          // For live bar, use current time to get partial day elapsed
+          backstopPeriodEndDate = new Date()
+        } else {
+          // For historical bars, add 1 day to end date since boundary.end is inclusive
+          backstopPeriodEndDate = new Date(boundary.end + 'T00:00:00')
+          backstopPeriodEndDate.setDate(backstopPeriodEndDate.getDate() + 1)
+        }
         const backstopPeriodMs = backstopPeriodEndDate.getTime() - backstopPeriodStartDate.getTime()
-        const backstopPeriodDays = Math.max(1, backstopPeriodMs / (1000 * 60 * 60 * 24))
+        const backstopPeriodDays = Math.max(0.01, backstopPeriodMs / (1000 * 60 * 60 * 24))
 
         // Get historical backstop emission APY for this period
         const periodBackstopBlndApyRate = getEmissionApyForDate(boundary.start, poolAddress, 'backstop')
@@ -794,7 +917,25 @@ export async function GET(request: NextRequest) {
       // Calculate borrow interest cost and BLND APY for each borrow position
       for (const [compositeKey, { poolId, assetAddress }] of borrowPoolAssetPairs) {
         // Get debt balances
-        const debtAtStart = getDebtBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+        let debtAtStart: number
+
+        if (isLive) {
+          // For live bar, use event-based rate for more accurate starting debt
+          const rawBalance = getRawBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+          const eventRates = eventBasedRates.get(compositeKey)
+
+          if (rawBalance && eventRates?.d_rate) {
+            // Recalculate using event-based rate at the precise timezone boundary
+            debtAtStart = rawBalance.liabilitiesDtokens * eventRates.d_rate
+          } else {
+            // Fall back to historical balance if no event-based rate available
+            debtAtStart = getDebtBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+          }
+        } else {
+          // For historical bars, use the standard debt calculation
+          debtAtStart = getDebtBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+        }
+
         let debtAtEnd: number
 
         if (isLive && currentBorrowBalances[compositeKey] !== undefined) {
@@ -877,11 +1018,18 @@ export async function GET(request: NextRequest) {
         borrowInterestCost -= periodBorrowInterestCost
 
         // Calculate borrow BLND emissions using time-weighted balance
-        const borrowPeriodStartDate = new Date(boundary.start)
-        const borrowPeriodEndDate = new Date(boundary.end)
-        borrowPeriodEndDate.setDate(borrowPeriodEndDate.getDate() + 1)
+        const borrowPeriodStartDate = new Date(boundary.start + 'T00:00:00')
+        let borrowPeriodEndDate: Date
+        if (isLive) {
+          // For live bar, use current time to get partial day elapsed
+          borrowPeriodEndDate = new Date()
+        } else {
+          // For historical bars, add 1 day to end date since boundary.end is inclusive
+          borrowPeriodEndDate = new Date(boundary.end + 'T00:00:00')
+          borrowPeriodEndDate.setDate(borrowPeriodEndDate.getDate() + 1)
+        }
         const borrowPeriodMs = borrowPeriodEndDate.getTime() - borrowPeriodStartDate.getTime()
-        const borrowPeriodDays = Math.max(1, borrowPeriodMs / (1000 * 60 * 60 * 24))
+        const borrowPeriodDays = Math.max(0.01, borrowPeriodMs / (1000 * 60 * 60 * 24))
 
         // Get historical borrow emission APY for this period (lending_borrow type)
         const periodBorrowBlndApyRate = getEmissionApyForDate(boundary.start, poolId, 'lending_borrow', assetAddress)
