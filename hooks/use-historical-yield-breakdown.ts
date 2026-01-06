@@ -22,6 +22,7 @@ interface BackstopPosition {
   lpTokens: number
   lpTokensUsd: number
   costBasisLp?: number
+  q4wLpTokens?: number  // LP tokens in queue-for-withdrawal (21-day lock)
 }
 
 export interface AssetYieldBreakdown extends HistoricalYieldBreakdown {
@@ -203,7 +204,10 @@ export function useHistoricalYieldBreakdown(
 
       // Process each pool's backstop position separately
       for (const bp of backstopPositions) {
-        if (!bp.lpTokens || bp.lpTokens <= 0) continue
+        // Include Q4W (queued withdrawal) LP tokens - they're still the user's tokens
+        // and still earning yield, just locked for 21 days
+        const totalLpTokens = bp.lpTokens + (bp.q4wLpTokens || 0)
+        if (totalLpTokens <= 0) continue
 
         const poolId = bp.poolId
 
@@ -229,7 +233,7 @@ export function useHistoricalYieldBreakdown(
           }))
 
           const breakdown = calculateHistoricalYieldBreakdown(
-            bp.lpTokens,
+            totalLpTokens,
             lpTokenPrice,
             deposits,
             withdrawals
@@ -243,16 +247,16 @@ export function useHistoricalYieldBreakdown(
           // Fallback: use cost basis from position (no historical prices for this pool)
           // costBasisLp represents the net deposited LP tokens (deposits - withdrawals in LP terms)
           const costBasisLp = bp.costBasisLp || 0
-          const netDepositedLpTokens = costBasisLp > 0 ? costBasisLp : bp.lpTokens
+          const netDepositedLpTokens = costBasisLp > 0 ? costBasisLp : totalLpTokens
 
           // Since we don't have historical LP prices, we estimate the deposit price
           // by using the current price. This means protocol yield will be calculated
           // based on the difference between current LP tokens and net deposited.
           // Price change will be 0 since we don't know the historical price.
           // The protocol yield = (current LP - net deposited) × current price
-          const yieldLpTokens = bp.lpTokens - netDepositedLpTokens
+          const yieldLpTokens = totalLpTokens - netDepositedLpTokens
           const protocolYieldUsd = yieldLpTokens * lpTokenPrice
-          const currentValueUsd = bp.lpTokens * lpTokenPrice
+          const currentValueUsd = totalLpTokens * lpTokenPrice
 
           // Since we don't have historical price, assume same as current (no price change)
           // Cost basis = net deposited tokens × current price (best estimate)

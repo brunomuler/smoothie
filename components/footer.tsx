@@ -11,11 +11,11 @@ export function Footer({ variant = "default" }: FooterProps) {
 
   return (
     <footer
-      className={`pt-12 pb-6 ${
+      className={`pt-6 pb-4 ${
         isLanding ? "text-white/60" : "text-muted-foreground"
       }`}
     >
-      <div className="container max-w-4xl mx-auto px-4">
+      <div className="container max-w-3xl mx-auto px-4">
         <div className="flex items-center justify-between gap-2 text-xs">
           <p className={isLanding ? "text-white/40" : "text-muted-foreground/60"}>
             Smoothie {new Date().getFullYear()}

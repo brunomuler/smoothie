@@ -14,6 +14,8 @@ export interface PnlChangeDataPoint {
   supplyBlndApy: number // Estimated BLND from lending
   backstopYield: number // LP token appreciation
   backstopBlndApy: number // Estimated BLND from backstop
+  borrowInterestCost: number // Interest accrued on borrows (negative = cost)
+  borrowBlndApy: number // BLND emissions from borrow positions (positive)
   priceChange: number // Can be negative
 
   // Total for the bar
@@ -125,6 +127,7 @@ export async function GET(request: NextRequest) {
   const sdkBlndPriceParam = searchParams.get('sdkBlndPrice')
   const sdkLpPriceParam = searchParams.get('sdkLpPrice')
   const currentBalancesParam = searchParams.get('currentBalances')
+  const currentBorrowBalancesParam = searchParams.get('currentBorrowBalances')
   const backstopPositionsParam = searchParams.get('backstopPositions')
   const useHistoricalBlndPrices = searchParams.get('useHistoricalBlndPrices') === 'true'
   const blndApyParam = searchParams.get('blndApy') // Current BLND APY from SDK (%)
@@ -156,6 +159,15 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  let currentBorrowBalances: Record<string, number> = {}
+  if (currentBorrowBalancesParam) {
+    try {
+      currentBorrowBalances = JSON.parse(currentBorrowBalancesParam)
+    } catch {
+      console.warn('[PnL Change API] Failed to parse currentBorrowBalances')
+    }
+  }
+
   let backstopPositions: Record<string, number> = {}
   if (backstopPositionsParam) {
     try {
@@ -167,9 +179,6 @@ export async function GET(request: NextRequest) {
 
   const sdkBlndPrice = sdkBlndPriceParam ? parseFloat(sdkBlndPriceParam) : 0
   const sdkLpPrice = sdkLpPriceParam ? parseFloat(sdkLpPriceParam) : 0
-  // Fallback APY rates from SDK (used only when historical data not available)
-  const fallbackBlndApyRate = blndApyParam ? parseFloat(blndApyParam) : 0
-  const fallbackBackstopBlndApyRate = backstopBlndApyParam ? parseFloat(backstopBlndApyParam) : 0
 
   try {
     const periodBoundaries = generatePeriodBoundaries(period, timezone)
@@ -179,34 +188,50 @@ export async function GET(request: NextRequest) {
     const overallStart = periodBoundaries[0].start
     const overallEnd = periodBoundaries[periodBoundaries.length - 1].end
 
-    // Fetch all user actions in the period
+    // Fetch all user actions in the period (including borrow/repay for borrow calculations)
     const userActions = await eventsRepository.getUserActions(userAddress, {
-      actionTypes: ['supply', 'supply_collateral', 'withdraw', 'withdraw_collateral', 'claim'],
+      actionTypes: ['supply', 'supply_collateral', 'withdraw', 'withdraw_collateral', 'claim', 'borrow', 'repay'],
       limit: 1000,
     })
 
-    // Get unique assets
+    // Get unique assets and separate supply vs borrow pool-asset pairs
     const uniqueAssets = new Set<string>()
-    const poolAssetPairs = new Map<string, { poolId: string; assetAddress: string }>()
+    const poolAssetPairs = new Map<string, { poolId: string; assetAddress: string }>() // Supply positions
+    const borrowPoolAssetPairs = new Map<string, { poolId: string; assetAddress: string }>() // Borrow positions
 
     for (const action of userActions) {
       if (action.asset_address) {
         uniqueAssets.add(action.asset_address)
         const compositeKey = `${action.pool_id}-${action.asset_address}`
-        if (!poolAssetPairs.has(compositeKey)) {
-          poolAssetPairs.set(compositeKey, {
-            poolId: action.pool_id,
-            assetAddress: action.asset_address,
-          })
+
+        // Track supply positions
+        if (['supply', 'supply_collateral', 'withdraw', 'withdraw_collateral'].includes(action.action_type)) {
+          if (!poolAssetPairs.has(compositeKey)) {
+            poolAssetPairs.set(compositeKey, {
+              poolId: action.pool_id,
+              assetAddress: action.asset_address,
+            })
+          }
+        }
+
+        // Track borrow positions
+        if (['borrow', 'repay'].includes(action.action_type)) {
+          if (!borrowPoolAssetPairs.has(compositeKey)) {
+            borrowPoolAssetPairs.set(compositeKey, {
+              poolId: action.pool_id,
+              assetAddress: action.asset_address,
+            })
+          }
         }
       }
     }
 
-    // Fetch balance history for all assets
+    // Fetch balance history for all assets (includes supply, collateral, and debt balances)
     const balanceHistoryByAsset = new Map<string, Array<{
       snapshot_date: string
       supply_balance: number
       collateral_balance: number
+      debt_balance: number
       pool_id: string
     }>>()
 
@@ -221,6 +246,7 @@ export async function GET(request: NextRequest) {
         snapshot_date: string
         supply_balance: number
         collateral_balance: number
+        debt_balance: number
         pool_id: string
       }>)
     }
@@ -267,15 +293,23 @@ export async function GET(request: NextRequest) {
 
     // Note: backstopEventsData already fetched above
 
+    // Helper to get day before a date string (used for period comparisons)
+    // This ensures consistent date handling with balance history dates
+    function getDayBefore(dateStr: string): string {
+      // Parse the date at noon UTC to avoid DST issues, then subtract a day
+      const date = new Date(dateStr + 'T12:00:00Z')
+      date.setUTCDate(date.getUTCDate() - 1)
+      // Format back to YYYY-MM-DD
+      return date.toISOString().split('T')[0]
+    }
+
     // Fetch historical prices for all dates we need
     const allDates = new Set<string>()
     for (const boundary of periodBoundaries) {
       allDates.add(boundary.start)
       allDates.add(boundary.end)
       // Also add day before start for period comparisons
-      const dayBefore = new Date(boundary.start)
-      dayBefore.setDate(dayBefore.getDate() - 1)
-      allDates.add(dayBefore.toISOString().split('T')[0])
+      allDates.add(getDayBefore(boundary.start))
     }
 
     // Also add dates of all user actions (needed for price change on deposits/withdrawals)
@@ -326,9 +360,12 @@ export async function GET(request: NextRequest) {
     )
 
     // Fetch historical emission APY data
-    // Collect all pool addresses from lending positions and backstop
+    // Collect all pool addresses from lending positions, borrow positions, and backstop
     const allPoolAddresses = new Set<string>()
     for (const { poolId } of poolAssetPairs.values()) {
+      allPoolAddresses.add(poolId)
+    }
+    for (const { poolId } of borrowPoolAssetPairs.values()) {
       allPoolAddresses.add(poolId)
     }
     for (const poolAddress of backstopPoolAddresses) {
@@ -346,15 +383,24 @@ export async function GET(request: NextRequest) {
     function getEmissionApyForDate(
       date: string,
       poolAddress: string,
-      apyType: 'lending_supply' | 'backstop',
+      apyType: 'lending_supply' | 'lending_borrow' | 'backstop',
       assetAddress?: string
     ): number {
-      const apyMap = apyType === 'lending_supply' ? historicalEmissionApy.lendingSupply : historicalEmissionApy.backstop
+      let apyMap: Map<string, Map<string, number>>
+      if (apyType === 'lending_supply') {
+        apyMap = historicalEmissionApy.lendingSupply
+      } else if (apyType === 'lending_borrow') {
+        apyMap = historicalEmissionApy.lendingBorrow
+      } else {
+        apyMap = historicalEmissionApy.backstop
+      }
+
+      const isLendingType = apyType === 'lending_supply' || apyType === 'lending_borrow'
 
       // Try exact date first
       if (apyMap.has(date)) {
         const dateData = apyMap.get(date)!
-        const key = apyType === 'lending_supply' ? `${poolAddress}-${assetAddress}` : poolAddress
+        const key = isLendingType ? `${poolAddress}-${assetAddress}` : poolAddress
         if (dateData.has(key)) {
           return dateData.get(key)!
         }
@@ -365,18 +411,19 @@ export async function GET(request: NextRequest) {
       for (const pastDate of sortedDates) {
         if (pastDate <= date) {
           const dateData = apyMap.get(pastDate)!
-          const key = apyType === 'lending_supply' ? `${poolAddress}-${assetAddress}` : poolAddress
+          const key = isLendingType ? `${poolAddress}-${assetAddress}` : poolAddress
           if (dateData.has(key)) {
             return dateData.get(key)!
           }
         }
       }
 
-      // Fall back to SDK rate if no historical data
-      return apyType === 'lending_supply' ? fallbackBlndApyRate : fallbackBackstopBlndApyRate
+      // No historical data found for this specific pool/asset - return 0
+      // (This means no emissions are configured for this pool/asset combination)
+      return 0
     }
 
-    // Helper to get balance for a specific date
+    // Helper to get supply/collateral balance for a specific date
     function getBalanceAtDate(
       assetAddress: string,
       poolId: string,
@@ -390,6 +437,25 @@ export async function GET(request: NextRequest) {
       for (const record of sorted) {
         if (record.snapshot_date <= targetDate) {
           return (record.supply_balance || 0) + (record.collateral_balance || 0)
+        }
+      }
+      return 0
+    }
+
+    // Helper to get debt balance for a specific date
+    function getDebtBalanceAtDate(
+      assetAddress: string,
+      poolId: string,
+      targetDate: string
+    ): number {
+      const history = balanceHistoryByAsset.get(assetAddress) || []
+      const sorted = history
+        .filter(r => r.pool_id === poolId)
+        .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
+
+      for (const record of sorted) {
+        if (record.snapshot_date <= targetDate) {
+          return record.debt_balance || 0
         }
       }
       return 0
@@ -436,15 +502,15 @@ export async function GET(request: NextRequest) {
     for (const boundary of periodBoundaries) {
       const isLive = boundary.end === todayStr
 
-      // Get day before period start for comparison
-      const dayBeforeStart = new Date(boundary.start)
-      dayBeforeStart.setDate(dayBeforeStart.getDate() - 1)
-      const dayBeforeStr = dayBeforeStart.toISOString().split('T')[0]
+      // Get day before period start for comparison (in same format as balance history dates)
+      const dayBeforeStr = getDayBefore(boundary.start)
 
       let supplyApy = 0
       let supplyBlndApy = 0
       let backstopYield = 0
       let backstopBlndApy = 0
+      let borrowInterestCost = 0 // Interest accrued on borrows (negative = cost)
+      let borrowBlndApy = 0 // BLND emissions from borrow positions (positive)
       let priceChange = 0
 
       // Calculate for each asset
@@ -724,8 +790,134 @@ export async function GET(request: NextRequest) {
         priceChange += lpPriceChange
       }
 
-      // Calculate total
-      const total = supplyApy + supplyBlndApy + backstopYield + backstopBlndApy + priceChange
+      // Calculate borrow interest cost and BLND APY for each borrow position
+      for (const [compositeKey, { poolId, assetAddress }] of borrowPoolAssetPairs) {
+        // Get debt balances
+        const debtAtStart = getDebtBalanceAtDate(assetAddress, poolId, dayBeforeStr)
+        let debtAtEnd: number
+
+        if (isLive && currentBorrowBalances[compositeKey] !== undefined) {
+          // Use SDK current borrow balance for live period
+          debtAtEnd = currentBorrowBalances[compositeKey]
+        } else {
+          // Fall back to balance history (also handles live period when SDK data not provided)
+          debtAtEnd = getDebtBalanceAtDate(assetAddress, poolId, boundary.end)
+        }
+
+        if (debtAtStart <= 0 && debtAtEnd <= 0) continue
+
+        // Get prices
+        const priceAtStart = getPriceAtDate(assetAddress, dayBeforeStr)
+        const priceAtEnd = isLive
+          ? (sdkPrices[assetAddress] || priceAtStart)
+          : getPriceAtDate(assetAddress, boundary.end)
+
+        if (priceAtEnd <= 0) continue
+
+        // Get borrow/repay events in this period
+        const dateFormatter = new Intl.DateTimeFormat('en-CA', {
+          timeZone: timezone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        })
+        const periodBorrowActions = userActions.filter(a => {
+          if (a.asset_address !== assetAddress || a.pool_id !== poolId) return false
+          if (!['borrow', 'repay'].includes(a.action_type)) return false
+          const actionDate = dateFormatter.format(new Date(a.ledger_closed_at))
+          return actionDate >= boundary.start && actionDate <= boundary.end
+        })
+
+        // Calculate net borrowed in period (tokens)
+        let borrowsTokens = 0
+        let repaysTokens = 0
+
+        for (const action of periodBorrowActions) {
+          const rawAmount = action.amount_underlying
+          if (rawAmount === null) continue
+          const decimals = action.asset_decimals || 7
+          const tokens = rawAmount / Math.pow(10, decimals)
+
+          if (action.action_type === 'borrow') {
+            borrowsTokens += tokens
+          } else if (action.action_type === 'repay') {
+            repaysTokens += tokens
+          }
+        }
+
+        const netBorrowed = borrowsTokens - repaysTokens
+
+        // Calculate borrow interest cost for the period
+        // Interest = change in debt - net borrowed
+        // Debt grows from interest, so interest = (debtAtEnd - debtAtStart) - (borrows - repays)
+        //
+        // SAFEGUARD: If debtAtStart is 0 but debtAtEnd > 0 and there were no borrows in this period,
+        // it means we don't have historical data for when the debt was created. In this case,
+        // skip the interest calculation to avoid incorrectly treating the entire debt as interest.
+        let interestTokens = 0
+        if (debtAtStart > 0 || netBorrowed !== 0) {
+          // We have either historical debt data OR activity in this period - safe to calculate
+          interestTokens = (debtAtEnd - debtAtStart) - netBorrowed
+
+          // SANITY CHECK: Interest should not exceed ~1% of debt per day (365% APY is unrealistic)
+          // If it does, there's likely a data mismatch between SDK and historical data
+          const maxReasonableInterestRatio = 0.01 // 1% per day max
+          const avgDebt = (debtAtStart + debtAtEnd) / 2
+          if (avgDebt > 0 && Math.abs(interestTokens) > avgDebt * maxReasonableInterestRatio) {
+            // Interest is unreasonably large, likely data mismatch - skip this period
+            interestTokens = 0
+          }
+        }
+        // If debtAtStart = 0 and netBorrowed = 0 but debtAtEnd > 0, we skip (interestTokens stays 0)
+
+        const periodBorrowInterestCost = interestTokens * priceAtEnd
+
+        // Borrow interest is a cost (negative), so we subtract it
+        borrowInterestCost -= periodBorrowInterestCost
+
+        // Calculate borrow BLND emissions using time-weighted balance
+        const borrowPeriodStartDate = new Date(boundary.start)
+        const borrowPeriodEndDate = new Date(boundary.end)
+        borrowPeriodEndDate.setDate(borrowPeriodEndDate.getDate() + 1)
+        const borrowPeriodMs = borrowPeriodEndDate.getTime() - borrowPeriodStartDate.getTime()
+        const borrowPeriodDays = Math.max(1, borrowPeriodMs / (1000 * 60 * 60 * 24))
+
+        // Get historical borrow emission APY for this period (lending_borrow type)
+        const periodBorrowBlndApyRate = getEmissionApyForDate(boundary.start, poolId, 'lending_borrow', assetAddress)
+        const dailyBorrowBlndRate = periodBorrowBlndApyRate / 100 / 365
+
+        // BLND on debt held at start of period (earn for full period)
+        let blndFromBorrow = debtAtStart * priceAtStart * dailyBorrowBlndRate * borrowPeriodDays
+
+        // BLND on borrows during period (pro-rated from borrow date to period end)
+        for (const action of periodBorrowActions) {
+          const rawAmount = action.amount_underlying
+          if (rawAmount === null) continue
+          const decimals = action.asset_decimals || 7
+          const tokens = rawAmount / Math.pow(10, decimals)
+          const actionDate = new Date(action.ledger_closed_at)
+          const priceAtAction = getPriceAtDate(assetAddress, dateFormatter.format(actionDate))
+          const daysRemaining = Math.max(0, (borrowPeriodEndDate.getTime() - actionDate.getTime()) / (1000 * 60 * 60 * 24))
+
+          if (action.action_type === 'borrow') {
+            // New borrows earn BLND from borrow date to period end
+            blndFromBorrow += tokens * priceAtAction * dailyBorrowBlndRate * daysRemaining
+          } else if (action.action_type === 'repay') {
+            // Repays stop earning BLND from repay date
+            blndFromBorrow -= tokens * priceAtAction * dailyBorrowBlndRate * daysRemaining
+          }
+        }
+
+        // Get actual BLND price from database or SDK
+        const blndPriceToUse = useHistoricalBlndPrices
+          ? getPriceAtDate(BLND_TOKEN_ADDRESS, boundary.end)
+          : sdkBlndPrice
+
+        borrowBlndApy += blndPriceToUse > 0 ? Math.max(0, blndFromBorrow) : 0
+      }
+
+      // Calculate total (borrow cost is negative, borrow BLND is positive)
+      const total = supplyApy + supplyBlndApy + backstopYield + backstopBlndApy + borrowInterestCost + borrowBlndApy + priceChange
 
       data.push({
         period: boundary.label,
@@ -735,6 +927,8 @@ export async function GET(request: NextRequest) {
         supplyBlndApy,
         backstopYield,
         backstopBlndApy,
+        borrowInterestCost,
+        borrowBlndApy,
         priceChange,
         total,
         isLive,

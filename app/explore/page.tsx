@@ -2,12 +2,13 @@
 
 import { useState, Suspense, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { PiggyBank, ShieldCheck } from "lucide-react"
+import { PiggyBank, ShieldCheck, Layers } from "lucide-react"
 import { ExploreFilters } from "@/components/explore/explore-filters"
 import { TopTokensChart } from "@/components/explore/top-tokens-chart"
 import { BackstopChart } from "@/components/explore/backstop-chart"
 import { SupplyResults } from "@/components/explore/supply-results"
 import { BackstopResults } from "@/components/explore/backstop-results"
+import { PoolsResults } from "@/components/explore/pools-results"
 import { useExplore } from "@/hooks/use-explore"
 import { AuthenticatedPage } from "@/components/authenticated-page"
 import { useAnalytics } from "@/hooks/use-analytics"
@@ -17,14 +18,14 @@ import { PageTitle } from "@/components/page-title"
 
 function ExploreContent() {
   const { capture } = useAnalytics()
-  const [activeTab, setActiveTab] = useState<"supply" | "backstops">("supply")
+  const [activeTab, setActiveTab] = useState<"supply" | "backstops" | "pools">("supply")
   const [filters, setFilters] = useState<ExploreFiltersType>({
     period: "current",
     tokenFilter: "all",
     sortBy: "total",
   })
 
-  const { isLoading, supplyItems, backstopItems } = useExplore(filters)
+  const { isLoading, supplyItems, backstopItems, poolItems } = useExplore(filters)
 
   // Track page view
   useEffect(() => {
@@ -32,7 +33,7 @@ function ExploreContent() {
   }, [capture])
 
   const handleTabChange = (tab: string) => {
-    setActiveTab(tab as "supply" | "backstops")
+    setActiveTab(tab as "supply" | "backstops" | "pools")
     capture('tab_changed', { tab, page: 'explore' })
   }
 
@@ -42,7 +43,7 @@ function ExploreContent() {
         <PageTitle>Explore</PageTitle>
 
         <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="grid w-full grid-cols-2 h-10 sm:h-11 mb-6 bg-transparent border border-gray-500/20 rounded-lg">
+          <TabsList className="grid w-full grid-cols-3 h-10 sm:h-11 mb-6 bg-transparent border border-gray-500/20 rounded-lg">
             <TabsTrigger value="supply" className="gap-1.5 text-xs sm:text-sm">
               <PiggyBank className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               Supply
@@ -50,6 +51,10 @@ function ExploreContent() {
             <TabsTrigger value="backstops" className="gap-1.5 text-xs sm:text-sm">
               <ShieldCheck className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               Backstops
+            </TabsTrigger>
+            <TabsTrigger value="pools" className="gap-1.5 text-xs sm:text-sm">
+              <Layers className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              Pools
             </TabsTrigger>
           </TabsList>
 
@@ -63,6 +68,10 @@ function ExploreContent() {
             <ExploreFilters filters={filters} onFiltersChange={setFilters} />
             <BackstopChart items={backstopItems} isLoading={isLoading} />
             <BackstopResults items={backstopItems} isLoading={isLoading} sortBy={filters.sortBy} />
+          </TabsContent>
+
+          <TabsContent value="pools" className="space-y-6">
+            <PoolsResults items={poolItems} isLoading={isLoading} />
           </TabsContent>
         </Tabs>
       </div>
@@ -86,7 +95,8 @@ function ExploreLoading() {
         <Skeleton className="h-8 w-24" />
 
         {/* Tabs skeleton */}
-        <div className="grid grid-cols-2 gap-1 p-1 rounded-lg border">
+        <div className="grid grid-cols-3 gap-1 p-1 rounded-lg border">
+          <Skeleton className="h-10 rounded-md" />
           <Skeleton className="h-10 rounded-md" />
           <Skeleton className="h-10 rounded-md" />
         </div>

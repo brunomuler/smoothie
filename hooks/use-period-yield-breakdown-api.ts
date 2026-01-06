@@ -15,6 +15,7 @@ interface BlendPosition {
 interface BackstopPosition {
   poolId: string
   lpTokens: number
+  q4wLpTokens?: number  // LP tokens in queue-for-withdrawal (21-day lock)
 }
 
 interface UsePeriodYieldBreakdownAPIParams {
@@ -109,14 +110,17 @@ export function usePeriodYieldBreakdownAPI({
   }, [blendPositions])
 
   // Build backstop positions map (poolId -> lpTokens)
+  // Include Q4W (queued withdrawal) LP tokens - they're still the user's tokens
+  // and still earning yield, just locked for 21 days
   const { backstopPositionsMap, hasBackstopData } = useMemo(() => {
     const positionsMap: Record<string, number> = {}
     let hasData = false
 
     if (backstopPositions && lpTokenPrice && lpTokenPrice > 0) {
       for (const position of backstopPositions) {
-        if (position.lpTokens > 0) {
-          positionsMap[position.poolId] = position.lpTokens
+        const totalLpTokens = position.lpTokens + (position.q4wLpTokens || 0)
+        if (totalLpTokens > 0) {
+          positionsMap[position.poolId] = totalLpTokens
           hasData = true
         }
       }

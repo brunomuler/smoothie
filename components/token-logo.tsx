@@ -9,10 +9,9 @@ interface TokenLogoProps {
   symbol: string
   size?: number
   className?: string
-  noPadding?: boolean
 }
 
-export function TokenLogo({ src, symbol, size = 48, className, noPadding }: TokenLogoProps) {
+export function TokenLogo({ src, symbol, size = 48, className }: TokenLogoProps) {
   const [hasError, setHasError] = React.useState(false)
 
   // Reset error state when src changes
@@ -38,7 +37,7 @@ export function TokenLogo({ src, symbol, size = 48, className, noPadding }: Toke
 
   return (
     <div
-      className={cn("relative shrink-0 overflow-hidden rounded-full bg-white", className)}
+      className={cn("relative shrink-0 overflow-hidden rounded-full", className)}
       style={{ width: size, height: size }}
     >
       <Image
@@ -46,7 +45,7 @@ export function TokenLogo({ src, symbol, size = 48, className, noPadding }: Toke
         alt={`${symbol} logo`}
         fill
         sizes={`${size}px`}
-        className={cn("object-contain", noPadding ? "" : "p-px")}
+        className="object-contain"
         onError={() => setHasError(true)}
       />
     </div>

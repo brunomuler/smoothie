@@ -30,6 +30,7 @@ async function fetchPnlChangeChart(params: {
   sdkBlndPrice: number
   sdkLpPrice: number
   currentBalances: Record<string, number>
+  currentBorrowBalances: Record<string, number>
   backstopPositions: Record<string, number>
   useHistoricalBlndPrices: boolean
   blndApy: number
@@ -43,6 +44,7 @@ async function fetchPnlChangeChart(params: {
     sdkBlndPrice: params.sdkBlndPrice.toString(),
     sdkLpPrice: params.sdkLpPrice.toString(),
     currentBalances: JSON.stringify(params.currentBalances),
+    currentBorrowBalances: JSON.stringify(params.currentBorrowBalances),
     backstopPositions: JSON.stringify(params.backstopPositions),
     useHistoricalBlndPrices: params.useHistoricalBlndPrices.toString(),
     blndApy: params.blndApy.toString(),
@@ -95,7 +97,7 @@ export function usePnlChangeChart(
     return prices
   }, [blendSnapshot?.positions])
 
-  // Build current balances map from blend positions
+  // Build current balances map from blend positions (supply)
   const currentBalances = useMemo(() => {
     const balances: Record<string, number> = {}
     if (!blendSnapshot?.positions) return balances
@@ -110,14 +112,32 @@ export function usePnlChangeChart(
     return balances
   }, [blendSnapshot?.positions])
 
+  // Build current borrow balances map from blend positions (debt)
+  const currentBorrowBalances = useMemo(() => {
+    const balances: Record<string, number> = {}
+    if (!blendSnapshot?.positions) return balances
+
+    blendSnapshot.positions.forEach(pos => {
+      if (pos.borrowAmount > 0 && pos.assetId) {
+        const compositeKey = `${pos.poolId}-${pos.assetId}`
+        balances[compositeKey] = pos.borrowAmount
+      }
+    })
+
+    return balances
+  }, [blendSnapshot?.positions])
+
   // Build backstop positions map
+  // Include Q4W (queued withdrawal) LP tokens - they're still the user's tokens
+  // and still earning yield, just locked for 21 days
   const backstopPositions = useMemo(() => {
     const positions: Record<string, number> = {}
     if (!backstopPositionsData) return positions
 
     backstopPositionsData.forEach(bp => {
-      if (bp.lpTokens > 0) {
-        positions[bp.poolId] = bp.lpTokens
+      const totalLpTokens = bp.lpTokens + (bp.q4wLpTokens || 0)
+      if (totalLpTokens > 0) {
+        positions[bp.poolId] = totalLpTokens
       }
     })
 
@@ -160,6 +180,7 @@ export function usePnlChangeChart(
       preferences.useHistoricalBlndPrices,
       // Include SDK data in key to refetch when positions change
       Object.keys(currentBalances).sort().join(','),
+      Object.keys(currentBorrowBalances).sort().join(','),
       Object.keys(backstopPositions).sort().join(','),
     ],
     queryFn: () =>
@@ -171,6 +192,7 @@ export function usePnlChangeChart(
         sdkBlndPrice: blndPrice ?? 0,
         sdkLpPrice: lpTokenPrice ?? 0,
         currentBalances,
+        currentBorrowBalances,
         backstopPositions,
         useHistoricalBlndPrices: preferences.useHistoricalBlndPrices,
         blndApy,

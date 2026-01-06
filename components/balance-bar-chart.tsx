@@ -842,7 +842,7 @@ export const BalanceBarChart = memo(function BalanceBarChart({
               {selectedPeriod !== "Projection" && hasBorrowData && (
                 <Bar
                   dataKey="borrow"
-                  radius={4}
+                  radius={[0, 0, 4, 4]}
                   maxBarSize={selectedPeriod === "1M" ? 40 : selectedPeriod === "1W" ? 60 : 80}
                   activeBar={{ fill: "hsl(25 98% 68%)" }}
                   isAnimationActive={false}

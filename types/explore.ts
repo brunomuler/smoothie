@@ -31,6 +31,31 @@ export interface BackstopExploreItem {
   q4wPercent: number | null
 }
 
+export interface PoolTokenItem {
+  assetAddress: string
+  tokenSymbol: string
+  iconUrl: string | null
+  totalSupplied: number
+  totalBorrowed: number
+}
+
+export interface Pool24hChange {
+  poolId: string
+  supplyChange: number
+  borrowChange: number
+}
+
+export interface PoolExploreItem {
+  poolId: string
+  poolName: string
+  iconUrl: string | null
+  totalTvl: number
+  totalBorrowed: number
+  tokens: PoolTokenItem[]
+  supplyChange24h: number
+  borrowChange24h: number
+}
+
 export type SortBy = 'apy' | 'blnd' | 'total'
 
 export interface ExploreFilters {
@@ -43,4 +68,5 @@ export interface ExploreData {
   period: ApyPeriod
   supplyItems: SupplyExploreItem[]
   backstopItems: BackstopExploreItem[]
+  pool24hChanges: Pool24hChange[]
 }

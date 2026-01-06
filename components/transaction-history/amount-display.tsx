@@ -75,9 +75,9 @@ export function getAmountDisplay(action: UserAction, currentUserAddress?: string
       <div className={`flex items-center gap-2 font-mono text-xs font-medium ${textColor}`}>
         {symbol && (
           isBlnd ? (
-            <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding className="!bg-zinc-800" />
+            <TokenLogo src={iconUrl} symbol={symbol} size={20} className="bg-zinc-800" />
           ) : (
-            <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding />
+            <TokenLogo src={iconUrl} symbol={symbol} size={20} />
           )
         )}
         <span>{sign}{formatAmount(amount, action.asset_decimals || 7)} {symbol || ""}</span>
@@ -166,9 +166,9 @@ export function AmountWithCurrency({
       <div className="flex items-center gap-2">
         {symbol && (
           isBlnd ? (
-            <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding className="!bg-zinc-800" />
+            <TokenLogo src={iconUrl} symbol={symbol} size={20} className="bg-zinc-800" />
           ) : (
-            <TokenLogo src={iconUrl} symbol={symbol} size={20} noPadding />
+            <TokenLogo src={iconUrl} symbol={symbol} size={20} />
           )
         )}
         <div className="flex flex-col items-start">

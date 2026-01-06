@@ -2693,6 +2693,7 @@ export class EventsRepository {
   ): Promise<{
     // Map<date, Map<compositeKey, apy>>
     lendingSupply: Map<string, Map<string, number>>
+    lendingBorrow: Map<string, Map<string, number>>
     backstop: Map<string, Map<string, number>>
   }> {
     if (!pool) {
@@ -2700,10 +2701,11 @@ export class EventsRepository {
     }
 
     const lendingSupply = new Map<string, Map<string, number>>()
+    const lendingBorrow = new Map<string, Map<string, number>>()
     const backstop = new Map<string, Map<string, number>>()
 
     if (poolAddresses.length === 0) {
-      return { lendingSupply, backstop }
+      return { lendingSupply, lendingBorrow, backstop }
     }
 
     // Fetch all emission APY data for the date range and pools
@@ -2750,6 +2752,17 @@ export class EventsRepository {
         }
         const compositeKey = `${poolAddress}-${assetAddress}`
         lendingSupply.get(date)!.set(compositeKey, emissionApy)
+      } else if (apyType === 'lending_borrow') {
+        // Skip if we have a filter and this asset isn't in it
+        if (assetAddresses && assetAddresses.length > 0 && !assetAddresses.includes(assetAddress)) {
+          continue
+        }
+
+        if (!lendingBorrow.has(date)) {
+          lendingBorrow.set(date, new Map())
+        }
+        const compositeKey = `${poolAddress}-${assetAddress}`
+        lendingBorrow.get(date)!.set(compositeKey, emissionApy)
       } else if (apyType === 'backstop') {
         if (!backstop.has(date)) {
           backstop.set(date, new Map())
@@ -2758,7 +2771,7 @@ export class EventsRepository {
       }
     }
 
-    return { lendingSupply, backstop }
+    return { lendingSupply, lendingBorrow, backstop }
   }
 
   /**
@@ -2768,7 +2781,7 @@ export class EventsRepository {
   async getEmissionApyAtDate(
     targetDate: string,
     poolAddress: string,
-    apyType: 'lending_supply' | 'backstop',
+    apyType: 'lending_supply' | 'lending_borrow' | 'backstop',
     assetAddress?: string
   ): Promise<number> {
     if (!pool) {
@@ -2778,19 +2791,19 @@ export class EventsRepository {
     let query: string
     let params: (string | null)[]
 
-    if (apyType === 'lending_supply' && assetAddress) {
+    if ((apyType === 'lending_supply' || apyType === 'lending_borrow') && assetAddress) {
       query = `
         SELECT emission_apy
         FROM daily_emission_apy
         WHERE rate_date <= $1::date
           AND pool_address = $2
-          AND apy_type = 'lending_supply'
-          AND asset_address = $3
+          AND apy_type = $3
+          AND asset_address = $4
           AND emission_apy IS NOT NULL
         ORDER BY rate_date DESC
         LIMIT 1
       `
-      params = [targetDate, poolAddress, assetAddress]
+      params = [targetDate, poolAddress, apyType, assetAddress]
     } else {
       query = `
         SELECT emission_apy
@@ -2812,6 +2825,203 @@ export class EventsRepository {
     }
 
     return parseFloat(result.rows[0].emission_apy) || 0
+  }
+
+  /**
+   * Batch version for borrow events - fetches borrow/repay events for multiple pool-asset pairs
+   * Similar to getDepositEventsWithPricesBatch but for borrow events
+   */
+  async getBorrowEventsWithPricesBatch(
+    userAddress: string,
+    poolAssetPairs: Array<{ poolId: string; assetAddress: string }>,
+    sdkPrices: Record<string, number> = {},
+    timezone: string = 'UTC'
+  ): Promise<Map<string, {
+    borrows: Array<{
+      date: string
+      tokens: number
+      priceAtBorrow: number
+      usdValue: number
+      poolId: string
+      priceSource: 'daily_token_prices' | 'forward_fill' | 'sdk_fallback'
+    }>
+    repays: Array<{
+      date: string
+      tokens: number
+      priceAtRepay: number
+      usdValue: number
+      poolId: string
+      priceSource: 'daily_token_prices' | 'forward_fill' | 'sdk_fallback'
+    }>
+  }>> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    if (poolAssetPairs.length === 0) {
+      return new Map()
+    }
+
+    // Build WHERE clause for all pool-asset combinations
+    const pairValues = poolAssetPairs
+      .map((_, i) => `($${3 + i * 2}, $${4 + i * 2})`)
+      .join(', ')
+
+    const params: (string | number)[] = [userAddress, timezone]
+    poolAssetPairs.forEach(pair => {
+      params.push(pair.poolId, pair.assetAddress)
+    })
+
+    const result = await pool.query(
+      `
+      WITH events AS (
+        SELECT
+          pe.pool_id,
+          pe.asset_address,
+          pe.action_type,
+          (pe.ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $2)::date::text AS event_date,
+          pe.amount_underlying / 1e7 AS tokens
+        FROM parsed_events pe
+        WHERE pe.user_address = $1
+          AND pe.action_type IN ('borrow', 'repay')
+          AND (pe.pool_id, pe.asset_address) IN (VALUES ${pairValues})
+        ORDER BY pe.ledger_closed_at
+      )
+      SELECT
+        e.pool_id,
+        e.asset_address,
+        e.action_type,
+        e.event_date,
+        e.tokens,
+        COALESCE(price_data.usd_price, NULL) AS price,
+        price_data.price_date AS price_source_date
+      FROM events e
+      LEFT JOIN LATERAL (
+        SELECT usd_price, price_date::text
+        FROM daily_token_prices
+        WHERE token_address = e.asset_address
+          AND price_date <= e.event_date::date
+        ORDER BY price_date DESC
+        LIMIT 1
+      ) price_data ON true
+      ORDER BY e.pool_id, e.asset_address, e.event_date
+      `,
+      params
+    )
+
+    // Build result map keyed by compositeKey (poolId-assetAddress)
+    const resultMap = new Map<string, {
+      borrows: Array<{
+        date: string
+        tokens: number
+        priceAtBorrow: number
+        usdValue: number
+        poolId: string
+        priceSource: 'daily_token_prices' | 'forward_fill' | 'sdk_fallback'
+      }>
+      repays: Array<{
+        date: string
+        tokens: number
+        priceAtRepay: number
+        usdValue: number
+        poolId: string
+        priceSource: 'daily_token_prices' | 'forward_fill' | 'sdk_fallback'
+      }>
+    }>()
+
+    // Initialize empty arrays for all pairs
+    for (const pair of poolAssetPairs) {
+      const compositeKey = `${pair.poolId}-${pair.assetAddress}`
+      resultMap.set(compositeKey, { borrows: [], repays: [] })
+    }
+
+    // Process all rows
+    for (const row of result.rows) {
+      const compositeKey = `${row.pool_id}-${row.asset_address}`
+      const entry = resultMap.get(compositeKey)
+      if (!entry) continue
+
+      const tokens = parseFloat(row.tokens) || 0
+      const sdkPrice = sdkPrices[row.asset_address] || 0
+      let price = row.price ? parseFloat(row.price) : sdkPrice
+      let priceSource: 'daily_token_prices' | 'forward_fill' | 'sdk_fallback'
+
+      if (row.price !== null) {
+        if (row.price_source_date === row.event_date) {
+          priceSource = 'daily_token_prices'
+        } else {
+          priceSource = 'forward_fill'
+        }
+      } else {
+        price = sdkPrice
+        priceSource = 'sdk_fallback'
+      }
+
+      const usdValue = tokens * price
+
+      if (row.action_type === 'borrow') {
+        entry.borrows.push({
+          date: row.event_date,
+          tokens,
+          priceAtBorrow: price,
+          usdValue,
+          poolId: row.pool_id,
+          priceSource,
+        })
+      } else {
+        entry.repays.push({
+          date: row.event_date,
+          tokens,
+          priceAtRepay: price,
+          usdValue,
+          poolId: row.pool_id,
+          priceSource,
+        })
+      }
+    }
+
+    return resultMap
+  }
+
+  /**
+   * Get 24h supply and borrow changes aggregated by pool.
+   * Returns net change in supply (supply - withdraw) and borrow (borrow - repay) for each pool in the last 24 hours.
+   */
+  async get24hPoolChanges(): Promise<Array<{
+    poolId: string
+    supplyChange: number
+    borrowChange: number
+  }>> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        pool_id,
+        SUM(CASE
+          WHEN action_type IN ('supply', 'supply_collateral') THEN amount_underlying / 1e7
+          WHEN action_type IN ('withdraw', 'withdraw_collateral') THEN -amount_underlying / 1e7
+          ELSE 0
+        END) AS supply_change,
+        SUM(CASE
+          WHEN action_type = 'borrow' THEN amount_underlying / 1e7
+          WHEN action_type = 'repay' THEN -amount_underlying / 1e7
+          ELSE 0
+        END) AS borrow_change
+      FROM parsed_events
+      WHERE ledger_closed_at >= NOW() - INTERVAL '24 hours'
+        AND action_type IN ('supply', 'supply_collateral', 'withdraw', 'withdraw_collateral', 'borrow', 'repay')
+      GROUP BY pool_id
+      `
+    )
+
+    return result.rows.map(row => ({
+      poolId: row.pool_id,
+      supplyChange: parseFloat(row.supply_change) || 0,
+      borrowChange: parseFloat(row.borrow_change) || 0,
+    }))
   }
 }
 

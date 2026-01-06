@@ -21,6 +21,7 @@ import {
 } from '@blend-capital/blend-sdk'
 import { metadataRepository } from '@/lib/db/repositories/metadata-repository'
 import { ratesRepository } from '@/lib/db/repositories/rates-repository'
+import { eventsRepository } from '@/lib/db/events-repository'
 import { getBlendNetwork } from '@/lib/blend/network'
 import { toTrackedPools } from '@/lib/blend/pools'
 import {
@@ -33,6 +34,7 @@ import type {
   SupplyExploreItem,
   BackstopExploreItem,
   ExploreData,
+  Pool24hChange,
 } from '@/types/explore'
 
 const PERIOD_DAYS: Record<ApyPeriod, number> = {
@@ -321,16 +323,25 @@ export const GET = createApiHandler<ExploreData>({
     // Load all pool data
     const snapshots = await loadPoolSnapshots()
 
-    // Build supply and backstop items in parallel
-    const [supplyItems, backstopItems] = await Promise.all([
+    // Build supply, backstop items, and 24h changes in parallel
+    const [supplyItems, backstopItems, pool24hChangesRaw] = await Promise.all([
       buildSupplyItems(snapshots, period),
       Promise.resolve(buildBackstopItems(snapshots)),
+      eventsRepository.get24hPoolChanges(),
     ])
+
+    // Map to Pool24hChange type
+    const pool24hChanges: Pool24hChange[] = pool24hChangesRaw.map(item => ({
+      poolId: item.poolId,
+      supplyChange: item.supplyChange,
+      borrowChange: item.borrowChange,
+    }))
 
     return {
       period,
       supplyItems,
       backstopItems,
+      pool24hChanges,
     }
   },
 })

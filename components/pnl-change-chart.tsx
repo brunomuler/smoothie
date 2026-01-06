@@ -46,6 +46,30 @@ function formatCompact(value: number): string {
   return `${sign}$${absValue.toFixed(0)}`
 }
 
+// Custom label renderer for negative totals - positions below each bar's actual bottom
+function NegativeLabel(props: any) {
+  const { x, y, width, height, value } = props
+  if (!value || value >= 0) return null
+
+  // For negative bars, height can be negative (bar extends upward from y)
+  // Get the visual bottom of the bar (largest Y value)
+  const barBottom = height >= 0 ? y + height : y
+  const labelY = barBottom + 6
+  const labelX = x + width / 2
+
+  return (
+    <text
+      x={labelX}
+      y={labelY}
+      textAnchor="middle"
+      dominantBaseline="hanging"
+      style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
+    >
+      {formatCompact(value)}
+    </text>
+  )
+}
+
 // Custom bar shape that applies rounding based on position in stack
 function RoundedBar(props: any) {
   const { x, y, width, height, fill, dataKey, payload } = props
@@ -90,22 +114,37 @@ function transformDataForYieldChart(
   supplyBlndApyBar: number
   backstopYieldPositiveBar: number
   backstopBlndApyBar: number
+  borrowBlndApyBar: number
   backstopYieldNegativeBar: number
+  borrowInterestCostBar: number
   supplyApy: number
   supplyBlndApy: number
   backstopYield: number
   backstopBlndApy: number
+  borrowInterestCost: number
+  borrowBlndApy: number
   priceChange: number
   isLive: boolean
   yieldTotal: number
+  positiveTotal: number
+  negativeTotal: number
   topPositiveBar: string | null
 }> {
   return data.map(d => {
-    const yieldTotal = d.supplyApy + d.supplyBlndApy + d.backstopYield + d.backstopBlndApy
+    // Include borrow data in yield total (cost is negative, BLND is positive)
+    const borrowInterestCost = d.borrowInterestCost ?? 0
+    const borrowBlndApy = d.borrowBlndApy ?? 0
+    const yieldTotal = d.supplyApy + d.supplyBlndApy + d.backstopYield + d.backstopBlndApy + borrowInterestCost + borrowBlndApy
 
-    // Determine which bar is the topmost positive bar (stacking order: supplyApy -> supplyBlndApy -> backstopYield -> backstopBlndApy)
+    // Calculate positive and negative totals for labels
+    const positiveTotal = d.supplyApy + d.supplyBlndApy + Math.max(0, d.backstopYield) + d.backstopBlndApy + borrowBlndApy
+    const negativeTotal = Math.min(0, d.backstopYield) + borrowInterestCost
+
+    // Determine which bar is the topmost positive bar
+    // Stacking order: supplyApy -> supplyBlndApy -> backstopYield -> backstopBlndApy -> borrowBlndApy
     let topPositiveBar: string | null = null
-    if (d.backstopBlndApy > 0) topPositiveBar = 'backstopBlndApyBar'
+    if (borrowBlndApy > 0) topPositiveBar = 'borrowBlndApyBar'
+    else if (d.backstopBlndApy > 0) topPositiveBar = 'backstopBlndApyBar'
     else if (d.backstopYield > 0) topPositiveBar = 'backstopYieldPositiveBar'
     else if (d.supplyBlndApy > 0) topPositiveBar = 'supplyBlndApyBar'
     else if (d.supplyApy > 0) topPositiveBar = 'supplyApyBar'
@@ -116,14 +155,20 @@ function transformDataForYieldChart(
       supplyBlndApyBar: Math.max(0, d.supplyBlndApy),
       backstopYieldPositiveBar: Math.max(0, d.backstopYield),
       backstopBlndApyBar: Math.max(0, d.backstopBlndApy),
+      borrowBlndApyBar: Math.max(0, borrowBlndApy),
       backstopYieldNegativeBar: d.backstopYield < 0 ? d.backstopYield : 0,
+      borrowInterestCostBar: borrowInterestCost < 0 ? borrowInterestCost : 0, // Cost is negative
       supplyApy: d.supplyApy,
       supplyBlndApy: d.supplyBlndApy,
       backstopYield: d.backstopYield,
       backstopBlndApy: d.backstopBlndApy,
+      borrowInterestCost,
+      borrowBlndApy,
       priceChange: d.priceChange,
       isLive: d.isLive,
       yieldTotal,
+      positiveTotal,
+      negativeTotal,
       topPositiveBar,
     }
   })
@@ -174,7 +219,9 @@ function YieldTooltip({
     data.supplyApy !== 0 ||
     data.supplyBlndApy !== 0 ||
     data.backstopYield !== 0 ||
-    data.backstopBlndApy !== 0
+    data.backstopBlndApy !== 0 ||
+    data.borrowInterestCost !== 0 ||
+    data.borrowBlndApy !== 0
 
   return (
     <div className="bg-black text-white border border-zinc-800 rounded-md shadow-lg p-2.5 min-w-[160px] max-w-[220px] select-none z-50">
@@ -235,6 +282,30 @@ function YieldTooltip({
               </div>
               <span className="tabular-nums text-purple-400">
                 {formatValue(data.backstopBlndApy)}
+              </span>
+            </div>
+          )}
+
+          {data.borrowInterestCost !== 0 && (
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-sm bg-orange-500" />
+                <span className="text-zinc-400">Borrow Cost</span>
+              </div>
+              <span className="tabular-nums text-orange-400">
+                {formatValue(data.borrowInterestCost)}
+              </span>
+            </div>
+          )}
+
+          {data.borrowBlndApy !== 0 && (
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-sm bg-amber-500" />
+                <span className="text-zinc-400">Borrow BLND</span>
+              </div>
+              <span className="tabular-nums text-amber-400">
+                {formatValue(data.borrowBlndApy)}
               </span>
             </div>
           )}
@@ -337,8 +408,8 @@ export const PnlChangeChart = memo(function PnlChangeChart({
     let max = 0
 
     yieldChartData.forEach(d => {
-      const positiveSum = d.supplyApyBar + d.supplyBlndApyBar + d.backstopYieldPositiveBar + d.backstopBlndApyBar
-      const negativeSum = d.backstopYieldNegativeBar
+      const positiveSum = d.supplyApyBar + d.supplyBlndApyBar + d.backstopYieldPositiveBar + d.backstopBlndApyBar + d.borrowBlndApyBar
+      const negativeSum = d.backstopYieldNegativeBar + d.borrowInterestCostBar
 
       max = Math.max(max, positiveSum)
       min = Math.min(min, negativeSum)
@@ -382,7 +453,9 @@ export const PnlChangeChart = memo(function PnlChangeChart({
       d.supplyBlndApyBar !== 0 ||
       d.backstopYieldPositiveBar !== 0 ||
       d.backstopYieldNegativeBar !== 0 ||
-      d.backstopBlndApyBar !== 0
+      d.backstopBlndApyBar !== 0 ||
+      d.borrowBlndApyBar !== 0 ||
+      d.borrowInterestCostBar !== 0
   )
 
   const hasPriceData = priceChartData.some(
@@ -401,14 +474,14 @@ export const PnlChangeChart = memo(function PnlChangeChart({
         </div>
       ) : (
         <div className="space-y-1">
-          <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide px-1">
+          <div className="text-[10px] text-muted-foreground font-medium tracking-wide px-1">
             Yield Earnings (Approx.)
           </div>
           <div className="aspect-[3/1] md:aspect-[4/1] w-full select-none">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={yieldChartData}
-                margin={{ top: 20, right: 10, left: 10, bottom: 5 }}
+                margin={{ top: 20, right: 10, left: 10, bottom: 20 }}
                 stackOffset="sign"
                 barCategoryGap={barGap}
               >
@@ -429,36 +502,46 @@ export const PnlChangeChart = memo(function PnlChangeChart({
                     <stop offset="0%" stopColor="hsl(271 81% 66%)" stopOpacity={1} />
                     <stop offset="100%" stopColor="hsl(271 81% 61%)" stopOpacity={0.8} />
                   </linearGradient>
+                  <linearGradient id="borrowBlndGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="hsl(43 96% 56%)" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(43 96% 51%)" stopOpacity={0.8} />
+                  </linearGradient>
                   <linearGradient id="negativeGradient" x1="0" y1="1" x2="0" y2="0">
                     <stop offset="0%" stopColor="hsl(0 84% 60%)" stopOpacity={1} />
                     <stop offset="100%" stopColor="hsl(0 84% 55%)" stopOpacity={0.8} />
+                  </linearGradient>
+                  <linearGradient id="borrowCostGradient" x1="0" y1="1" x2="0" y2="0">
+                    <stop offset="0%" stopColor="hsl(24 95% 53%)" stopOpacity={1} />
+                    <stop offset="100%" stopColor="hsl(24 95% 48%)" stopOpacity={0.8} />
                   </linearGradient>
                 </defs>
 
                 <XAxis dataKey="period" hide />
                 <YAxis hide domain={[yieldDomain.min, yieldDomain.max]} />
-                <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                {yieldDomain.min < 0 && (
+                  <ReferenceLine y={0} stroke="white" strokeOpacity={0.05} />
+                )}
 
                 <Bar dataKey="supplyApyBar" stackId="yield" fill="url(#supplyApyGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="supplyApyBar" />} maxBarSize={barSize} isAnimationActive={false} />
                 <Bar dataKey="supplyBlndApyBar" stackId="yield" fill="url(#supplyBlndGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="supplyBlndApyBar" />} maxBarSize={barSize} isAnimationActive={false} />
                 <Bar dataKey="backstopYieldPositiveBar" stackId="yield" fill="url(#backstopYieldGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="backstopYieldPositiveBar" />} maxBarSize={barSize} isAnimationActive={false} />
-                <Bar dataKey="backstopBlndApyBar" stackId="yield" fill="url(#backstopBlndGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="backstopBlndApyBar" />} maxBarSize={barSize} isAnimationActive={false}>
+                <Bar dataKey="backstopBlndApyBar" stackId="yield" fill="url(#backstopBlndGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="backstopBlndApyBar" />} maxBarSize={barSize} isAnimationActive={false} />
+                <Bar dataKey="borrowBlndApyBar" stackId="yield" fill="url(#borrowBlndGradient)" shape={(props: any) => <RoundedBar {...props} dataKey="borrowBlndApyBar" />} maxBarSize={barSize} isAnimationActive={false}>
                   {period !== "1M" && (
                     <LabelList
-                      dataKey="yieldTotal"
+                      dataKey="positiveTotal"
                       position="top"
                       formatter={(value: number) => value > 0 ? formatCompact(value) : ""}
                       style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
                     />
                   )}
                 </Bar>
-                <Bar dataKey="backstopYieldNegativeBar" stackId="yield" fill="url(#negativeGradient)" radius={[0, 0, 4, 4]} maxBarSize={barSize} isAnimationActive={false}>
+                <Bar dataKey="backstopYieldNegativeBar" stackId="yield" fill="url(#negativeGradient)" radius={[4, 4, 2, 2]} maxBarSize={barSize} isAnimationActive={false} />
+                <Bar dataKey="borrowInterestCostBar" stackId="yield" fill="url(#borrowCostGradient)" radius={[4, 4, 2, 2]} maxBarSize={barSize} isAnimationActive={false}>
                   {period !== "1M" && (
                     <LabelList
-                      dataKey="yieldTotal"
-                      position="bottom"
-                      formatter={(value: number) => value < 0 ? formatCompact(value) : ""}
-                      style={{ fontSize: 9, fill: "white", fontWeight: 500 }}
+                      dataKey="negativeTotal"
+                      content={<NegativeLabel />}
                     />
                   )}
                 </Bar>
@@ -489,13 +572,21 @@ export const PnlChangeChart = memo(function PnlChangeChart({
               <div className="w-2 h-2 rounded-sm bg-purple-400" />
               <span>Backstop BLND</span>
             </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-sm bg-orange-500" />
+              <span>Borrow Cost</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-2 h-2 rounded-sm bg-amber-500" />
+              <span>Borrow BLND</span>
+            </div>
           </div>
         </div>
       )}
 
       {/* Price Change Chart */}
-      <div className="space-y-1">
-          <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide px-1">
+      <div className="space-y-1 mt-4">
+          <div className="text-[10px] text-muted-foreground font-medium tracking-wide px-1">
             Price Changes
           </div>
           {!hasPriceData ? (
@@ -524,7 +615,9 @@ export const PnlChangeChart = memo(function PnlChangeChart({
 
                   <XAxis dataKey="period" hide />
                   <YAxis hide domain={[priceDomain.min, priceDomain.max]} />
-                  <ReferenceLine y={0} stroke="hsl(var(--border))" strokeDasharray="3 3" />
+                  {priceDomain.min < 0 && (
+                    <ReferenceLine y={0} stroke="white" strokeOpacity={0.05} />
+                  )}
 
                   <Bar dataKey="priceChangePositive" stackId="price" fill="url(#pricePositiveGradient)" radius={[4, 4, 2, 2]} maxBarSize={barSize} isAnimationActive={false}>
                     {period !== "1M" && (

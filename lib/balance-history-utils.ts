@@ -44,6 +44,60 @@ export interface HistoricalYieldBreakdown {
   totalEarnedPercent: number
 }
 
+// ============================================
+// BORROW COST BREAKDOWN TYPES
+// ============================================
+
+export interface BorrowEvent {
+  date: string
+  tokens: number
+  priceAtBorrow: number
+  usdValue: number
+  poolId?: string
+  priceSource?: 'daily_token_prices' | 'forward_fill' | 'sdk_fallback'
+}
+
+/**
+ * Borrow Cost Breakdown - calculates how much the user owes and how much is interest
+ *
+ * Key concepts for borrowing (inverse of supply):
+ * - Cost basis = net borrowed amount at original prices (what you borrowed)
+ * - Interest accrued = current debt - cost basis (what you owe beyond principal)
+ * - Price change on debt: if price goes UP, debt value goes UP = bad for borrower
+ *
+ * Formula:
+ * - borrowCostBasis = (total borrowed - total repaid) at weighted avg borrow price
+ * - interestAccruedTokens = currentDebt - netBorrowedTokens
+ * - interestAccruedUsd = interestAccruedTokens × currentPrice
+ * - priceChangeOnDebt = netBorrowedTokens × (currentPrice - avgBorrowPrice)
+ *   (positive = price went up = BAD for borrower, debt is more expensive to repay)
+ */
+export interface HistoricalBorrowBreakdown {
+  // Cost basis (what you borrowed) - uses AVERAGE COST METHOD
+  borrowCostBasisUsd: number       // USD value of net borrowed amount at borrow-time prices
+  weightedAvgBorrowPrice: number   // Actual average price when tokens were borrowed
+  netBorrowedTokens: number        // Tokens borrowed - repaid (principal outstanding)
+
+  // Interest accrued (protocol cost)
+  interestAccruedTokens: number    // Tokens owed beyond principal = currentDebt - netBorrowed
+  interestAccruedUsd: number       // Interest tokens × current price
+
+  // Price change on debt (market impact)
+  // Note: For borrowers, price increase is BAD (debt becomes more expensive)
+  priceChangeOnDebtUsd: number     // netBorrowed × (currentPrice - avgBorrowPrice)
+  priceChangePercent: number       // % change from borrow price to current
+
+  // Current debt totals
+  currentDebtTokens: number        // Current outstanding debt from SDK
+  currentDebtUsd: number           // currentDebt × current price
+
+  // Total cost (negative = cost to user)
+  // totalCostUsd = interestAccruedUsd + priceChangeOnDebtUsd
+  // (both positive values represent costs to borrower)
+  totalCostUsd: number
+  totalCostPercent: number
+}
+
 /**
  * Calculate yield breakdown separating protocol earnings from price changes.
  * Uses AVERAGE COST METHOD for accurate cost basis calculation.
@@ -227,6 +281,117 @@ export function calculatePeriodYieldBreakdown(
     priceChangeUsd,
     totalEarnedUsd,
     totalEarnedPercent,
+  }
+}
+
+/**
+ * Calculate borrow cost breakdown separating interest from price changes.
+ * Uses AVERAGE COST METHOD for accurate cost basis calculation.
+ *
+ * Key insight for borrowing (inverse of supply):
+ * - When you borrow, you take on debt at the borrow-time price
+ * - Interest accrues in tokens, increasing your debt
+ * - Price changes affect how expensive it is to repay:
+ *   - If price goes UP: your debt is worth more → BAD for borrower
+ *   - If price goes DOWN: your debt is cheaper to repay → GOOD for borrower
+ *
+ * This is the INVERSE of supply where price up = good.
+ *
+ * Same-day borrows are treated specially: they use current SDK price for cost basis
+ * to avoid showing misleading P&L from intraday price fluctuations.
+ *
+ * @param currentDebt Current debt token balance from SDK
+ * @param currentPrice Current token price from SDK (ALWAYS use SDK, not DB)
+ * @param borrows All borrows with historical prices from daily_token_prices
+ * @param repays All repays with historical prices
+ */
+export function calculateHistoricalBorrowBreakdown(
+  currentDebt: number,
+  currentPrice: number,
+  borrows: BorrowEvent[],
+  repays: BorrowEvent[],
+): HistoricalBorrowBreakdown {
+  // Get today's date in YYYY-MM-DD format (same format as borrow dates)
+  const today = new Date().toISOString().split('T')[0]
+
+  // Separate same-day borrows from historical borrows
+  // Same-day borrows use current price for cost basis to avoid misleading P&L
+  const historicalBorrows = borrows.filter(b => b.date !== today)
+  const sameDayBorrows = borrows.filter(b => b.date === today)
+
+  // For same-day borrows, recalculate USD value using current price
+  const sameDayBorrowsAdjusted = sameDayBorrows.map(b => ({
+    ...b,
+    priceAtBorrow: currentPrice,
+    usdValue: b.tokens * currentPrice,
+  }))
+
+  // Combine historical and adjusted same-day borrows
+  const adjustedBorrows = [...historicalBorrows, ...sameDayBorrowsAdjusted]
+
+  // 1. Calculate totals
+  const totalBorrowedUsd = adjustedBorrows.reduce((sum, b) => sum + b.usdValue, 0)
+  const totalBorrowedTokens = adjustedBorrows.reduce((sum, b) => sum + b.tokens, 0)
+  const totalRepaidTokens = repays.reduce((sum, r) => sum + r.tokens, 0)
+  const netBorrowedTokens = totalBorrowedTokens - totalRepaidTokens
+
+  // 2. Calculate weighted average borrow price (AVERAGE COST METHOD)
+  // This is the actual average price when borrows were taken out
+  const weightedAvgBorrowPrice = totalBorrowedTokens > 0
+    ? totalBorrowedUsd / totalBorrowedTokens
+    : currentPrice // Fallback to current if no borrows
+
+  // 3. Calculate borrow cost basis using AVERAGE COST METHOD
+  // Repays reduce the cost basis at the average borrow price
+  const costRemovedByRepays = totalRepaidTokens * weightedAvgBorrowPrice
+  const borrowCostBasisUsd = totalBorrowedUsd - costRemovedByRepays
+
+  // 4. Calculate interest accrued (tokens owed beyond principal)
+  const interestAccruedTokens = currentDebt - netBorrowedTokens
+  const interestAccruedUsd = interestAccruedTokens * currentPrice
+
+  // 5. Calculate price change on debt
+  // IMPORTANT: For borrowers, price increase is BAD (debt is more expensive to repay)
+  // This is the opposite of supply where price increase is good
+  const debtValueAtBorrowPrice = netBorrowedTokens * weightedAvgBorrowPrice
+  const debtValueAtCurrentPrice = netBorrowedTokens * currentPrice
+  const priceChangeOnDebtUsd = debtValueAtCurrentPrice - debtValueAtBorrowPrice
+  // positive = price went up = debt is more expensive = BAD for borrower
+  const priceChangePercent = borrowCostBasisUsd > 0
+    ? (priceChangeOnDebtUsd / borrowCostBasisUsd) * 100
+    : 0
+
+  // 6. Calculate current debt totals
+  const currentDebtUsd = currentDebt * currentPrice
+
+  // 7. Calculate total cost to borrower
+  // Both interest and price increase are costs to the borrower
+  const totalCostUsd = interestAccruedUsd + priceChangeOnDebtUsd
+  const totalCostPercent = borrowCostBasisUsd > 0
+    ? (totalCostUsd / borrowCostBasisUsd) * 100
+    : 0
+
+  return {
+    // Cost basis
+    borrowCostBasisUsd,
+    weightedAvgBorrowPrice,
+    netBorrowedTokens,
+
+    // Interest accrued (protocol cost)
+    interestAccruedTokens,
+    interestAccruedUsd,
+
+    // Price change on debt (market impact)
+    priceChangeOnDebtUsd,
+    priceChangePercent,
+
+    // Current debt totals
+    currentDebtTokens: currentDebt,
+    currentDebtUsd,
+
+    // Total cost
+    totalCostUsd,
+    totalCostPercent,
   }
 }
 

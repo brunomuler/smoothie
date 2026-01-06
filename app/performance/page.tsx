@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, Suspense, useEffect, useState } from "react"
-import { TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet } from "lucide-react"
+import { TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet, Banknote } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -12,6 +12,7 @@ import { useBlendPositions } from "@/hooks/use-blend-positions"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
 import { useHistoricalYieldBreakdown } from "@/hooks/use-historical-yield-breakdown"
+import { useBorrowYieldBreakdown } from "@/hooks/use-borrow-yield-breakdown"
 import { useAnalytics } from "@/hooks/use-analytics"
 import { AuthenticatedPage } from "@/components/authenticated-page"
 import { PageTitle } from "@/components/page-title"
@@ -83,6 +84,21 @@ function RealizedYieldContent() {
     backstopPositions,
     lpTokenPrice
   )
+
+  // Build borrow positions for cost breakdown
+  const borrowPositions = useMemo(() => {
+    if (!blendSnapshot?.positions) return []
+    return blendSnapshot.positions.filter(pos => pos.borrowAmount > 0)
+  }, [blendSnapshot?.positions])
+
+  // Borrow cost breakdown (similar to yield breakdown but for debt)
+  const borrowBreakdown = useBorrowYieldBreakdown(
+    publicKey,
+    borrowPositions.length > 0 ? borrowPositions : null
+  )
+
+  // Check if user has any borrows
+  const hasBorrows = borrowPositions.length > 0 && borrowBreakdown.totalCurrentDebtUsd > 0
 
   // P&L change chart data
   const { data: pnlChartData, isLoading: isLoadingPnlChart } = usePnlChangeChart({
@@ -264,8 +280,8 @@ function RealizedYieldContent() {
   // Calculate per-pool yield data from yieldBreakdown (consistent with source breakdown)
   const perPoolYieldData = useMemo(() => {
     const poolData = new Map<string, {
-      lending: { protocolYieldUsd: number; totalEarnedUsd: number }
-      backstop: { protocolYieldUsd: number; totalEarnedUsd: number }
+      lending: { protocolYieldUsd: number; totalEarnedUsd: number; priceChangeUsd: number }
+      backstop: { protocolYieldUsd: number; totalEarnedUsd: number; priceChangeUsd: number }
     }>()
 
     // Aggregate lending yield by poolId from byAsset (keyed by poolId-assetAddress)
@@ -273,27 +289,61 @@ function RealizedYieldContent() {
       // compositeKey format is "poolId-assetAddress", extract poolId
       const poolId = compositeKey.split('-')[0]
       const existing = poolData.get(poolId) || {
-        lending: { protocolYieldUsd: 0, totalEarnedUsd: 0 },
-        backstop: { protocolYieldUsd: 0, totalEarnedUsd: 0 },
+        lending: { protocolYieldUsd: 0, totalEarnedUsd: 0, priceChangeUsd: 0 },
+        backstop: { protocolYieldUsd: 0, totalEarnedUsd: 0, priceChangeUsd: 0 },
       }
       existing.lending.protocolYieldUsd += breakdown.protocolYieldUsd
       existing.lending.totalEarnedUsd += breakdown.totalEarnedUsd
+      existing.lending.priceChangeUsd += breakdown.priceChangeUsd
       poolData.set(poolId, existing)
     }
 
     // Add backstop yield by poolId
     for (const [poolId, breakdown] of yieldBreakdown.byBackstop) {
       const existing = poolData.get(poolId) || {
-        lending: { protocolYieldUsd: 0, totalEarnedUsd: 0 },
-        backstop: { protocolYieldUsd: 0, totalEarnedUsd: 0 },
+        lending: { protocolYieldUsd: 0, totalEarnedUsd: 0, priceChangeUsd: 0 },
+        backstop: { protocolYieldUsd: 0, totalEarnedUsd: 0, priceChangeUsd: 0 },
       }
       existing.backstop.protocolYieldUsd += breakdown.protocolYieldUsd
       existing.backstop.totalEarnedUsd += breakdown.totalEarnedUsd
+      existing.backstop.priceChangeUsd += breakdown.priceChangeUsd
       poolData.set(poolId, existing)
     }
 
     return poolData
   }, [yieldBreakdown.byAsset, yieldBreakdown.byBackstop])
+
+  // Calculate per-pool borrow data from borrowBreakdown (for per-pool breakdown)
+  const perPoolBorrowData = useMemo(() => {
+    const poolData = new Map<string, {
+      currentDebtUsd: number
+      principalUsd: number
+      interestAccruedUsd: number
+      priceChangeOnDebtUsd: number
+      totalCostUsd: number
+    }>()
+
+    // Aggregate borrow data by poolId from byAsset (keyed by poolId-assetAddress)
+    for (const [compositeKey, breakdown] of borrowBreakdown.byAsset) {
+      // compositeKey format is "poolId-assetAddress", extract poolId
+      const poolId = compositeKey.split('-')[0]
+      const existing = poolData.get(poolId) || {
+        currentDebtUsd: 0,
+        principalUsd: 0,
+        interestAccruedUsd: 0,
+        priceChangeOnDebtUsd: 0,
+        totalCostUsd: 0,
+      }
+      existing.currentDebtUsd += breakdown.currentDebtUsd
+      existing.principalUsd += breakdown.borrowCostBasisUsd
+      existing.interestAccruedUsd += breakdown.interestAccruedUsd
+      existing.priceChangeOnDebtUsd += breakdown.priceChangeOnDebtUsd
+      existing.totalCostUsd += breakdown.totalCostUsd
+      poolData.set(poolId, existing)
+    }
+
+    return poolData
+  }, [borrowBreakdown.byAsset])
 
   // Calculate unclaimed emissions (pending BLND that can still be claimed)
   const unclaimedEmissions = useMemo(() => {
@@ -383,17 +433,21 @@ function RealizedYieldContent() {
     // Calculate pools values from yieldBreakdown.byAsset (active positions only)
     let poolsProtocolYield = 0
     let poolsTotalEarned = 0
+    let poolsPriceChange = 0
     for (const breakdown of yieldBreakdown.byAsset.values()) {
       poolsProtocolYield += breakdown.protocolYieldUsd
       poolsTotalEarned += breakdown.totalEarnedUsd
+      poolsPriceChange += breakdown.priceChangeUsd
     }
 
     // Calculate backstop values from yieldBreakdown.byBackstop (active positions only)
     let backstopProtocolYield = 0
     let backstopTotalEarned = 0
+    let backstopPriceChange = 0
     for (const breakdown of yieldBreakdown.byBackstop.values()) {
       backstopProtocolYield += breakdown.protocolYieldUsd
       backstopTotalEarned += breakdown.totalEarnedUsd
+      backstopPriceChange += breakdown.priceChangeUsd
     }
 
     // Add realized yield from exited positions
@@ -405,11 +459,17 @@ function RealizedYieldContent() {
     // Realized P&L = emissions (BLND/LP claims)
     const totalEmissions = emissionsBySource.pools.usd + emissionsBySource.backstop.usd
 
+    // Borrow costs (interest + price change on debt)
+    // Note: For borrowers, these are costs that reduce P&L
+    const borrowInterestCost = borrowBreakdown.totalInterestAccruedUsd
+    const borrowPriceChangeCost = borrowBreakdown.totalPriceChangeOnDebtUsd
+    const borrowTotalCost = borrowBreakdown.totalCostUsd
+
     if (showPriceChanges) {
       // Include price changes: use totalEarnedUsd (same as home page)
       const totalUnrealized = poolsTotalEarned + backstopTotalEarned
-      // Total P&L = yield (unrealized + realized from exits) + emissions
-      const totalPnl = totalUnrealized + totalEmissions
+      // Total P&L = yield (unrealized + realized from exits) + emissions - borrow costs
+      const totalPnl = totalUnrealized + totalEmissions - borrowTotalCost
       return {
         totalPnl,
         poolsUnrealized: poolsTotalEarned,
@@ -418,12 +478,18 @@ function RealizedYieldContent() {
         realizedFromWithdrawals: totalEmissions,
         poolsYield: poolsProtocolYield,
         backstopYield: backstopProtocolYield,
+        poolsPriceChange,
+        backstopPriceChange,
+        // Borrow data
+        borrowInterestCost,
+        borrowPriceChangeCost,
+        borrowTotalCost,
       }
     } else {
       // Exclude price changes: use protocolYieldUsd only (same as home page)
       const totalUnrealized = poolsProtocolYield + backstopProtocolYield
-      // Total P&L = yield + emissions
-      const totalPnl = totalUnrealized + totalEmissions
+      // Total P&L = yield + emissions - borrow interest cost (exclude price change)
+      const totalPnl = totalUnrealized + totalEmissions - borrowInterestCost
       return {
         totalPnl,
         poolsUnrealized: poolsProtocolYield,
@@ -432,9 +498,15 @@ function RealizedYieldContent() {
         realizedFromWithdrawals: totalEmissions,
         poolsYield: poolsProtocolYield,
         backstopYield: backstopProtocolYield,
+        poolsPriceChange,
+        backstopPriceChange,
+        // Borrow data
+        borrowInterestCost,
+        borrowPriceChangeCost,
+        borrowTotalCost: borrowInterestCost, // Only interest when price changes excluded
       }
     }
-  }, [showPriceChanges, yieldBreakdown, emissionsBySource, realizedYieldFromExitedPositions])
+  }, [showPriceChanges, yieldBreakdown, emissionsBySource, realizedYieldFromExitedPositions, borrowBreakdown])
 
   // Determine display state based on whether user has current positions
   const hasCurrentPositions = unrealizedData.totalCurrentUsd > 0
@@ -484,6 +556,16 @@ function RealizedYieldContent() {
             <div className="flex items-center justify-center gap-4">
               <Skeleton className="h-4 w-32" />
               <Skeleton className="h-4 w-24" />
+            </div>
+
+            {/* P&L Over Time Chart Skeleton */}
+            <div className="space-y-3 mt-8">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="aspect-[3/1] md:aspect-[4/1] w-full" />
+              <Skeleton className="aspect-[5/1] md:aspect-[6/1] w-full" />
+              <div className="flex justify-center">
+                <Skeleton className="h-9 sm:h-10 w-40 rounded-md" />
+              </div>
             </div>
 
             {/* Breakdown by Source Skeleton */}
@@ -637,8 +719,10 @@ function RealizedYieldContent() {
                       <div>
                         <p className="text-sm font-medium text-muted-foreground mb-1">
                           <InfoLabel
-                            label="Total P&L"
-                            tooltip="(Current Balance + Withdrawn) - Deposited. Your total profit from Blend protocol."
+                            label={hasBorrows ? "Net P&L" : "Total P&L"}
+                            tooltip={hasBorrows
+                              ? "Supply P&L minus Borrow Costs. Your net profit from Blend protocol."
+                              : "(Current Balance + Withdrawn) - Deposited. Your total profit from Blend protocol."}
                           />
                         </p>
                         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
@@ -660,6 +744,27 @@ function RealizedYieldContent() {
                         )}
                       </div>
                     </div>
+                    {/* P&L Breakdown when user has borrows */}
+                    {hasBorrows && (
+                      <div className="mt-4 pt-4 border-t border-border/50 space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Supply P&L" tooltip="Profit from lending: Yield earned + Price changes on deposits" />
+                          </span>
+                          <span className={`tabular-nums font-medium ${(displayPnl.totalUnrealized + displayPnl.realizedFromWithdrawals) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {(displayPnl.totalUnrealized + displayPnl.realizedFromWithdrawals) >= 0 ? "+" : ""}{formatUsd(displayPnl.totalUnrealized + displayPnl.realizedFromWithdrawals)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            <InfoLabel label="Borrow Cost" tooltip="Cost of borrowing: Interest accrued + Price changes on debt" />
+                          </span>
+                          <span className={`tabular-nums font-medium ${displayPnl.borrowTotalCost > 0 ? "text-orange-400" : "text-emerald-400"}`}>
+                            {displayPnl.borrowTotalCost > 0 ? "-" : "+"}{formatUsd(Math.abs(displayPnl.borrowTotalCost))}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     <Separator className="my-4" />
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
                       <div>
@@ -771,43 +876,25 @@ function RealizedYieldContent() {
                         <span className="text-muted-foreground">Withdrawn</span>
                         <span className="tabular-nums">{formatUsd(data.pools.withdrawn)}</span>
                       </div>
-                      {displayPnl.poolsYield > 0 && (
+                      {displayPnl.poolsYield !== 0 && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
                             <InfoLabel label="Yield" tooltip="Interest earned from lending. This is protocol yield (tokens earned × current price)." />
                           </span>
-                          <span className="tabular-nums">{formatUsd(displayPnl.poolsYield)}</span>
+                          <span className={`tabular-nums ${displayPnl.poolsYield >= 0 ? "" : "text-red-400"}`}>{formatUsd(displayPnl.poolsYield)}</span>
                         </div>
                       )}
-                      {emissionsBySource.pools.usd > 0 && (
+                      {showPriceChanges && displayPnl.poolsPriceChange !== 0 && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
-                            <InfoLabel label="Emissions Claimed" tooltip="BLND tokens received as rewards from lending positions." />
+                            <InfoLabel
+                              label="Price Change"
+                              tooltip="Impact of price changes on your deposited assets. Price increase = your deposits are worth more."
+                            />
                           </span>
-                          <span className="tabular-nums">{formatUsd(emissionsBySource.pools.usd)}</span>
-                        </div>
-                      )}
-                      {unclaimedEmissions.pools.usd > 0 && (
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            <InfoLabel label="Emissions Unclaimed" tooltip="BLND tokens available to claim from lending positions." />
+                          <span className={`tabular-nums ${displayPnl.poolsPriceChange >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {displayPnl.poolsPriceChange >= 0 ? "+" : ""}{formatUsd(displayPnl.poolsPriceChange)}
                           </span>
-                          <span className="tabular-nums">{formatUsd(unclaimedEmissions.pools.usd)}</span>
-                        </div>
-                      )}
-                      {emissionsBySource.pools.usd > 0 && (
-                        <div className="flex justify-between items-center pt-1 border-t border-border/50">
-                          <span className="text-muted-foreground">
-                            <InfoLabel label="Realized P&L" tooltip="Profits already withdrawn from the protocol (emissions claimed)." />
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <span className="tabular-nums text-emerald-400">+{formatUsd(emissionsBySource.pools.usd)}</span>
-                            {data.pools.deposited > 0 && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-emerald-400 border-emerald-400/30">
-                                +{((emissionsBySource.pools.usd / data.pools.deposited) * 100).toFixed(1)}%
-                              </Badge>
-                            )}
-                          </div>
                         </div>
                       )}
                       {unrealizedData.poolsCurrentUsd > 0 && (
@@ -829,15 +916,15 @@ function RealizedYieldContent() {
                           </div>
                           <div className="flex justify-between items-center font-medium pt-1 border-t border-border/50">
                             <span>
-                              <InfoLabel label="P&L" tooltip="Total profit: Unrealized P&L + Realized P&L" />
+                              <InfoLabel label="P&L" tooltip="Profit from lending yield. Pool emissions shown in summary below." />
                             </span>
                             <div className="flex items-center gap-2">
-                              <span className={`tabular-nums ${(displayPnl.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                                {(displayPnl.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "+" : ""}{formatUsd(displayPnl.poolsUnrealized + emissionsBySource.pools.usd)}
+                              <span className={`tabular-nums ${displayPnl.poolsUnrealized >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                {displayPnl.poolsUnrealized >= 0 ? "+" : ""}{formatUsd(displayPnl.poolsUnrealized)}
                               </span>
                               {data.pools.deposited > 0 && (
-                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${(displayPnl.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
-                                  {(displayPnl.poolsUnrealized + emissionsBySource.pools.usd) >= 0 ? "+" : ""}{(((displayPnl.poolsUnrealized + emissionsBySource.pools.usd) / data.pools.deposited) * 100).toFixed(1)}%
+                                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${displayPnl.poolsUnrealized >= 0 ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {displayPnl.poolsUnrealized >= 0 ? "+" : ""}{((displayPnl.poolsUnrealized / data.pools.deposited) * 100).toFixed(1)}%
                                 </Badge>
                               )}
                             </div>
@@ -872,12 +959,25 @@ function RealizedYieldContent() {
                         <span className="text-muted-foreground">Withdrawn</span>
                         <span className="tabular-nums">{formatUsd(data.backstop.withdrawn)}</span>
                       </div>
-                      {displayPnl.backstopYield > 0 && (
+                      {displayPnl.backstopYield !== 0 && (
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">
                             <InfoLabel label="Yield" tooltip="LP token appreciation from backstop positions. This is protocol yield." />
                           </span>
-                          <span className="tabular-nums">{formatUsd(displayPnl.backstopYield)}</span>
+                          <span className={`tabular-nums ${displayPnl.backstopYield >= 0 ? "" : "text-red-400"}`}>{formatUsd(displayPnl.backstopYield)}</span>
+                        </div>
+                      )}
+                      {showPriceChanges && displayPnl.backstopPriceChange !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            <InfoLabel
+                              label="Price Change"
+                              tooltip="Impact of LP token price changes on your backstop position. Price increase = your position is worth more."
+                            />
+                          </span>
+                          <span className={`tabular-nums ${displayPnl.backstopPriceChange >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                            {displayPnl.backstopPriceChange >= 0 ? "+" : ""}{formatUsd(displayPnl.backstopPriceChange)}
+                          </span>
                         </div>
                       )}
                       {emissionsBySource.backstop.usd > 0 && (
@@ -949,6 +1049,64 @@ function RealizedYieldContent() {
                   </div>
                 )}
 
+                {/* Borrow Positions (Costs) */}
+                {hasBorrows && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-full bg-orange-500/10">
+                        <Banknote className="h-3.5 w-3.5 text-orange-500" />
+                      </div>
+                      <p className="font-medium text-sm">Borrows</p>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Current Debt</span>
+                        <span className="tabular-nums">{formatUsd(borrowBreakdown.totalCurrentDebtUsd)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          <InfoLabel label="Principal" tooltip="Original amount borrowed at borrow-time prices (net of repayments)." />
+                        </span>
+                        <span className="tabular-nums">{formatUsd(borrowBreakdown.totalBorrowCostBasisUsd)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          <InfoLabel label="Interest Accrued" tooltip="Interest owed beyond the original borrowed amount. This is your borrowing cost." />
+                        </span>
+                        <span className="tabular-nums text-orange-400">{displayPnl.borrowInterestCost > 0 ? "-" : ""}{formatUsd(Math.abs(displayPnl.borrowInterestCost))}</span>
+                      </div>
+                      {showPriceChanges && displayPnl.borrowPriceChangeCost !== 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            <InfoLabel
+                              label="Price Change"
+                              tooltip="Impact of price changes on debt. Price increase = debt is more expensive to repay (bad for borrower)."
+                            />
+                          </span>
+                          <span className={`tabular-nums ${displayPnl.borrowPriceChangeCost > 0 ? "text-red-400" : "text-emerald-400"}`}>
+                            {displayPnl.borrowPriceChangeCost > 0 ? "-" : "+"}{formatUsd(Math.abs(displayPnl.borrowPriceChangeCost))}
+                          </span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center font-medium pt-1 border-t border-border/50">
+                        <span>
+                          <InfoLabel label="Borrow Cost" tooltip="Total cost of borrowing: Interest + Price Impact (negative = cost to you)" />
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`tabular-nums ${displayPnl.borrowTotalCost > 0 ? "text-orange-400" : "text-emerald-400"}`}>
+                            {displayPnl.borrowTotalCost > 0 ? "-" : "+"}{formatUsd(Math.abs(displayPnl.borrowTotalCost))}
+                          </span>
+                          {borrowBreakdown.totalBorrowCostBasisUsd > 0 && (
+                            <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${displayPnl.borrowTotalCost > 0 ? "text-orange-400 border-orange-400/30" : "text-emerald-400 border-emerald-400/30"}`}>
+                              {displayPnl.borrowTotalCost > 0 ? "-" : "+"}{Math.abs((displayPnl.borrowTotalCost / borrowBreakdown.totalBorrowCostBasisUsd) * 100).toFixed(1)}%
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <Separator />
 
                 {/* Summary */}
@@ -967,9 +1125,38 @@ function RealizedYieldContent() {
                         <p className="text-muted-foreground">Current Balance</p>
                         <p className="font-medium tabular-nums">{formatUsd(unrealizedData.totalCurrentUsd)}</p>
                       </div>
+                      {hasBorrows && (
+                        <div className="flex items-center justify-between text-sm">
+                          <p className="text-muted-foreground">Current Debt</p>
+                          <p className="font-medium tabular-nums text-orange-400">-{formatUsd(borrowBreakdown.totalCurrentDebtUsd)}</p>
+                        </div>
+                      )}
+                      {emissionsBySource.pools.usd > 0 && (
+                        <div className="flex items-center justify-between text-sm">
+                          <p className="text-muted-foreground">
+                            <InfoLabel label="Pool Emissions" tooltip="BLND tokens claimed from pool positions (supply and/or borrow)." />
+                          </p>
+                          <p className="font-medium tabular-nums">{formatUsd(emissionsBySource.pools.usd)}</p>
+                        </div>
+                      )}
+                      {unclaimedEmissions.pools.usd > 0 && (
+                        <div className="flex items-center justify-between text-sm">
+                          <p className="text-muted-foreground">
+                            <InfoLabel label="Unclaimed Emissions" tooltip="BLND tokens available to claim from pool positions (supply and/or borrow)." />
+                          </p>
+                          <p className="font-medium tabular-nums">{formatUsd(unclaimedEmissions.pools.usd)}</p>
+                        </div>
+                      )}
                       <Separator />
                       <div className="flex items-center justify-between">
-                        <p className="font-semibold">Total P&L</p>
+                        <p className="font-semibold">
+                          <InfoLabel
+                            label="Total P&L"
+                            tooltip={hasBorrows
+                              ? "Net profit: Supply Yield + Emissions - Borrow Costs"
+                              : "Total profit: Yield + Emissions"}
+                          />
+                        </p>
                         <p className={`text-lg font-bold tabular-nums ${displayPnl.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                           {displayPnl.totalPnl >= 0 ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
                         </p>
@@ -1010,24 +1197,42 @@ function RealizedYieldContent() {
                     // Get per-pool yield data (consistent with source breakdown)
                     const poolYield = perPoolYieldData.get(poolData.poolId)
 
-                    // For active positions: use yield breakdown data (respects showPriceChanges setting)
+                    // For active positions: use yield breakdown data
                     // For exited positions: yield is realized = Withdrawn - Deposited (already included in withdrawal)
-                    const lendingYield = lendingCurrentBalance > 0
-                      ? (showPriceChanges
-                          ? (poolYield?.lending.totalEarnedUsd ?? 0)
-                          : (poolYield?.lending.protocolYieldUsd ?? 0))
+                    const lendingProtocolYield = lendingCurrentBalance > 0
+                      ? (poolYield?.lending.protocolYieldUsd ?? 0)
                       : Math.max(0, poolData.lending.withdrawn - poolData.lending.deposited) // Realized yield from withdrawal
-                    const backstopYield = backstopCurrentBalance > 0
-                      ? (showPriceChanges
-                          ? (poolYield?.backstop.totalEarnedUsd ?? 0)
-                          : (poolYield?.backstop.protocolYieldUsd ?? 0))
+                    const lendingPriceChange = lendingCurrentBalance > 0
+                      ? (poolYield?.lending.priceChangeUsd ?? 0)
+                      : 0 // No price change for exited positions
+                    const lendingYield = showPriceChanges
+                      ? lendingProtocolYield + lendingPriceChange
+                      : lendingProtocolYield
+
+                    const backstopProtocolYield = backstopCurrentBalance > 0
+                      ? (poolYield?.backstop.protocolYieldUsd ?? 0)
                       : Math.max(0, poolData.backstop.withdrawn - poolData.backstop.deposited) // Realized yield from withdrawal
+                    const backstopPriceChange = backstopCurrentBalance > 0
+                      ? (poolYield?.backstop.priceChangeUsd ?? 0)
+                      : 0 // No price change for exited positions
+                    const backstopYield = showPriceChanges
+                      ? backstopProtocolYield + backstopPriceChange
+                      : backstopProtocolYield
 
-                    // Total P&L = Yield + Emissions
-                    const lendingTotalPnl = lendingYield + poolData.lending.emissionsClaimed
+                    // Get per-pool borrow data
+                    const poolBorrow = perPoolBorrowData.get(poolData.poolId)
+                    const poolBorrowCost = showPriceChanges
+                      ? (poolBorrow?.totalCostUsd ?? 0)
+                      : (poolBorrow?.interestAccruedUsd ?? 0) // Exclude price change when setting is off
+
+                    // Total P&L = Yield + Emissions - Borrow Cost
+                    // Note: Pool emissions (from lending.emissionsClaimed) are shown at pool level
+                    // since we can't distinguish between supply vs borrow emissions
+                    const lendingTotalPnl = lendingYield // Emissions shown separately at pool level
                     const backstopTotalPnl = backstopYield + poolData.backstop.emissionsClaimed
+                    const poolEmissions = poolData.lending.emissionsClaimed // Pool-level emissions (supply + borrow combined)
 
-                    const poolTotalPnl = lendingTotalPnl + backstopTotalPnl
+                    const poolTotalPnl = lendingTotalPnl + backstopTotalPnl + poolEmissions - poolBorrowCost
                     const poolTotalCurrentBalance = lendingCurrentBalance + backstopCurrentBalance
 
                     return (
@@ -1065,7 +1270,7 @@ function RealizedYieldContent() {
                                 <span className="text-muted-foreground">Withdrawn</span>
                                 <span className="tabular-nums">{formatUsd(poolData.lending.withdrawn)}</span>
                               </div>
-                              {lendingYield > 0 && (
+                              {lendingProtocolYield !== 0 && (
                                 <div className="flex justify-between">
                                   <span className="text-muted-foreground">
                                     <InfoLabel
@@ -1075,21 +1280,26 @@ function RealizedYieldContent() {
                                         : "Interest earned from lending (realized when withdrawn)."}
                                     />
                                   </span>
-                                  <span className="tabular-nums">{formatUsd(lendingYield)}</span>
+                                  <span className={`tabular-nums ${lendingProtocolYield >= 0 ? "" : "text-red-400"}`}>{formatUsd(lendingProtocolYield)}</span>
                                 </div>
                               )}
-                              {poolData.lending.emissionsClaimed > 0 && (
+                              {showPriceChanges && lendingPriceChange !== 0 && (
                                 <div className="flex justify-between">
                                   <span className="text-muted-foreground">
-                                    <InfoLabel label="Emissions Claimed" tooltip="BLND tokens received as rewards from this lending position." />
+                                    <InfoLabel
+                                      label="Price Change"
+                                      tooltip="Impact of price changes on your deposited assets."
+                                    />
                                   </span>
-                                  <span className="tabular-nums">{formatUsd(poolData.lending.emissionsClaimed)}</span>
+                                  <span className={`tabular-nums ${lendingPriceChange >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                    {lendingPriceChange >= 0 ? "+" : ""}{formatUsd(lendingPriceChange)}
+                                  </span>
                                 </div>
                               )}
                               {/* P&L Section */}
                               <div className="flex justify-between items-center font-medium pt-1 border-t border-border/50">
                                 <span>
-                                  <InfoLabel label="P&L" tooltip="Total profit: Yield + Emissions" />
+                                  <InfoLabel label="P&L" tooltip="Profit from lending yield. Pool emissions shown separately below." />
                                 </span>
                                 <div className="flex items-center gap-2">
                                   <span className={`tabular-nums ${lendingTotalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
@@ -1130,7 +1340,7 @@ function RealizedYieldContent() {
                                 <span className="text-muted-foreground">Withdrawn</span>
                                 <span className="tabular-nums">{formatUsd(poolData.backstop.withdrawn)}</span>
                               </div>
-                              {backstopYield > 0 && (
+                              {backstopProtocolYield !== 0 && (
                                 <div className="flex justify-between">
                                   <span className="text-muted-foreground">
                                     <InfoLabel
@@ -1140,7 +1350,20 @@ function RealizedYieldContent() {
                                         : "LP token appreciation (realized when withdrawn)."}
                                     />
                                   </span>
-                                  <span className="tabular-nums">{formatUsd(backstopYield)}</span>
+                                  <span className={`tabular-nums ${backstopProtocolYield >= 0 ? "" : "text-red-400"}`}>{formatUsd(backstopProtocolYield)}</span>
+                                </div>
+                              )}
+                              {showPriceChanges && backstopPriceChange !== 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">
+                                    <InfoLabel
+                                      label="Price Change"
+                                      tooltip="Impact of LP token price changes on your backstop position."
+                                    />
+                                  </span>
+                                  <span className={`tabular-nums ${backstopPriceChange >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                                    {backstopPriceChange >= 0 ? "+" : ""}{formatUsd(backstopPriceChange)}
+                                  </span>
                                 </div>
                               )}
                               {poolData.backstop.emissionsClaimed > 0 && (
@@ -1171,12 +1394,76 @@ function RealizedYieldContent() {
                           </div>
                         )}
 
+                        {/* Borrows Position */}
+                        {poolBorrow && poolBorrow.currentDebtUsd > 0 && (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-full bg-orange-500/10">
+                                <Banknote className="h-3.5 w-3.5 text-orange-500" />
+                              </div>
+                              <p className="font-medium text-sm">Borrows</p>
+                            </div>
+                            <div className="space-y-1 text-sm">
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">Current Debt</span>
+                                <span className="tabular-nums">{formatUsd(poolBorrow.currentDebtUsd)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">
+                                  <InfoLabel label="Principal" tooltip="Original amount borrowed at borrow-time prices (net of repayments)." />
+                                </span>
+                                <span className="tabular-nums">{formatUsd(poolBorrow.principalUsd)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-muted-foreground">
+                                  <InfoLabel label="Interest Accrued" tooltip="Interest owed beyond the original borrowed amount." />
+                                </span>
+                                <span className="tabular-nums text-orange-400">
+                                  {poolBorrow.interestAccruedUsd > 0 ? "-" : ""}{formatUsd(Math.abs(poolBorrow.interestAccruedUsd))}
+                                </span>
+                              </div>
+                              {showPriceChanges && poolBorrow.priceChangeOnDebtUsd !== 0 && (
+                                <div className="flex justify-between">
+                                  <span className="text-muted-foreground">
+                                    <InfoLabel label="Price Change" tooltip="Impact of price changes on debt. Price increase = debt is more expensive to repay." />
+                                  </span>
+                                  <span className={`tabular-nums ${poolBorrow.priceChangeOnDebtUsd > 0 ? "text-red-400" : "text-emerald-400"}`}>
+                                    {poolBorrow.priceChangeOnDebtUsd > 0 ? "-" : "+"}{formatUsd(Math.abs(poolBorrow.priceChangeOnDebtUsd))}
+                                  </span>
+                                </div>
+                              )}
+                              {/* Borrow Cost Section */}
+                              <div className="flex justify-between items-center font-medium pt-1 border-t border-border/50">
+                                <span>
+                                  <InfoLabel label="Borrow Cost" tooltip="Total cost of borrowing: Interest + Price Impact" />
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className={`tabular-nums ${poolBorrowCost > 0 ? "text-orange-400" : "text-emerald-400"}`}>
+                                    {poolBorrowCost > 0 ? "-" : "+"}{formatUsd(Math.abs(poolBorrowCost))}
+                                  </span>
+                                  {poolBorrow.principalUsd > 0 && (
+                                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${poolBorrowCost > 0 ? "text-orange-400 border-orange-400/30" : "text-emerald-400 border-emerald-400/30"}`}>
+                                      {poolBorrowCost > 0 ? "-" : "+"}{Math.abs((poolBorrowCost / poolBorrow.principalUsd) * 100).toFixed(1)}%
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Pool Summary */}
                         <div className="pt-2 border-t border-border/50 space-y-1">
                           <div className="flex justify-between items-center text-sm">
                             <span className="text-muted-foreground">Current Balance</span>
                             <span className="tabular-nums font-medium">{formatUsd(poolTotalCurrentBalance)}</span>
                           </div>
+                          {poolBorrow && poolBorrow.currentDebtUsd > 0 && (
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-muted-foreground">Current Debt</span>
+                              <span className="tabular-nums font-medium text-orange-400">-{formatUsd(poolBorrow.currentDebtUsd)}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between items-center text-sm">
                             <span className="text-muted-foreground">Total Deposited</span>
                             <span className="tabular-nums font-medium">{formatUsd(totalDeposited)}</span>
@@ -1185,9 +1472,17 @@ function RealizedYieldContent() {
                             <span className="text-muted-foreground">Total Withdrawn</span>
                             <span className="tabular-nums font-medium">{formatUsd(poolData.lending.withdrawn + poolData.backstop.withdrawn)}</span>
                           </div>
+                          {poolEmissions > 0 && (
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-muted-foreground">
+                                <InfoLabel label="Pool Emissions" tooltip="BLND tokens claimed from this pool's lending positions (supply and/or borrow)." />
+                              </span>
+                              <span className="tabular-nums font-medium">{formatUsd(poolEmissions)}</span>
+                            </div>
+                          )}
                           <Separator className="my-1" />
                           <div className="flex justify-between items-center">
-                            <span className="font-semibold">Total P&L</span>
+                            <span className="font-semibold">{poolBorrow && poolBorrow.currentDebtUsd > 0 ? "Net P&L" : "Total P&L"}</span>
                             <p className={`text-lg font-bold tabular-nums ${poolTotalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                               {poolTotalPnl >= 0 ? "+" : ""}{formatUsd(poolTotalPnl)}
                             </p>
@@ -1263,6 +1558,16 @@ function PerformanceSkeleton() {
         <div className="flex items-center justify-center gap-4">
           <Skeleton className="h-4 w-32" />
           <Skeleton className="h-4 w-24" />
+        </div>
+
+        {/* P&L Over Time Chart Skeleton */}
+        <div className="space-y-3 mt-8">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="aspect-[3/1] md:aspect-[4/1] w-full" />
+          <Skeleton className="aspect-[5/1] md:aspect-[6/1] w-full" />
+          <div className="flex justify-center">
+            <Skeleton className="h-9 sm:h-10 w-40 rounded-md" />
+          </div>
         </div>
 
         {/* Breakdown by Source Skeleton */}
