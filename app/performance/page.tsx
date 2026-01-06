@@ -593,7 +593,7 @@ function RealizedYieldContent() {
                         <Skeleton className="h-4 w-20" />
                         <Skeleton className="h-4 w-20" />
                       </div>
-                      <div className="flex justify-between pt-2 border-t border-border/50">
+                      <div className="flex justify-between pt-3">
                         <Skeleton className="h-4 w-16" />
                         <Skeleton className="h-4 w-24" />
                       </div>
@@ -619,7 +619,7 @@ function RealizedYieldContent() {
                         <Skeleton className="h-4 w-20" />
                         <Skeleton className="h-4 w-20" />
                       </div>
-                      <div className="flex justify-between pt-2 border-t border-border/50">
+                      <div className="flex justify-between pt-3">
                         <Skeleton className="h-4 w-16" />
                         <Skeleton className="h-4 w-24" />
                       </div>
@@ -676,12 +676,12 @@ function RealizedYieldContent() {
                         <Skeleton className="h-4 w-20" />
                         <Skeleton className="h-4 w-20" />
                       </div>
-                      <div className="flex justify-between pt-2 border-t border-border/50">
+                      <div className="flex justify-between pt-3">
                         <Skeleton className="h-4 w-16" />
                         <Skeleton className="h-4 w-24" />
                       </div>
                     </div>
-                    <div className="pt-2 border-t border-border/50 space-y-2">
+                    <div className="pt-3 space-y-2">
                       <div className="flex justify-between">
                         <Skeleton className="h-4 w-24" />
                         <Skeleton className="h-4 w-20" />
@@ -903,7 +903,7 @@ function RealizedYieldContent() {
                       )}
                       {unrealizedData.poolsCurrentUsd > 0 && (
                         <>
-                          <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                          <div className="flex justify-between items-center pt-2 border-t border-border/50">
                             <span className="text-muted-foreground">
                               <InfoLabel label="Unrealized P&L" tooltip="Current Balance minus Cost Basis. Profit still in the protocol." />
                             </span>
@@ -941,9 +941,7 @@ function RealizedYieldContent() {
 
                 {/* Backstop */}
                 {(data.backstop.deposited > 0 || data.backstop.withdrawn > 0) && (
-                  <>
-                  {(data.pools.deposited > 0 || data.pools.withdrawn > 0) && <Separator className="my-2" />}
-                  <div className="space-y-2">
+                  <div className="space-y-2 mt-6">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 rounded-full bg-purple-500/10">
                         <Shield className="h-3.5 w-3.5 text-purple-500" />
@@ -1003,7 +1001,7 @@ function RealizedYieldContent() {
                         </div>
                       )}
                       {emissionsBySource.backstop.usd > 0 && (
-                        <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                        <div className="flex justify-between items-center pt-2 border-t border-border/50">
                           <span className="text-muted-foreground">
                             <InfoLabel label="Realized P&L" tooltip="Profits already withdrawn from the protocol (emissions claimed)." />
                           </span>
@@ -1019,7 +1017,7 @@ function RealizedYieldContent() {
                       )}
                       {unrealizedData.backstopCurrentUsd > 0 && (
                         <>
-                          <div className="flex justify-between items-center pt-1 border-t border-border/50">
+                          <div className="flex justify-between items-center pt-2 border-t border-border/50">
                             <span className="text-muted-foreground">
                               <InfoLabel label="Unrealized P&L" tooltip="Current Balance minus Cost Basis. Profit still in the protocol." />
                             </span>
@@ -1053,14 +1051,11 @@ function RealizedYieldContent() {
                       )}
                     </div>
                   </div>
-                  </>
                 )}
 
                 {/* Borrow Positions (Costs) */}
                 {hasBorrows && (
-                  <>
-                  {((data.pools.deposited > 0 || data.pools.withdrawn > 0) || (data.backstop.deposited > 0 || data.backstop.withdrawn > 0)) && <Separator className="my-2" />}
-                  <div className="space-y-2">
+                  <div className="space-y-2 mt-6">
                     <div className="flex items-center gap-2">
                       <div className="p-1.5 rounded-full bg-orange-500/10">
                         <Banknote className="h-3.5 w-3.5 text-orange-500" />
@@ -1114,7 +1109,6 @@ function RealizedYieldContent() {
                       </div>
                     </div>
                   </div>
-                  </>
                 )}
 
                 <Separator />
@@ -1157,8 +1151,7 @@ function RealizedYieldContent() {
                           <p className="font-medium tabular-nums">{formatUsd(unclaimedEmissions.pools.usd)}</p>
                         </div>
                       )}
-                      <Separator />
-                      <div className="flex items-center justify-between bg-muted/50 -mx-4 px-4 py-2 rounded-md">
+                      <div className="flex items-center justify-between bg-muted/50 -mx-4 px-4 py-2 rounded-md mt-3">
                         <p className="font-semibold">
                           <InfoLabel
                             label="Total P&L"
@@ -1174,15 +1167,12 @@ function RealizedYieldContent() {
                     </>
                   )}
                   {unrealizedData.totalCurrentUsd === 0 && (
-                    <>
-                      <Separator />
-                      <div className="flex items-center justify-between bg-muted/50 -mx-4 px-4 py-2 rounded-md">
-                        <p className="font-semibold">{data.realizedPnl >= 0 ? "Realized Profit" : "Net Cash Flow"}</p>
-                        <p className={`text-lg font-bold tabular-nums ${data.realizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {data.realizedPnl >= 0 ? "+" : ""}{formatUsd(data.realizedPnl)}
-                        </p>
-                      </div>
-                    </>
+                    <div className="flex items-center justify-between bg-muted/50 -mx-4 px-4 py-2 rounded-md mt-3">
+                      <p className="font-semibold">{data.realizedPnl >= 0 ? "Realized Profit" : "Net Cash Flow"}</p>
+                      <p className={`text-lg font-bold tabular-nums ${data.realizedPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {data.realizedPnl >= 0 ? "+" : ""}{formatUsd(data.realizedPnl)}
+                      </p>
+                    </div>
                   )}
                 </div>
               </CardContent>
@@ -1250,11 +1240,11 @@ function RealizedYieldContent() {
                         key={poolData.poolId}
                         className="space-y-4"
                       >
-                        {poolIndex > 0 && <Separator />}
+                        {poolIndex > 0 && <div className="pt-4" />}
                         {/* Pool Header */}
-                        <div className="flex items-center gap-2">
-                          <PoolLogo poolName={poolData.poolName || poolData.poolId} size={20} />
-                          <p className="font-semibold text-sm">
+                        <div className="flex items-center gap-3">
+                          <PoolLogo poolName={poolData.poolName || poolData.poolId} size={28} />
+                          <p className="font-semibold text-lg">
                             {poolData.poolName || poolData.poolId.slice(0, 8) + '...'}
                           </p>
                         </div>
@@ -1331,9 +1321,7 @@ function RealizedYieldContent() {
 
                         {/* Backstop Position */}
                         {poolData.backstop.deposited > 0 && (
-                          <>
-                          {poolData.lending.deposited > 0 && <Separator className="my-2" />}
-                          <div className="space-y-2">
+                          <div className="space-y-2 mt-6">
                             <div className="flex items-center gap-2">
                               <div className="p-1.5 rounded-full bg-purple-500/10">
                                 <Shield className="h-3.5 w-3.5 text-purple-500" />
@@ -1407,14 +1395,11 @@ function RealizedYieldContent() {
                               </div>
                             </div>
                           </div>
-                          </>
                         )}
 
                         {/* Borrows Position */}
                         {poolBorrow && poolBorrow.currentDebtUsd > 0 && (
-                          <>
-                          {(poolData.lending.deposited > 0 || poolData.backstop.deposited > 0) && <Separator className="my-2" />}
-                          <div className="space-y-2">
+                          <div className="space-y-2 mt-6">
                             <div className="flex items-center gap-2">
                               <div className="p-1.5 rounded-full bg-orange-500/10">
                                 <Banknote className="h-3.5 w-3.5 text-orange-500" />
@@ -1468,11 +1453,10 @@ function RealizedYieldContent() {
                               </div>
                             </div>
                           </div>
-                          </>
                         )}
 
                         {/* Pool Summary */}
-                        <div className="pt-2 border-t border-border/50 space-y-1">
+                        <div className="pt-4 border-t border-border/50 space-y-1">
                           <div className="flex justify-between items-center text-sm">
                             <span className="text-muted-foreground">Current Balance</span>
                             <span className="tabular-nums font-medium">{formatUsd(poolTotalCurrentBalance)}</span>
@@ -1499,8 +1483,7 @@ function RealizedYieldContent() {
                               <span className="tabular-nums font-medium">{formatUsd(poolEmissions)}</span>
                             </div>
                           )}
-                          <Separator className="my-1" />
-                          <div className="flex justify-between items-center bg-muted/50 -mx-4 px-4 py-2 rounded-md">
+                          <div className="flex justify-between items-center bg-muted/50 -mx-4 px-4 py-2 rounded-md mt-3">
                             <span className="font-semibold">{poolBorrow && poolBorrow.currentDebtUsd > 0 ? "Net P&L" : "Total P&L"}</span>
                             <p className={`text-lg font-bold tabular-nums ${poolTotalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                               {poolTotalPnl >= 0 ? "+" : ""}{formatUsd(poolTotalPnl)}
@@ -1613,7 +1596,7 @@ function PerformanceSkeleton() {
                     <Skeleton className="h-4 w-20" />
                     <Skeleton className="h-4 w-20" />
                   </div>
-                  <div className="flex justify-between pt-2 border-t border-border/50">
+                  <div className="flex justify-between pt-3">
                     <Skeleton className="h-4 w-16" />
                     <Skeleton className="h-4 w-24" />
                   </div>
@@ -1639,7 +1622,7 @@ function PerformanceSkeleton() {
                     <Skeleton className="h-4 w-20" />
                     <Skeleton className="h-4 w-20" />
                   </div>
-                  <div className="flex justify-between pt-2 border-t border-border/50">
+                  <div className="flex justify-between pt-3">
                     <Skeleton className="h-4 w-16" />
                     <Skeleton className="h-4 w-24" />
                   </div>
@@ -1693,12 +1676,12 @@ function PerformanceSkeleton() {
                     <Skeleton className="h-4 w-20" />
                     <Skeleton className="h-4 w-20" />
                   </div>
-                  <div className="flex justify-between pt-2 border-t border-border/50">
+                  <div className="flex justify-between pt-3">
                     <Skeleton className="h-4 w-16" />
                     <Skeleton className="h-4 w-24" />
                   </div>
                 </div>
-                <div className="pt-2 border-t border-border/50 space-y-2">
+                <div className="pt-3 space-y-2">
                   <div className="flex justify-between">
                     <Skeleton className="h-4 w-24" />
                     <Skeleton className="h-4 w-20" />

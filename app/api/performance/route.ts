@@ -342,10 +342,10 @@ export async function GET(request: NextRequest) {
     let annualizedRoiPercent: number | null = null
     let daysActive = 0
 
-    if (data.firstActivityDate && data.lastActivityDate) {
+    if (data.firstActivityDate) {
       const firstDate = new Date(data.firstActivityDate)
-      const lastDate = new Date(data.lastActivityDate)
-      daysActive = Math.max(1, Math.ceil((lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24)))
+      const todayDate = new Date(today) // today is already defined above as YYYY-MM-DD string
+      daysActive = Math.max(1, Math.ceil((todayDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24)))
 
       if (roiPercent !== null && daysActive > 0) {
         // Annualize: (1 + ROI)^(365/days) - 1
