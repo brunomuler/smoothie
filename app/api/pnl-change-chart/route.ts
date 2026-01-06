@@ -628,7 +628,8 @@ export async function GET(request: NextRequest) {
         if (tokensAtStart <= 0 && tokensAtEnd <= 0) continue
 
         // Get prices
-        const priceAtStart = getPriceAtDate(assetAddress, dayBeforeStr)
+        // For live bar, use today's price (captured ~midnight LA) instead of yesterday's
+        const priceAtStart = getPriceAtDate(assetAddress, isLive ? boundary.start : dayBeforeStr)
         const priceAtEnd = isLive
           ? (sdkPrices[assetAddress] || priceAtStart)
           : getPriceAtDate(assetAddress, boundary.end)
@@ -787,7 +788,8 @@ export async function GET(request: NextRequest) {
         if (sharesAtStart <= 0 && sharesAtEnd <= 0) continue
 
         // Get LP prices
-        const lpPriceAtStart = getPriceAtDate(LP_TOKEN_ADDRESS, dayBeforeStr)
+        // For live bar, use today's price (captured ~midnight LA) instead of yesterday's
+        const lpPriceAtStart = getPriceAtDate(LP_TOKEN_ADDRESS, isLive ? boundary.start : dayBeforeStr)
         const lpPriceAtEnd = isLive && sdkLpPrice > 0
           ? sdkLpPrice
           : getPriceAtDate(LP_TOKEN_ADDRESS, boundary.end)
@@ -949,7 +951,8 @@ export async function GET(request: NextRequest) {
         if (debtAtStart <= 0 && debtAtEnd <= 0) continue
 
         // Get prices
-        const priceAtStart = getPriceAtDate(assetAddress, dayBeforeStr)
+        // For live bar, use today's price (captured ~midnight LA) instead of yesterday's
+        const priceAtStart = getPriceAtDate(assetAddress, isLive ? boundary.start : dayBeforeStr)
         const priceAtEnd = isLive
           ? (sdkPrices[assetAddress] || priceAtStart)
           : getPriceAtDate(assetAddress, boundary.end)
