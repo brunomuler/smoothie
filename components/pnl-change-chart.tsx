@@ -554,32 +554,44 @@ export const PnlChangeChart = memo(function PnlChangeChart({
               </BarChart>
             </ResponsiveContainer>
           </div>
-          {/* Yield Legend */}
+          {/* Yield Legend - only show items with data */}
           <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-blue-500" />
-              <span>Supply APY</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-sky-500" />
-              <span>Supply BLND</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-violet-500" />
-              <span>Backstop Yield</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-purple-400" />
-              <span>Backstop BLND</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-orange-500" />
-              <span>Borrow Cost</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-2 h-2 rounded-sm bg-amber-500" />
-              <span>Borrow BLND</span>
-            </div>
+            {yieldChartData.some(d => d.supplyApyBar > 0) && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm bg-blue-500" />
+                <span>Supply APY</span>
+              </div>
+            )}
+            {yieldChartData.some(d => d.supplyBlndApyBar > 0) && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm bg-sky-500" />
+                <span>Supply BLND</span>
+              </div>
+            )}
+            {yieldChartData.some(d => d.backstopYieldPositiveBar > 0 || d.backstopYieldNegativeBar < 0) && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm bg-violet-500" />
+                <span>Backstop Yield</span>
+              </div>
+            )}
+            {yieldChartData.some(d => d.backstopBlndApyBar > 0) && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm bg-purple-400" />
+                <span>Backstop BLND</span>
+              </div>
+            )}
+            {yieldChartData.some(d => d.borrowInterestCostBar < 0) && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm bg-orange-500" />
+                <span>Borrow Cost</span>
+              </div>
+            )}
+            {yieldChartData.some(d => d.borrowBlndApyBar > 0) && (
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 rounded-sm bg-amber-500" />
+                <span>Borrow BLND</span>
+              </div>
+            )}
           </div>
         </div>
       )}
