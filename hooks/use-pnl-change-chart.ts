@@ -128,21 +128,18 @@ export function usePnlChangeChart(
   }, [blendSnapshot?.positions])
 
   // Build backstop positions map
-  // Include Q4W (queued withdrawal) LP tokens - they're still the user's tokens
-  // and still earning yield, just locked for 21 days
+  // NOTE: We intentionally pass an empty map for backstop positions.
+  // Using SDK values for live backstop yield calculation causes issues because:
+  // 1. SDK lpTokens use current on-chain share rate
+  // 2. Historical shares use rate computed from events
+  // 3. When these rates differ (even by 1-2%), the yield calculation (which depends on
+  //    the CHANGE in share rate) can be off by 8-10x.
+  // By using an empty map, the API falls back to historical data for both LP and shares,
+  // ensuring consistency in the yield calculation.
   const backstopPositions = useMemo(() => {
-    const positions: Record<string, number> = {}
-    if (!backstopPositionsData) return positions
-
-    backstopPositionsData.forEach(bp => {
-      const totalLpTokens = bp.lpTokens + (bp.q4wLpTokens || 0)
-      if (totalLpTokens > 0) {
-        positions[bp.poolId] = totalLpTokens
-      }
-    })
-
-    return positions
-  }, [backstopPositionsData])
+    // Return empty map to use historical data consistently
+    return {} as Record<string, number>
+  }, [])
 
   // Calculate weighted BLND APY from positions
   const blndApy = useMemo(() => {

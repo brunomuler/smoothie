@@ -99,14 +99,16 @@ function initializeWallets(): { wallets: Wallet[]; activeId: string | null } {
 }
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
-  // Use lazy initialization - this function runs ONCE during first render only
-  const [initialState] = React.useState(() => initializeWallets())
-  const [wallets, setWallets] = React.useState<Wallet[]>(initialState.wallets)
-  const [activeWalletId, setActiveWalletId] = React.useState<string | null>(initialState.activeId)
+  // Start with empty values to match server-side rendering
+  const [wallets, setWallets] = React.useState<Wallet[]>([])
+  const [activeWalletId, setActiveWalletId] = React.useState<string | null>(null)
   const [isHydrated, setIsHydrated] = React.useState(false)
 
-  // Just mark as hydrated on mount
+  // Initialize from localStorage and URL params AFTER hydration
   React.useEffect(() => {
+    const { wallets: initialWallets, activeId } = initializeWallets()
+    setWallets(initialWallets)
+    setActiveWalletId(activeId)
     setIsHydrated(true)
   }, [])
 
