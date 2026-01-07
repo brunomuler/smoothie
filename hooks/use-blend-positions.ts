@@ -230,15 +230,16 @@ export function useBlendPositions(walletPublicKey: string | undefined, totalCost
   // Combine snapshot and cost basis data
   // isLoading is true when:
   // 1. Prerequisites aren't ready yet (query disabled)
-  // 2. Initial fetch is in progress
-  // 3. No data available yet (neither from cache nor fetch)
+  // 2. Initial fetch is in progress (isLoading)
+  // 3. We only have placeholder/cached data and fresh data hasn't arrived yet
+  const hasFreshData = snapshotQuery.data && !snapshotQuery.isPlaceholderData
   const query = useMemo(() => ({
     data: snapshotQuery.data,
-    isLoading: !isQueryEnabled || snapshotQuery.isLoading || costBasisQuery.isLoading || (!snapshotQuery.data && !cachedData),
+    isLoading: !isQueryEnabled || snapshotQuery.isLoading || costBasisQuery.isLoading || !hasFreshData,
     isError: snapshotQuery.isError,
     error: snapshotQuery.error,
     refetch: snapshotQuery.refetch,
-  }), [snapshotQuery, costBasisQuery, isQueryEnabled, cachedData])
+  }), [snapshotQuery, costBasisQuery, isQueryEnabled, hasFreshData])
 
   const balanceData = useMemo(() => {
     const data = buildBalanceData(query.data)

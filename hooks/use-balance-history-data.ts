@@ -185,13 +185,19 @@ export function useBalanceHistoryData(
     }
   }, [publicKey, assetsKey, balanceHistoryBatchQuery.data, balanceHistoryBatchQuery.isPlaceholderData])
 
+  // Check if we have fresh data (not placeholder/cached data)
+  const hasFreshHistoryData = balanceHistoryBatchQuery.data && !balanceHistoryBatchQuery.isPlaceholderData
+
   // Transform batch results into the same format as the old useQueries result
   // This maintains compatibility with existing code that uses balanceHistoryQueries
   const balanceHistoryQueries = useMemo(() => {
+    // Show loading until fresh data arrives (not just cached/placeholder data)
+    const isStillLoading = balanceHistoryBatchQuery.isLoading || !hasFreshHistoryData
+
     if (!balanceHistoryBatchQuery.data?.results) {
       return uniqueAssetAddresses.map(() => ({
         data: undefined,
-        isLoading: balanceHistoryBatchQuery.isLoading,
+        isLoading: isStillLoading,
         isError: balanceHistoryBatchQuery.isError,
         error: balanceHistoryBatchQuery.error,
       }))
@@ -207,7 +213,7 @@ export function useBalanceHistoryData(
       if (!result) {
         return {
           data: { history: [], firstEventDate: null },
-          isLoading: false,
+          isLoading: isStillLoading,
           isError: false,
           error: null,
         }
@@ -218,12 +224,12 @@ export function useBalanceHistoryData(
           history: result.history,
           firstEventDate: result.firstEventDate,
         },
-        isLoading: false,
+        isLoading: isStillLoading,
         isError: !!result.error,
         error: result.error ? new Error(result.error) : null,
       }
     })
-  }, [balanceHistoryBatchQuery.data, balanceHistoryBatchQuery.isLoading, balanceHistoryBatchQuery.isError, balanceHistoryBatchQuery.error, uniqueAssetAddresses])
+  }, [balanceHistoryBatchQuery.data, balanceHistoryBatchQuery.isLoading, balanceHistoryBatchQuery.isError, balanceHistoryBatchQuery.error, uniqueAssetAddresses, hasFreshHistoryData])
 
   // Fetch backstop balance history (LP tokens over time)
   const backstopBalanceHistoryQuery = useQuery({
