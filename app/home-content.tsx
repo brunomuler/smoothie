@@ -342,7 +342,7 @@ export function HomeContent() {
           <WalletBalance
             data={balanceDataWithHistorical}
             chartData={chartData}
-            publicKey={activeWallet!.publicKey}
+            publicKey={activeWallet?.publicKey ?? ''}
             balanceHistoryData={aggregatedHistoryDataWithCorrectYield ?? undefined}
             loading={isLoading || !aggregatedHistoryDataWithCorrectYield || aggregatedHistoryDataWithCorrectYield.isLoading}
             usdcPrice={1}
@@ -362,7 +362,7 @@ export function HomeContent() {
 
           {(isLoading || totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0)) && (
             <BlndRewardsCard
-              publicKey={activeWallet!.publicKey}
+              publicKey={activeWallet?.publicKey ?? ''}
               pendingEmissions={totalEmissions}
               pendingSupplyEmissions={blendSnapshot?.totalSupplyEmissions}
               pendingBorrowEmissions={blendSnapshot?.totalBorrowEmissions}

@@ -79,9 +79,13 @@ export function useRealizedYield({
     retry: 2,
   })
 
+  // Include pending state (query disabled or not yet started)
+  // This ensures skeleton shows until actual data is available
+  const isQueryEnabled = enabled && !!publicKey
+
   return {
     data: query.data,
-    isLoading: query.isLoading,
+    isLoading: !isQueryEnabled || query.isLoading || (!query.data && query.isPending),
     error: query.error as Error | null,
     refetch: query.refetch,
   }

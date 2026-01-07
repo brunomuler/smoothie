@@ -151,6 +151,10 @@ export function useHistoricalYieldBreakdown(
     gcTime: 15 * 60 * 1000, // 15 minutes
   })
 
+  // Check if prerequisites are ready for cost basis query
+  const isCostBasisQueryEnabled = !!userAddress && Object.keys(sdkPrices).length > 0
+  const isBackstopQueryEnabled = Boolean(userAddress) && Boolean(lpTokenPrice) && (lpTokenPrice ?? 0) > 0 && hasBackstopPositions
+
   // Calculate full yield breakdowns using SDK current balances + historical cost basis
   const yieldBreakdowns = useMemo((): TotalYieldBreakdown => {
     const byAsset = new Map<string, AssetYieldBreakdown>()
@@ -288,6 +292,12 @@ export function useHistoricalYieldBreakdown(
       }
     }
 
+    // isLoading is true when:
+    // 1. Cost basis query is enabled but loading or has no data yet
+    // 2. Backstop query is enabled but loading or has no data yet
+    const isCostBasisLoading = isCostBasisQueryEnabled && (costBasisQuery.isLoading || (!costBasisQuery.data && costBasisQuery.isPending))
+    const isBackstopLoading = isBackstopQueryEnabled && (backstopEventsQuery.isLoading || (!backstopEventsQuery.data && backstopEventsQuery.isPending))
+
     return {
       totalCostBasisHistorical,
       totalProtocolYieldUsd,
@@ -296,10 +306,10 @@ export function useHistoricalYieldBreakdown(
       totalCurrentValueUsd,
       byAsset,
       byBackstop,
-      isLoading: costBasisQuery.isLoading || backstopEventsQuery.isLoading,
+      isLoading: isCostBasisLoading || isBackstopLoading,
       error: costBasisQuery.error as Error | null,
     }
-  }, [costBasisQuery.data, costBasisQuery.isLoading, costBasisQuery.error, backstopEventsQuery.data, backstopEventsQuery.isLoading, currentBalances, backstopPositions, lpTokenPrice])
+  }, [costBasisQuery.data, costBasisQuery.isLoading, costBasisQuery.error, costBasisQuery.isPending, backstopEventsQuery.data, backstopEventsQuery.isLoading, backstopEventsQuery.isPending, currentBalances, backstopPositions, lpTokenPrice, isCostBasisQueryEnabled, isBackstopQueryEnabled])
 
   return yieldBreakdowns
 }
