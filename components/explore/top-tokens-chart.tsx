@@ -12,6 +12,7 @@ import {
 } from "recharts"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TokenLogo } from "@/components/token-logo"
+import { useTooltipDismiss } from "@/hooks/use-tooltip-dismiss"
 import type { SupplyExploreItem, SortBy } from "@/types/explore"
 
 interface TopTokensChartProps {
@@ -126,6 +127,8 @@ function CustomTooltip({
 }
 
 export function TopTokensChart({ items, isLoading, sortBy }: TopTokensChartProps) {
+  const { containerRef, shouldRenderTooltip } = useTooltipDismiss()
+
   const chartData = useMemo(() => {
     const sorted = sortItems(items, sortBy)
     const top5 = sorted.slice(0, 5)
@@ -162,7 +165,7 @@ export function TopTokensChart({ items, isLoading, sortBy }: TopTokensChartProps
   }
 
   return (
-    <div>
+    <div ref={containerRef}>
       <h2 className="text-lg font-semibold mb-3">Top Pools</h2>
       {/* Percentage labels row */}
       <div className="flex px-4">
@@ -220,11 +223,13 @@ export function TopTokensChart({ items, isLoading, sortBy }: TopTokensChartProps
               />
             )}
 
-            <Tooltip
-              content={<CustomTooltip />}
-              cursor={{ fill: "transparent" }}
-              wrapperStyle={{ zIndex: 50 }}
-            />
+            {shouldRenderTooltip && (
+              <Tooltip
+                content={<CustomTooltip />}
+                cursor={{ fill: "transparent" }}
+                wrapperStyle={{ zIndex: 50 }}
+              />
+            )}
           </BarChart>
         </ResponsiveContainer>
       </div>

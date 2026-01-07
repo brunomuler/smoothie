@@ -12,6 +12,7 @@ import {
 import { ArrowUpRight, ArrowDownLeft } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PoolLogo } from "@/components/pool-logo"
+import { useTooltipDismiss } from "@/hooks/use-tooltip-dismiss"
 import type { PoolExploreItem } from "@/types/explore"
 
 interface PoolsChartProps {
@@ -79,6 +80,8 @@ function CustomTooltip({
 }
 
 export function PoolsChart({ items, isLoading }: PoolsChartProps) {
+  const { containerRef, shouldRenderTooltip } = useTooltipDismiss()
+
   const chartData = useMemo(() => {
     // Sort by total TVL and take top 5
     const sorted = [...items].sort((a, b) => b.totalTvl - a.totalTvl)
@@ -116,7 +119,7 @@ export function PoolsChart({ items, isLoading }: PoolsChartProps) {
   }
 
   return (
-    <div className="mb-6">
+    <div ref={containerRef} className="mb-6">
       <h2 className="text-lg font-semibold mb-3">Pools by TVL</h2>
       {/* Value labels row */}
       <div className="flex px-4">
@@ -174,11 +177,13 @@ export function PoolsChart({ items, isLoading }: PoolsChartProps) {
               isAnimationActive={false}
             />
 
-            <Tooltip
-              content={<CustomTooltip />}
-              cursor={{ fill: "transparent" }}
-              wrapperStyle={{ zIndex: 50 }}
-            />
+            {shouldRenderTooltip && (
+              <Tooltip
+                content={<CustomTooltip />}
+                cursor={{ fill: "transparent" }}
+                wrapperStyle={{ zIndex: 50 }}
+              />
+            )}
           </BarChart>
         </ResponsiveContainer>
       </div>

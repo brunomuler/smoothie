@@ -12,6 +12,7 @@ import {
 } from "recharts"
 import { Shield } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useTooltipDismiss } from "@/hooks/use-tooltip-dismiss"
 import type { BackstopExploreItem } from "@/types/explore"
 
 interface BackstopChartProps {
@@ -81,6 +82,8 @@ function CustomTooltip({
 }
 
 export function BackstopChart({ items, isLoading }: BackstopChartProps) {
+  const { containerRef, shouldRenderTooltip } = useTooltipDismiss()
+
   const chartData = useMemo(() => {
     // Sort by total APY and take top 5
     const sorted = [...items].sort((a, b) => b.totalApy - a.totalApy)
@@ -114,7 +117,7 @@ export function BackstopChart({ items, isLoading }: BackstopChartProps) {
   }
 
   return (
-    <div>
+    <div ref={containerRef}>
       <h2 className="text-lg font-semibold mb-3">Top Backstops</h2>
       {/* Percentage labels row */}
       <div className="flex px-4">
@@ -163,11 +166,13 @@ export function BackstopChart({ items, isLoading }: BackstopChartProps) {
               isAnimationActive={false}
             />
 
-            <Tooltip
-              content={<CustomTooltip />}
-              cursor={{ fill: "transparent" }}
-              wrapperStyle={{ zIndex: 50 }}
-            />
+            {shouldRenderTooltip && (
+              <Tooltip
+                content={<CustomTooltip />}
+                cursor={{ fill: "transparent" }}
+                wrapperStyle={{ zIndex: 50 }}
+              />
+            )}
           </BarChart>
         </ResponsiveContainer>
       </div>

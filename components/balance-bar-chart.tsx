@@ -56,6 +56,7 @@ import {
   type IconPathData,
 } from "@/lib/icon-paths"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
+import { useTooltipDismiss } from "@/hooks/use-tooltip-dismiss"
 import type { FormatCurrencyOptions } from "@/lib/currency/format"
 
 interface BalanceBarChartProps {
@@ -527,6 +528,7 @@ export const BalanceBarChart = memo(function BalanceBarChart({
 
   // Currency preference for multi-currency display
   const { format: formatCurrency } = useCurrencyPreference()
+  const { containerRef, shouldRenderTooltip } = useTooltipDismiss()
 
   // Projection settings state with localStorage persistence
   const [projectionSettings, setProjectionSettings] = useState<ProjectionSettings>(DEFAULT_PROJECTION_SETTINGS)
@@ -739,7 +741,7 @@ export const BalanceBarChart = memo(function BalanceBarChart({
   }
 
   return (
-    <div className="space-y-1">
+    <div ref={containerRef} className="space-y-1">
       {/* Bar chart */}
       {chartData.length === 0 ? (
         <div className="aspect-[2/1] md:aspect-[7/2] flex items-center justify-center text-muted-foreground">
@@ -861,12 +863,13 @@ export const BalanceBarChart = memo(function BalanceBarChart({
                 <Customized component={renderEventMarkers} />
               )}
 
-              {/* Tooltip - using default hover trigger which works on mobile touch */}
-              <Tooltip
-                content={<CustomTooltip period={selectedPeriod} formatCurrency={formatCurrency} />}
-                cursor={{ fill: 'transparent' }}
-                wrapperStyle={{ zIndex: 50 }}
-              />
+              {shouldRenderTooltip && (
+                <Tooltip
+                  content={<CustomTooltip period={selectedPeriod} formatCurrency={formatCurrency} />}
+                  cursor={{ fill: 'transparent' }}
+                  wrapperStyle={{ zIndex: 50 }}
+                />
+              )}
             </BarChart>
           </ResponsiveContainer>
         </div>

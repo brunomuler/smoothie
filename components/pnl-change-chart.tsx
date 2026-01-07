@@ -14,6 +14,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
+import { useTooltipDismiss } from "@/hooks/use-tooltip-dismiss"
 import type { FormatCurrencyOptions } from "@/lib/currency/format"
 import type { PnlChangeDataPoint, PnlPeriodType } from "@/hooks/use-pnl-change-chart"
 
@@ -36,6 +37,8 @@ const TIME_PERIODS: { value: PnlPeriodType; label: string }[] = [
 function formatCompact(value: number): string {
   if (value === 0) return ""
   const absValue = Math.abs(value)
+  // Skip values that would round to 0 (avoids displaying "-$0" or "+$0")
+  if (absValue < 0.5) return ""
   const sign = value >= 0 ? "+" : "-"
   if (absValue >= 1000000) {
     return `${sign}$${(absValue / 1000000).toFixed(1)}M`
@@ -438,6 +441,9 @@ export const PnlChangeChart = memo(function PnlChangeChart({
   isLoading = false,
 }: PnlChangeChartProps) {
   const { format: formatCurrency } = useCurrencyPreference()
+  // Separate tooltip hooks for each chart to prevent interference
+  const { containerRef: yieldContainerRef, shouldRenderTooltip: shouldRenderYieldTooltip } = useTooltipDismiss()
+  const { containerRef: priceContainerRef, shouldRenderTooltip: shouldRenderPriceTooltip } = useTooltipDismiss()
 
   // Transform data for both charts
   const yieldChartData = useMemo(() => {
@@ -523,7 +529,7 @@ export const PnlChangeChart = memo(function PnlChangeChart({
           No yield data for this period
         </div>
       ) : (
-        <div>
+        <div ref={yieldContainerRef}>
           <div className="text-[10px] text-muted-foreground font-medium tracking-wide px-1">
             Yield Earnings (Approx.)
           </div>
@@ -594,11 +600,13 @@ export const PnlChangeChart = memo(function PnlChangeChart({
                   )}
                 </Bar>
 
-                <Tooltip
-                  content={<YieldTooltip formatCurrency={formatCurrency} />}
-                  cursor={{ fill: "transparent" }}
-                  wrapperStyle={{ zIndex: 50 }}
-                />
+                {shouldRenderYieldTooltip && (
+                  <Tooltip
+                    content={<YieldTooltip formatCurrency={formatCurrency} />}
+                    cursor={{ fill: "transparent" }}
+                    wrapperStyle={{ zIndex: 50 }}
+                  />
+                )}
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -645,7 +653,7 @@ export const PnlChangeChart = memo(function PnlChangeChart({
       )}
 
       {/* Price Change Chart */}
-      <div className="space-y-1 mt-8">
+      <div ref={priceContainerRef} className="space-y-1 mt-8">
           <div className="text-[10px] text-muted-foreground font-medium tracking-wide px-1">
             Price Changes
           </div>
@@ -700,11 +708,13 @@ export const PnlChangeChart = memo(function PnlChangeChart({
                     )}
                   </Bar>
 
-                  <Tooltip
-                    content={<PriceChangeTooltip formatCurrency={formatCurrency} />}
-                    cursor={{ fill: "transparent" }}
-                    wrapperStyle={{ zIndex: 50 }}
-                  />
+                  {shouldRenderPriceTooltip && (
+                    <Tooltip
+                      content={<PriceChangeTooltip formatCurrency={formatCurrency} />}
+                      cursor={{ fill: "transparent" }}
+                      wrapperStyle={{ zIndex: 50 }}
+                    />
+                  )}
                 </BarChart>
               </ResponsiveContainer>
             </div>
