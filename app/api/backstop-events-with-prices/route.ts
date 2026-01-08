@@ -37,9 +37,11 @@ export const GET = createApiHandler<BackstopEventsWithPricesResponse>({
     ttl: CACHE_TTL.MEDIUM, // 5 minutes
     getKey: (request) => {
       const params = request.nextUrl.searchParams
+      // Support both single and multi-wallet cache keys
+      const userKey = params.get('userAddresses') || params.get('userAddress') || ''
       return cacheKey(
         'backstop-events-prices',
-        params.get('userAddress') || '',
+        userKey,
         params.get('poolAddress') || 'all'
       )
     },
