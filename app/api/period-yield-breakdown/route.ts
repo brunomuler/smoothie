@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
 import { LP_TOKEN_ADDRESS } from '@/lib/constants'
+import { resolveWalletAddress } from '@/lib/api'
 
 export type PeriodType = '1W' | '1M' | '1Y' | 'All'
 
@@ -196,6 +197,9 @@ export async function GET(request: NextRequest) {
     )
   }
 
+  // Resolve demo wallet alias to real address
+  const resolvedUserAddress = resolveWalletAddress(userAddress)
+
   // Parse SDK prices (current prices)
   let sdkPrices: Record<string, number> = {}
   if (sdkPricesParam) {
@@ -241,7 +245,7 @@ export async function GET(request: NextRequest) {
     const todayStr = todayFormatter.format(new Date())
 
     // Get all unique assets the user has interacted with
-    const userActions = await eventsRepository.getUserActions(userAddress, {
+    const userActions = await eventsRepository.getUserActions(resolvedUserAddress, {
       actionTypes: ['supply', 'supply_collateral', 'withdraw', 'withdraw_collateral'],
       limit: 1000,
     })
@@ -277,7 +281,7 @@ export async function GET(request: NextRequest) {
 
     const balanceHistoryPromises = Array.from(uniqueAssets).map(async (assetAddress) => {
       const { history } = await eventsRepository.getBalanceHistoryFromEvents(
-        userAddress,
+        resolvedUserAddress,
         assetAddress,
         365, // Get up to 1 year of history
         timezone // Use user's timezone to match chart data
@@ -361,7 +365,7 @@ export async function GET(request: NextRequest) {
       // Example: Period starts Nov 19, tokensAtStart is Nov 18 EOD,
       //          so Nov 19 deposits should count in netDepositedInPeriod
       const eventsInPeriod = await eventsRepository.getDepositEventsWithPrices(
-        userAddress,
+        resolvedUserAddress,
         assetAddress,
         poolId,
         effectivePrice,
@@ -451,7 +455,7 @@ export async function GET(request: NextRequest) {
     if (backstopPoolAddresses.length > 0 && lpTokenPrice > 0) {
       // Fetch backstop balance history for all pools
       const backstopHistory = await eventsRepository.getBackstopUserBalanceHistoryMultiplePools(
-        userAddress,
+        resolvedUserAddress,
         backstopPoolAddresses,
         365, // Up to 1 year
         timezone // Use user's timezone to match chart data
@@ -465,7 +469,7 @@ export async function GET(request: NextRequest) {
 
       // Get backstop events within period for net deposited calculation
       const backstopEventsData = await eventsRepository.getBackstopEventsWithPrices(
-        userAddress,
+        resolvedUserAddress,
         undefined, // All pools
         lpTokenPrice
       )

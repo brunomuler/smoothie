@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
 import { LP_TOKEN_ADDRESS, BLND_TOKEN_ADDRESS } from '@/lib/constants'
+import { resolveWalletAddress } from '@/lib/api'
 
 export type PnlPeriodType = '1W' | '1M' | '6M'
 
@@ -117,10 +118,16 @@ function generatePeriodBoundaries(
  * GET /api/pnl-change-chart
  *
  * Returns P&L change data for stacked bar chart visualization.
+ * Supports both single wallet and multi-wallet aggregation.
+ *
+ * Query params:
+ * - userAddress: Single user's wallet address (for backward compatibility)
+ * - userAddresses: Comma-separated list of wallet addresses (for multi-wallet aggregation)
  */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const userAddress = searchParams.get('userAddress')
+  const userAddressesParam = searchParams.get('userAddresses')
   const period = (searchParams.get('period') || '1W') as PnlPeriodType
   const timezone = searchParams.get('timezone') || 'UTC'
   const sdkPricesParam = searchParams.get('sdkPrices')
@@ -133,12 +140,23 @@ export async function GET(request: NextRequest) {
   const blndApyParam = searchParams.get('blndApy') // Current BLND APY from SDK (%)
   const backstopBlndApyParam = searchParams.get('backstopBlndApy') // Current backstop BLND APY from SDK (%)
 
-  if (!userAddress) {
+  // Support both single address and multiple addresses
+  let userAddresses: string[] = []
+  if (userAddressesParam) {
+    userAddresses = userAddressesParam.split(',').map(a => a.trim()).filter(a => a.length > 0)
+  } else if (userAddress) {
+    userAddresses = [userAddress]
+  }
+
+  if (userAddresses.length === 0) {
     return NextResponse.json(
-      { error: 'Missing required parameter: userAddress' },
+      { error: 'Missing required parameter: userAddress or userAddresses' },
       { status: 400 }
     )
   }
+
+  // Resolve demo wallet aliases to real addresses
+  userAddresses = userAddresses.map(addr => resolveWalletAddress(addr))
 
   // Parse parameters
   let sdkPrices: Record<string, number> = {}
@@ -189,11 +207,15 @@ export async function GET(request: NextRequest) {
     const overallStart = periodBoundaries[0].start
     const overallEnd = periodBoundaries[periodBoundaries.length - 1].end
 
-    // Fetch all user actions in the period (including borrow/repay for borrow calculations)
-    const userActions = await eventsRepository.getUserActions(userAddress, {
-      actionTypes: ['supply', 'supply_collateral', 'withdraw', 'withdraw_collateral', 'claim', 'borrow', 'repay'],
-      limit: 1000,
-    })
+    // Fetch all user actions in the period for ALL addresses (including borrow/repay for borrow calculations)
+    const allUserActionsPromises = userAddresses.map(addr =>
+      eventsRepository.getUserActions(addr, {
+        actionTypes: ['supply', 'supply_collateral', 'withdraw', 'withdraw_collateral', 'claim', 'borrow', 'repay'],
+        limit: 1000,
+      })
+    )
+    const allUserActionsArrays = await Promise.all(allUserActionsPromises)
+    const userActions = allUserActionsArrays.flat()
 
     // Get unique assets and separate supply vs borrow pool-asset pairs
     const uniqueAssets = new Set<string>()
@@ -242,14 +264,15 @@ export async function GET(request: NextRequest) {
       d_rate: number
     }>>()
 
+    // Fetch balance history for all addresses and combine
     for (const assetAddress of uniqueAssets) {
-      const { history } = await eventsRepository.getBalanceHistoryFromEvents(
-        userAddress,
-        assetAddress,
-        365,
-        timezone
+      const allHistories = await Promise.all(
+        userAddresses.map(addr =>
+          eventsRepository.getBalanceHistoryFromEvents(addr, assetAddress, 365, timezone)
+        )
       )
-      balanceHistoryByAsset.set(assetAddress, history as Array<{
+      // Combine histories from all wallets
+      const combinedHistory = allHistories.flatMap(h => h.history) as Array<{
         snapshot_date: string
         supply_balance: number
         collateral_balance: number
@@ -260,7 +283,8 @@ export async function GET(request: NextRequest) {
         liabilities_dtokens: number
         b_rate: number
         d_rate: number
-      }>)
+      }>
+      balanceHistoryByAsset.set(assetAddress, combinedHistory)
     }
 
     // Fetch backstop history
@@ -279,12 +303,20 @@ export async function GET(request: NextRequest) {
       withdrawals: Array<{ date: string; timestamp: string; lpTokens: number; shares: number; priceAtWithdrawal: number; poolAddress: string }>
     } = { deposits: [], withdrawals: [] }
 
-    // Always try to fetch backstop events (we need them for calculations)
-    backstopEventsData = await eventsRepository.getBackstopEventsWithPrices(
-      userAddress,
-      undefined,
-      sdkLpPrice > 0 ? sdkLpPrice : 0.35 // Use SDK price or reasonable default for price lookups
+    // Always try to fetch backstop events for ALL addresses (we need them for calculations)
+    const allBackstopEventsPromises = userAddresses.map(addr =>
+      eventsRepository.getBackstopEventsWithPrices(
+        addr,
+        undefined,
+        sdkLpPrice > 0 ? sdkLpPrice : 0.35 // Use SDK price or reasonable default for price lookups
+      )
     )
+    const allBackstopEvents = await Promise.all(allBackstopEventsPromises)
+    // Combine backstop events from all wallets
+    backstopEventsData = {
+      deposits: allBackstopEvents.flatMap(e => e.deposits),
+      withdrawals: allBackstopEvents.flatMap(e => e.withdrawals),
+    }
 
     // If no SDK positions provided, discover pools from events
     if (backstopPoolAddresses.length === 0) {
@@ -295,12 +327,18 @@ export async function GET(request: NextRequest) {
     }
 
     if (backstopPoolAddresses.length > 0) {
-      backstopHistory = await eventsRepository.getBackstopUserBalanceHistoryMultiplePools(
-        userAddress,
-        backstopPoolAddresses,
-        365,
-        timezone
+      // Fetch backstop history for ALL addresses and combine
+      const allBackstopHistories = await Promise.all(
+        userAddresses.map(addr =>
+          eventsRepository.getBackstopUserBalanceHistoryMultiplePools(
+            addr,
+            backstopPoolAddresses,
+            365,
+            timezone
+          )
+        )
       )
+      backstopHistory = allBackstopHistories.flat()
     }
 
     // Note: backstopEventsData already fetched above
@@ -436,19 +474,27 @@ export async function GET(request: NextRequest) {
     }
 
     // Helper to get supply/collateral balance for a specific date
+    // For multi-wallet: sums balances across all wallets for the same date
     function getBalanceAtDate(
       assetAddress: string,
       poolId: string,
       targetDate: string
     ): number {
       const history = balanceHistoryByAsset.get(assetAddress) || []
-      const sorted = history
-        .filter(r => r.pool_id === poolId)
-        .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
+      const filtered = history.filter(r => r.pool_id === poolId)
 
-      for (const record of sorted) {
-        if (record.snapshot_date <= targetDate) {
-          return (record.supply_balance || 0) + (record.collateral_balance || 0)
+      // Group by snapshot_date to handle multiple wallets
+      const byDate = new Map<string, number>()
+      for (const record of filtered) {
+        const existing = byDate.get(record.snapshot_date) || 0
+        byDate.set(record.snapshot_date, existing + (record.supply_balance || 0) + (record.collateral_balance || 0))
+      }
+
+      // Find the most recent date <= targetDate
+      const sortedDates = Array.from(byDate.keys()).sort().reverse()
+      for (const date of sortedDates) {
+        if (date <= targetDate) {
+          return byDate.get(date) || 0
         }
       }
       return 0
@@ -456,60 +502,97 @@ export async function GET(request: NextRequest) {
 
     // Helper to get raw balance data (bTokens + rate) for a specific date
     // Used for live bar recalculation with event-based rates
+    // For multi-wallet: sums bTokens across wallets (rates are pool-level, same for all wallets)
     function getRawBalanceAtDate(
       assetAddress: string,
       poolId: string,
       targetDate: string
     ): { supplyBtokens: number; collateralBtokens: number; liabilitiesDtokens: number; bRate: number; dRate: number } | null {
       const history = balanceHistoryByAsset.get(assetAddress) || []
-      const sorted = history
-        .filter(r => r.pool_id === poolId)
-        .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
+      const filtered = history.filter(r => r.pool_id === poolId)
 
-      for (const record of sorted) {
-        if (record.snapshot_date <= targetDate) {
-          return {
+      // Group by snapshot_date to handle multiple wallets
+      const byDate = new Map<string, { supplyBtokens: number; collateralBtokens: number; liabilitiesDtokens: number; bRate: number; dRate: number }>()
+      for (const record of filtered) {
+        const existing = byDate.get(record.snapshot_date)
+        if (existing) {
+          // Sum bTokens across wallets (rates should be the same)
+          existing.supplyBtokens += record.supply_btokens || 0
+          existing.collateralBtokens += record.collateral_btokens || 0
+          existing.liabilitiesDtokens += record.liabilities_dtokens || 0
+        } else {
+          byDate.set(record.snapshot_date, {
             supplyBtokens: record.supply_btokens || 0,
             collateralBtokens: record.collateral_btokens || 0,
             liabilitiesDtokens: record.liabilities_dtokens || 0,
             bRate: record.b_rate || 1,
             dRate: record.d_rate || 1,
-          }
+          })
+        }
+      }
+
+      // Find the most recent date <= targetDate
+      const sortedDates = Array.from(byDate.keys()).sort().reverse()
+      for (const date of sortedDates) {
+        if (date <= targetDate) {
+          return byDate.get(date) || null
         }
       }
       return null
     }
 
     // Helper to get debt balance for a specific date
+    // For multi-wallet: sums debt across all wallets for the same date
     function getDebtBalanceAtDate(
       assetAddress: string,
       poolId: string,
       targetDate: string
     ): number {
       const history = balanceHistoryByAsset.get(assetAddress) || []
-      const sorted = history
-        .filter(r => r.pool_id === poolId)
-        .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
+      const filtered = history.filter(r => r.pool_id === poolId)
 
-      for (const record of sorted) {
-        if (record.snapshot_date <= targetDate) {
-          return record.debt_balance || 0
+      // Group by snapshot_date to handle multiple wallets
+      const byDate = new Map<string, number>()
+      for (const record of filtered) {
+        const existing = byDate.get(record.snapshot_date) || 0
+        byDate.set(record.snapshot_date, existing + (record.debt_balance || 0))
+      }
+
+      // Find the most recent date <= targetDate
+      const sortedDates = Array.from(byDate.keys()).sort().reverse()
+      for (const date of sortedDates) {
+        if (date <= targetDate) {
+          return byDate.get(date) || 0
         }
       }
       return 0
     }
 
     // Helper to get backstop position at date (returns both lp_tokens_value and cumulative_shares)
+    // For multi-wallet: sums LP tokens and shares across all wallets for the same date
     function getBackstopPositionAtDate(poolAddress: string, targetDate: string): { lpValue: number; shares: number } {
       const poolHistory = backstopHistory.filter(h => h.pool_address === poolAddress)
-      const sorted = poolHistory.sort((a, b) => b.date.localeCompare(a.date))
 
-      for (const record of sorted) {
-        if (record.date <= targetDate) {
-          return {
+      // Group by date to handle multiple wallets
+      const byDate = new Map<string, { lpValue: number; shares: number }>()
+      for (const record of poolHistory) {
+        const existing = byDate.get(record.date)
+        if (existing) {
+          existing.lpValue += record.lp_tokens_value || 0
+          existing.shares += record.cumulative_shares || 0
+        } else {
+          byDate.set(record.date, {
             lpValue: record.lp_tokens_value || 0,
             shares: record.cumulative_shares || 0,
-          }
+          })
+        }
+      }
+
+      // Find the most recent date <= targetDate
+      const sortedDates = Array.from(byDate.keys()).sort().reverse()
+      for (const date of sortedDates) {
+        if (date <= targetDate) {
+          return byDate.get(date) || { lpValue: 0, shares: 0 }
         }
       }
       return { lpValue: 0, shares: 0 }
@@ -821,37 +904,23 @@ export async function GET(request: NextRequest) {
           return eventDate >= boundary.start && eventDate <= boundary.end
         })
 
-        // Calculate LP yield using shares-based approach to avoid unit mismatch
-        // Balance history returns lp_tokens_value = shares × share_rate
-        // Events return raw lp_tokens, which are different units when share_rate != 1
+        // Calculate LP yield using accounting approach:
+        // Yield = End LP + Withdrawn LP - Start LP - Deposited LP
+        // This correctly handles full withdrawals where shareRateAtEnd would be 0
 
-        // Calculate share rates
-        const shareRateAtEnd = sharesAtEnd > 0 ? lpAtEnd / sharesAtEnd : 0
-        const shareRateAtStart = sharesAtStart > 0 ? lpAtStart / sharesAtStart : 0
-
-        // Yield on shares held at start of period
-        const yieldOnStartShares = sharesAtStart * (shareRateAtEnd - shareRateAtStart)
-
-        // Yield on deposits made during the period
-        // Each deposit earns yield from the difference between deposit rate and end rate
-        let yieldOnDeposits = 0
+        // Sum up deposits and withdrawals during the period
+        let depositedLp = 0
         for (const deposit of periodDeposits) {
-          if (deposit.shares > 0) {
-            const depositShareRate = deposit.lpTokens / deposit.shares
-            yieldOnDeposits += deposit.shares * Math.max(0, shareRateAtEnd - depositShareRate)
-          }
+          depositedLp += deposit.lpTokens
         }
 
-        // Yield that would have been earned on withdrawals (subtract)
-        let yieldOnWithdrawals = 0
+        let withdrawnLp = 0
         for (const withdrawal of periodWithdrawals) {
-          if (withdrawal.shares > 0) {
-            const withdrawShareRate = withdrawal.lpTokens / withdrawal.shares
-            yieldOnWithdrawals += withdrawal.shares * Math.max(0, shareRateAtEnd - withdrawShareRate)
-          }
+          withdrawnLp += withdrawal.lpTokens
         }
 
-        const lpYield = yieldOnStartShares + yieldOnDeposits - yieldOnWithdrawals
+        // Yield = what we have now + what we took out - what we started with - what we put in
+        const lpYield = lpAtEnd + withdrawnLp - lpAtStart - depositedLp
 
         // Include both positive and negative yield
         backstopYield += lpYield * lpPriceAtEnd

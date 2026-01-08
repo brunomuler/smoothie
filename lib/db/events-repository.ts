@@ -1287,7 +1287,7 @@ export class EventsRepository {
         ORDER BY pc_inner.event_date DESC
         LIMIT 1
       ) pc ON true
-      WHERE COALESCE(uc.cumulative_shares, 0) > 0
+      WHERE COALESCE(uc.cumulative_shares, 0) >= 0
       ORDER BY p.pool_address, d.date DESC
       `,
       [userAddress, poolAddresses, days, timezone]

@@ -11,6 +11,7 @@ import {
   optionalInt,
   getTimezone,
   CACHE_CONFIGS,
+  resolveWalletAddress,
 } from '@/lib/api'
 import { cacheKey, todayDate, CACHE_TTL } from '@/lib/redis'
 
@@ -54,7 +55,7 @@ export const GET = createApiHandler<BackstopBalanceHistoryResponse>({
   },
 
   async handler(_request: NextRequest, { searchParams }) {
-    const user = requireString(searchParams, 'user')
+    const user = resolveWalletAddress(requireString(searchParams, 'user'))
     const days = optionalInt(searchParams, 'days', 365, { min: 1 })
     const timezone = getTimezone(searchParams)
 

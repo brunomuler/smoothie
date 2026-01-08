@@ -1,14 +1,16 @@
 "use client"
 
 import { useMemo, Suspense, useEffect, useState } from "react"
-import { TrendingUp, TrendingDown, Shield, PiggyBank, Calendar, Wallet, Banknote } from "lucide-react"
+import { TrendingUp, Shield, PiggyBank, Calendar, Banknote } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useRealizedYield } from "@/hooks/use-realized-yield"
+import { useRealizedYieldMulti } from "@/hooks/use-realized-yield-multi"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
+import { useBlendPositionsMulti } from "@/hooks/use-blend-positions-multi"
 import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useDisplayPreferences } from "@/contexts/display-preferences-context"
 import { useHistoricalYieldBreakdown } from "@/hooks/use-historical-yield-breakdown"
@@ -17,10 +19,13 @@ import { useAnalytics } from "@/hooks/use-analytics"
 import { AuthenticatedPage } from "@/components/authenticated-page"
 import { PageTitle } from "@/components/page-title"
 import { useWalletState } from "@/hooks/use-wallet-state"
+import { useWalletContext } from "@/contexts/wallet-context"
+import { WalletAggregationSelector } from "@/components/wallet-aggregation-selector"
 import { InfoLabel } from "@/components/performance"
 import { PoolLogo } from "@/components/pool-logo"
 import { PnlChangeChart } from "@/components/pnl-change-chart"
 import { usePnlChangeChart, type PnlPeriodType } from "@/hooks/use-pnl-change-chart"
+import { usePnlChangeChartMulti } from "@/hooks/use-pnl-change-chart-multi"
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
@@ -42,19 +47,111 @@ function RealizedYieldContent() {
   const [pnlChartPeriod, setPnlChartPeriod] = useState<PnlPeriodType>("1W")
 
   const { activeWallet } = useWalletState()
+  const { wallets } = useWalletContext()
+
+  // Track which wallets are selected for aggregation
+  // null means "not yet initialized" - will default to active wallet only
+  const [selectedWalletIds, setSelectedWalletIds] = useState<string[] | null>(null)
+
+  // Load selection from localStorage on mount, reset if active wallet changed
+  useEffect(() => {
+    if (!activeWallet?.id || wallets.length === 0) return
+
+    const stored = localStorage.getItem('performance-selected-wallet-ids')
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored)
+        // Check if stored selection was for a different active wallet
+        if (parsed.activeWalletId && parsed.activeWalletId !== activeWallet.id) {
+          // Active wallet changed, reset to just the new active wallet
+          setSelectedWalletIds([activeWallet.id])
+          localStorage.setItem('performance-selected-wallet-ids', JSON.stringify({
+            activeWalletId: activeWallet.id,
+            selectedIds: [activeWallet.id]
+          }))
+          return
+        }
+        // Load stored selection if valid
+        if (Array.isArray(parsed.selectedIds) && parsed.selectedIds.length > 0) {
+          const validIds = parsed.selectedIds.filter((id: string) => wallets.some(w => w.id === id))
+          if (validIds.length > 0) {
+            setSelectedWalletIds(validIds)
+            return
+          }
+        }
+      } catch {
+        // Invalid JSON, ignore
+      }
+    }
+  }, [wallets, activeWallet?.id])
+
+  // Derive effective selection: if null (not yet set), default to just active wallet
+  const effectiveSelectedWalletIds = useMemo(() => {
+    if (selectedWalletIds === null && activeWallet?.id) {
+      return [activeWallet.id]
+    }
+    return selectedWalletIds ?? []
+  }, [selectedWalletIds, activeWallet?.id])
+
+  const handleWalletSelectionApply = (walletIds: string[]) => {
+    setSelectedWalletIds(walletIds)
+    // Persist to localStorage with active wallet context
+    localStorage.setItem('performance-selected-wallet-ids', JSON.stringify({
+      activeWalletId: activeWallet?.id,
+      selectedIds: walletIds
+    }))
+  }
+
+  // Derive public keys from selected wallet IDs
+  const selectedPublicKeys = useMemo(() => {
+    return effectiveSelectedWalletIds
+      .map(id => wallets.find(w => w.id === id)?.publicKey)
+      .filter((pk): pk is string => pk !== undefined)
+  }, [effectiveSelectedWalletIds, wallets])
+
+  // Determine if we're in multi-wallet mode
+  const isMultiWallet = selectedPublicKeys.length > 1
 
   // Track page view
   useEffect(() => {
     capture('page_viewed', { page: 'performance' })
   }, [capture])
 
-  const publicKey = activeWallet?.publicKey
+  // For single wallet (or primary wallet in multi), use the first selected
+  const publicKey = selectedPublicKeys[0] ?? activeWallet?.publicKey
 
-  // Get blend positions for current prices and balances
-  const { blndPrice, lpTokenPrice, data: blendSnapshot, backstopPositions, totalBackstopUsd, isLoading: isLoadingPositions, totalEmissions: unclaimedBlndTokens } = useBlendPositions(publicKey)
+  // Get blend positions - use multi hook when multiple wallets selected
+  const singleBlendPositions = useBlendPositions(isMultiWallet ? undefined : publicKey)
+  const multiBlendPositions = useBlendPositionsMulti(isMultiWallet ? selectedPublicKeys : undefined)
+
+  // Unified blend positions data
+  const {
+    blndPrice,
+    lpTokenPrice,
+    data: blendSnapshot,
+    backstopPositions,
+    totalBackstopUsd,
+    isLoading: isLoadingPositions,
+    totalEmissions: unclaimedBlndTokens,
+    perWalletSupplyAmounts,
+    perWalletBorrowAmounts,
+  } = isMultiWallet ? {
+    blndPrice: multiBlendPositions.blndPrice,
+    lpTokenPrice: multiBlendPositions.lpTokenPrice,
+    data: multiBlendPositions.data,
+    backstopPositions: multiBlendPositions.backstopPositions,
+    totalBackstopUsd: multiBlendPositions.totalBackstopUsd,
+    isLoading: multiBlendPositions.isLoading,
+    totalEmissions: multiBlendPositions.totalEmissions,
+    perWalletSupplyAmounts: multiBlendPositions.perWalletSupplyAmounts,
+    perWalletBorrowAmounts: multiBlendPositions.perWalletBorrowAmounts,
+  } : { ...singleBlendPositions, perWalletSupplyAmounts: undefined, perWalletBorrowAmounts: undefined }
 
   // Build SDK prices as Record for useRealizedYield
   const sdkPricesRecord = useMemo(() => {
+    if (isMultiWallet) {
+      return multiBlendPositions.sdkPrices ?? {}
+    }
     const record: Record<string, number> = {}
     if (!blendSnapshot?.positions) return record
 
@@ -65,25 +162,40 @@ function RealizedYieldContent() {
     })
 
     return record
-  }, [blendSnapshot?.positions])
+  }, [isMultiWallet, multiBlendPositions.sdkPrices, blendSnapshot?.positions])
 
   // Wait for SDK prices to be ready before fetching performance data
   const sdkReady = !isLoadingPositions && blendSnapshot !== undefined
 
-  const { data, isLoading } = useRealizedYield({
-    publicKey,
+  // Get realized yield - use multi hook when multiple wallets selected
+  const singleRealizedYield = useRealizedYield({
+    publicKey: isMultiWallet ? undefined : publicKey,
     sdkBlndPrice: blndPrice ?? 0,
     sdkLpPrice: lpTokenPrice ?? 0,
     sdkPrices: sdkPricesRecord,
-    enabled: !!publicKey && sdkReady,
+    enabled: !isMultiWallet && !!publicKey && sdkReady,
   })
 
+  const multiRealizedYield = useRealizedYieldMulti({
+    publicKeys: isMultiWallet ? selectedPublicKeys : undefined,
+    sdkBlndPrice: blndPrice ?? 0,
+    sdkLpPrice: lpTokenPrice ?? 0,
+    sdkPrices: sdkPricesRecord,
+    enabled: isMultiWallet && selectedPublicKeys.length > 0 && sdkReady,
+  })
+
+  // Unified realized yield data
+  const { data, isLoading } = isMultiWallet ? multiRealizedYield : singleRealizedYield
+
   // Use same yield breakdown calculation as home page for consistency
+  // Pass all selected addresses for multi-wallet aggregation
+  // perWalletSupplyAmounts enables per-wallet yield calculation for accurate aggregation
   const yieldBreakdown = useHistoricalYieldBreakdown(
-    publicKey,
+    selectedPublicKeys,
     blendSnapshot?.positions,
     backstopPositions,
-    lpTokenPrice
+    lpTokenPrice,
+    perWalletSupplyAmounts
   )
 
   // Build borrow positions for cost breakdown
@@ -93,20 +205,40 @@ function RealizedYieldContent() {
   }, [blendSnapshot?.positions])
 
   // Borrow cost breakdown (similar to yield breakdown but for debt)
+  // Pass all selected addresses for multi-wallet aggregation
+  // perWalletBorrowAmounts enables per-wallet interest calculation for accurate aggregation
   const borrowBreakdown = useBorrowYieldBreakdown(
-    publicKey,
-    borrowPositions.length > 0 ? borrowPositions : null
+    selectedPublicKeys,
+    borrowPositions.length > 0 ? borrowPositions : null,
+    perWalletBorrowAmounts
   )
 
   // Check if user has any borrows
   const hasBorrows = borrowPositions.length > 0 && borrowBreakdown.totalCurrentDebtUsd > 0
 
-  // P&L change chart data
-  const { data: pnlChartData, isLoading: isLoadingPnlChart } = usePnlChangeChart({
-    publicKey,
+  // P&L change chart data - use multi hook when multiple wallets selected
+  const singlePnlChart = usePnlChangeChart({
+    publicKey: isMultiWallet ? undefined : publicKey,
     period: pnlChartPeriod,
-    enabled: !!publicKey && sdkReady,
+    enabled: !isMultiWallet && !!publicKey && sdkReady,
   })
+
+  const multiPnlChart = usePnlChangeChartMulti({
+    publicKeys: isMultiWallet ? selectedPublicKeys : undefined,
+    period: pnlChartPeriod,
+    enabled: isMultiWallet && selectedPublicKeys.length > 0 && sdkReady,
+    // Pass SDK data for accurate live bar calculation
+    blendPositions: blendSnapshot?.positions,
+    backstopPositions: backstopPositions,
+    blndPrice: blndPrice ?? undefined,
+    lpTokenPrice: lpTokenPrice ?? undefined,
+    weightedBlndApy: blendSnapshot?.weightedBlndApy ?? undefined,
+  })
+
+  // Unified P&L chart data
+  const { data: pnlChartData, isLoading: isLoadingPnlChart } = isMultiWallet
+    ? multiPnlChart
+    : singlePnlChart
 
   const formatUsd = (value: number) => {
     if (!Number.isFinite(value)) return formatInCurrency(0)
@@ -740,13 +872,12 @@ function RealizedYieldContent() {
                           )}
                         </div>
                       </div>
-                      <div className={`p-2 rounded-full ${totalPnlPositive ? "bg-emerald-400/10" : "bg-red-400/10"}`}>
-                        {totalPnlPositive ? (
-                          <TrendingUp className="h-5 w-5 text-emerald-400" />
-                        ) : (
-                          <TrendingDown className="h-5 w-5 text-red-400" />
-                        )}
-                      </div>
+                      <WalletAggregationSelector
+                        wallets={wallets}
+                        activeWalletId={activeWallet?.id ?? null}
+                        selectedWalletIds={effectiveSelectedWalletIds}
+                        onApply={handleWalletSelectionApply}
+                      />
                     </div>
                     {/* P&L Breakdown when user has borrows */}
                     {hasBorrows && (
@@ -803,13 +934,12 @@ function RealizedYieldContent() {
                           {data.realizedPnl >= 0 ? "+" : ""}{formatUsd(data.realizedPnl)}
                         </p>
                       </div>
-                      <div className={`p-2 rounded-full ${data.realizedPnl >= 0 ? "bg-emerald-400/10" : "bg-blue-500/10"}`}>
-                        {data.realizedPnl >= 0 ? (
-                          <TrendingUp className="h-5 w-5 text-emerald-400" />
-                        ) : (
-                          <Wallet className="h-5 w-5 text-blue-500" />
-                        )}
-                      </div>
+                      <WalletAggregationSelector
+                        wallets={wallets}
+                        activeWalletId={activeWallet?.id ?? null}
+                        selectedWalletIds={effectiveSelectedWalletIds}
+                        onApply={handleWalletSelectionApply}
+                      />
                     </div>
                     <Separator className="my-4" />
                     <div className="grid grid-cols-2 gap-4">

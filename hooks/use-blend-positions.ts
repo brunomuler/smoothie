@@ -3,13 +3,75 @@
 import { useMemo, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { fetchWalletBlendSnapshot, type BlendWalletSnapshot, type BlendBackstopPosition } from "@/lib/blend/positions"
-import { toTrackedPools } from "@/lib/blend/pools"
+import { toTrackedPools, type TrackedPool } from "@/lib/blend/pools"
 import { useMetadata } from "@/hooks/use-metadata"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
 import { formatUsd, formatUsdWithDecimals } from "@/lib/format-utils"
 import type { BalanceData } from "@/types/wallet-balance"
 import type { AssetCardData } from "@/types/asset-card"
 import type { BackstopCostBasis } from "@/lib/db/types"
+
+// Helper to check if a wallet is a demo wallet (by alias format)
+function isDemoWallet(publicKey: string | undefined): boolean {
+  return !!publicKey && publicKey.startsWith('demo-')
+}
+
+// API response has BigInt values serialized as strings
+interface SerializedBackstopPosition extends Omit<BlendBackstopPosition, 'shares' | 'q4wShares' | 'unlockedQ4wShares' | 'q4wChunks'> {
+  shares: string
+  q4wShares: string
+  unlockedQ4wShares: string
+  q4wChunks: Array<{
+    shares: string
+    lpTokens: number
+    lpTokensUsd: number
+    expiration: number
+  }>
+}
+
+interface SerializedSnapshot extends Omit<BlendWalletSnapshot, 'backstopPositions'> {
+  backstopPositions: SerializedBackstopPosition[]
+}
+
+// Convert serialized strings back to BigInt
+function deserializeSnapshot(data: SerializedSnapshot): BlendWalletSnapshot {
+  return {
+    ...data,
+    backstopPositions: data.backstopPositions.map(bp => ({
+      ...bp,
+      shares: BigInt(bp.shares),
+      q4wShares: BigInt(bp.q4wShares),
+      unlockedQ4wShares: BigInt(bp.unlockedQ4wShares),
+      q4wChunks: bp.q4wChunks.map(chunk => ({
+        ...chunk,
+        shares: BigInt(chunk.shares),
+      })),
+    })),
+  }
+}
+
+// Fetch snapshot from backend API (for demo wallets - keeps addresses server-side)
+async function fetchSnapshotFromApi(walletAlias: string): Promise<BlendWalletSnapshot> {
+  const response = await fetchWithTimeout(`/api/blend-snapshot?user=${encodeURIComponent(walletAlias)}`)
+  if (!response.ok) {
+    throw new Error('Failed to fetch blend snapshot')
+  }
+  const data: SerializedSnapshot = await response.json()
+  return deserializeSnapshot(data)
+}
+
+// Fetch snapshot - either from API (demo) or SDK (regular wallets)
+async function fetchSnapshot(
+  walletPublicKey: string,
+  trackedPools: TrackedPool[]
+): Promise<BlendWalletSnapshot> {
+  if (isDemoWallet(walletPublicKey)) {
+    // Demo wallet: fetch from backend API (address resolution happens server-side)
+    return fetchSnapshotFromApi(walletPublicKey)
+  }
+  // Regular wallet: call SDK directly
+  return fetchWalletBlendSnapshot(walletPublicKey, trackedPools)
+}
 
 // localStorage cache for instant repeat loads
 const POSITIONS_CACHE_KEY = "blend-positions-cache"
@@ -190,17 +252,21 @@ export function useBlendPositions(walletPublicKey: string | undefined, totalCost
   const { pools: dbPools } = useMetadata()
   const trackedPools = useMemo(() => toTrackedPools(dbPools), [dbPools])
 
+  // Check if this is a demo wallet
+  const isDemo = isDemoWallet(walletPublicKey)
+
   // Get cached data for instant display on repeat visits
   const cachedData = useMemo(
     () => walletPublicKey ? getCachedPositions(walletPublicKey) : undefined,
     [walletPublicKey]
   )
 
-  // Fetch wallet snapshot from SDK
+  // Fetch wallet snapshot - from API for demo wallets, SDK for regular wallets
+  // Demo wallets don't need trackedPools on client (backend handles it)
   const snapshotQuery = useQuery({
-    queryKey: ["blend-wallet-snapshot", walletPublicKey, trackedPools.map(p => p.id).join(',')],
-    enabled: !!walletPublicKey && trackedPools.length > 0,
-    queryFn: () => fetchWalletBlendSnapshot(walletPublicKey, trackedPools),
+    queryKey: ["blend-wallet-snapshot", walletPublicKey, isDemo ? 'demo' : trackedPools.map(p => p.id).join(',')],
+    enabled: !!walletPublicKey && (isDemo || trackedPools.length > 0),
+    queryFn: () => fetchSnapshot(walletPublicKey!, trackedPools),
     staleTime: 5 * 60_000, // Data considered stale after 5 minutes - positions change infrequently
     refetchInterval: 10 * 60_000, // Refetch every 10 minutes in background
     refetchIntervalInBackground: false,
@@ -225,7 +291,8 @@ export function useBlendPositions(walletPublicKey: string | undefined, totalCost
   })
 
   // Check if prerequisites are ready (query is enabled)
-  const isQueryEnabled = !!walletPublicKey && trackedPools.length > 0
+  // Demo wallets don't need trackedPools on client (backend handles it)
+  const isQueryEnabled = !!walletPublicKey && (isDemo || trackedPools.length > 0)
 
   // Combine snapshot and cost basis data
   // isLoading is true when:

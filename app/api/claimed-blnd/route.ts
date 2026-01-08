@@ -9,6 +9,7 @@ import {
   createApiHandler,
   requireString,
   CACHE_CONFIGS,
+  resolveWalletAddress,
 } from '@/lib/api'
 import { cacheKey, todayDate, CACHE_TTL } from '@/lib/redis'
 
@@ -65,7 +66,7 @@ export const GET = createApiHandler<ClaimedBlndResponse>({
   },
 
   async handler(_request: NextRequest, { searchParams }) {
-    const userAddress = requireString(searchParams, 'user')
+    const userAddress = resolveWalletAddress(requireString(searchParams, 'user'))
     const sdkBlndPrice = parseFloat(searchParams.get('sdkBlndPrice') || '0') || 0
     const sdkLpPrice = parseFloat(searchParams.get('sdkLpPrice') || '0') || 0
 

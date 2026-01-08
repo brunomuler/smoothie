@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueries } from "@tanstack/react-query"
 import { useMemo } from "react"
 import {
   calculateHistoricalBorrowBreakdown,
@@ -39,12 +39,13 @@ export interface TotalBorrowBreakdown {
   error: Error | null
 }
 
-async function fetchBorrowCostBasis(
+// Fetch borrow cost basis for a single wallet
+async function fetchBorrowCostBasisSingle(
   userAddress: string,
   sdkPrices: Record<string, number>
 ): Promise<BorrowCostBasisHistoricalResponse> {
   const params = new URLSearchParams({
-    userAddress,
+    userAddresses: userAddress,
     sdkPrices: JSON.stringify(sdkPrices),
   })
 
@@ -57,7 +58,14 @@ async function fetchBorrowCostBasis(
 }
 
 /**
+ * Per-wallet borrow amounts for accurate interest calculation.
+ * Structure: compositeKey -> walletAddress -> { tokens, usdPrice }
+ */
+export type PerWalletBorrowAmounts = Map<string, Map<string, { tokens: number; usdPrice: number }>>
+
+/**
  * Hook to calculate borrow cost breakdown for all user borrow positions.
+ * Supports both single address and array of addresses for multi-wallet aggregation.
  *
  * Key concepts:
  * - Cost basis = net borrowed amount at borrow-time prices (principal)
@@ -65,14 +73,24 @@ async function fetchBorrowCostBasis(
  * - Price change on debt = how market price movement affects debt value
  *   (price increase = BAD for borrower, debt is more expensive to repay)
  *
- * @param userAddress User's wallet address
+ * @param userAddresses User's wallet address(es)
  * @param borrowPositions Array of borrow positions from SDK
+ * @param perWalletBorrowAmounts Per-wallet borrow amounts for accurate interest calculation
  * @returns TotalBorrowBreakdown with per-asset and aggregate data
  */
 export function useBorrowYieldBreakdown(
-  userAddress: string | null | undefined,
+  userAddresses: string | string[] | null | undefined,
   borrowPositions: BlendBorrowPosition[] | null | undefined,
+  perWalletBorrowAmounts?: PerWalletBorrowAmounts,
 ): TotalBorrowBreakdown {
+  // Normalize addresses to array
+  const addressArray = useMemo(() => {
+    if (!userAddresses) return []
+    return Array.isArray(userAddresses) ? userAddresses : [userAddresses]
+  }, [userAddresses])
+
+  const addressesKey = addressArray.slice().sort().join(',')
+
   // Build SDK prices map from borrow positions
   const sdkPrices = useMemo(() => {
     const prices: Record<string, number> = {}
@@ -102,13 +120,32 @@ export function useBorrowYieldBreakdown(
     return debts
   }, [borrowPositions])
 
-  // Fetch historical borrow cost basis data
-  const costBasisQuery = useQuery({
-    queryKey: ['borrow-cost-basis', userAddress, Object.keys(sdkPrices).sort().join(',')],
-    queryFn: () => fetchBorrowCostBasis(userAddress!, sdkPrices),
-    enabled: !!userAddress && Object.keys(sdkPrices).length > 0,
-    staleTime: 5 * 60 * 1000, // 5 minutes - historical cost basis changes slowly
-    gcTime: 15 * 60 * 1000, // 15 minutes
+  // Track position count to ensure we don't fetch cost basis before positions are loaded
+  const positionCount = borrowPositions?.length ?? 0
+
+  // MULTI-WALLET FIX: Fetch cost basis PER WALLET separately
+  // This is critical because weighted average prices don't commute with aggregation.
+  const isMultiWallet = addressArray.length > 1 && perWalletBorrowAmounts && perWalletBorrowAmounts.size > 0
+
+  // Per-wallet queries (only used for multi-wallet)
+  const perWalletCostBasisQueries = useQueries({
+    queries: isMultiWallet ? addressArray.map(walletAddress => ({
+      queryKey: ['borrow-cost-basis-wallet', walletAddress, Object.keys(sdkPrices).sort().join(',')],
+      queryFn: () => fetchBorrowCostBasisSingle(walletAddress, sdkPrices),
+      enabled: Object.keys(sdkPrices).length > 0,
+      staleTime: 5 * 60 * 1000,
+      gcTime: 15 * 60 * 1000,
+    })) : [],
+  })
+
+  // Single query for single wallet (backward compatible - don't break existing behavior)
+  const singleWalletCostBasisQuery = useQuery({
+    queryKey: ['borrow-cost-basis', addressesKey, Object.keys(sdkPrices).sort().join(','), positionCount],
+    queryFn: () => fetchBorrowCostBasisSingle(addressArray.join(','), sdkPrices),
+    // Only enable for single wallet OR when perWalletBorrowAmounts not provided
+    enabled: addressArray.length > 0 && Object.keys(sdkPrices).length > 0 && !isMultiWallet,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
   })
 
   // Calculate full borrow breakdowns using SDK current debts + historical cost basis
@@ -121,19 +158,122 @@ export function useBorrowYieldBreakdown(
     let totalCurrentDebtUsd = 0
     let totalCostUsd = 0
 
-    if (costBasisQuery.data?.byAsset) {
-      for (const [compositeKey, historicalData] of Object.entries(costBasisQuery.data.byAsset)) {
+    if (isMultiWallet) {
+      // MULTI-WALLET: Calculate interest per wallet, then sum
+      // This is the correct approach because weighted averages don't commute with aggregation
+
+      // Build per-wallet cost basis data map
+      const perWalletCostBasis = new Map<string, BorrowCostBasisHistoricalResponse>()
+      addressArray.forEach((walletAddress, idx) => {
+        const queryResult = perWalletCostBasisQueries[idx]
+        if (queryResult?.data) {
+          perWalletCostBasis.set(walletAddress, queryResult.data)
+        }
+      })
+
+      // Get all composite keys from perWalletBorrowAmounts
+      const allCompositeKeys = new Set<string>()
+      perWalletBorrowAmounts!.forEach((_, compositeKey) => {
+        allCompositeKeys.add(compositeKey)
+      })
+
+      // For each pool-asset, calculate interest per wallet and sum
+      for (const compositeKey of allCompositeKeys) {
+        const walletAmounts = perWalletBorrowAmounts!.get(compositeKey)
+        if (!walletAmounts || walletAmounts.size === 0) continue
+
+        let assetCostBasis = 0
+        let assetInterestAccrued = 0
+        let assetPriceChange = 0
+        let assetCurrentDebt = 0
+        let assetTotalCost = 0
+        let assetAddress = ''
+        let poolId = ''
+        let totalNetBorrowed = 0
+        let totalWeightedAvgPrice = 0
+        let totalInterestTokens = 0
+
+        // Calculate for each wallet that has this borrow position
+        for (const [walletAddress, { tokens: walletDebtTokens, usdPrice }] of walletAmounts) {
+          if (walletDebtTokens <= 0) continue
+
+          // Get this wallet's cost basis for this asset
+          const walletCostBasis = perWalletCostBasis.get(walletAddress)
+          const walletAssetData = walletCostBasis?.byAsset[compositeKey]
+
+          if (!walletAssetData) continue
+
+          assetAddress = walletAssetData.assetAddress
+          poolId = walletAssetData.poolId
+
+          // Calculate interest for THIS wallet using ITS current debt and ITS cost basis
+          const breakdown = calculateHistoricalBorrowBreakdown(
+            walletDebtTokens,
+            usdPrice,
+            [{
+              date: '',
+              tokens: walletAssetData.netBorrowedTokens,
+              priceAtBorrow: walletAssetData.weightedAvgBorrowPrice,
+              usdValue: walletAssetData.borrowCostBasisUsd
+            }],
+            []
+          )
+
+          // Sum this wallet's contribution
+          assetCostBasis += breakdown.borrowCostBasisUsd
+          assetInterestAccrued += breakdown.interestAccruedUsd
+          assetPriceChange += breakdown.priceChangeOnDebtUsd
+          assetCurrentDebt += breakdown.currentDebtUsd
+          assetTotalCost += breakdown.totalCostUsd
+          totalNetBorrowed += breakdown.netBorrowedTokens
+          totalInterestTokens += breakdown.interestAccruedTokens
+          totalWeightedAvgPrice += walletAssetData.weightedAvgBorrowPrice * walletAssetData.borrowCostBasisUsd
+        }
+
+        // Calculate weighted average borrow price for the combined asset
+        const combinedWeightedAvgPrice = assetCostBasis > 0
+          ? totalWeightedAvgPrice / assetCostBasis
+          : 0
+
+        if (assetAddress && poolId) {
+          const assetBreakdown: AssetBorrowBreakdown = {
+            borrowCostBasisUsd: assetCostBasis,
+            weightedAvgBorrowPrice: combinedWeightedAvgPrice,
+            netBorrowedTokens: totalNetBorrowed,
+            interestAccruedTokens: totalInterestTokens,
+            interestAccruedUsd: assetInterestAccrued,
+            priceChangeOnDebtUsd: assetPriceChange,
+            priceChangePercent: assetCostBasis > 0 ? (assetPriceChange / assetCostBasis) * 100 : 0,
+            currentDebtTokens: 0, // Will be recalculated if needed
+            currentDebtUsd: assetCurrentDebt,
+            totalCostUsd: assetTotalCost,
+            totalCostPercent: assetCostBasis > 0 ? (assetTotalCost / assetCostBasis) * 100 : 0,
+            assetAddress,
+            poolId,
+            compositeKey,
+          }
+
+          byAsset.set(compositeKey, assetBreakdown)
+
+          totalBorrowCostBasisUsd += assetCostBasis
+          totalInterestAccruedUsd += assetInterestAccrued
+          totalPriceChangeOnDebtUsd += assetPriceChange
+          totalCurrentDebtUsd += assetCurrentDebt
+          totalCostUsd += assetTotalCost
+        }
+      }
+    } else if (singleWalletCostBasisQuery.data?.byAsset) {
+      // SINGLE WALLET: Use existing logic (don't break what works)
+      for (const [compositeKey, historicalData] of Object.entries(singleWalletCostBasisQuery.data.byAsset)) {
         const currentDebt = currentDebts.get(compositeKey)
 
+        // Skip if no current debt - nothing to calculate interest for
         if (!currentDebt) {
-          // No current debt, skip
           continue
         }
 
         const { tokens: currentDebtTokens, usdPrice: currentPrice } = currentDebt
 
-        // Calculate full breakdown using historical cost basis + current debt/price
-        // We reconstruct the borrow event from the historical data
         const breakdown = calculateHistoricalBorrowBreakdown(
           currentDebtTokens,
           currentPrice,
@@ -163,6 +303,18 @@ export function useBorrowYieldBreakdown(
       }
     }
 
+    // Determine loading state
+    let isLoading: boolean
+    let error: Error | null = null
+
+    if (isMultiWallet) {
+      isLoading = perWalletCostBasisQueries.some(q => q.isLoading || q.isPending)
+      error = perWalletCostBasisQueries.find(q => q.error)?.error as Error | null
+    } else {
+      isLoading = singleWalletCostBasisQuery.isLoading
+      error = singleWalletCostBasisQuery.error as Error | null
+    }
+
     return {
       totalBorrowCostBasisUsd,
       totalInterestAccruedUsd,
@@ -170,10 +322,10 @@ export function useBorrowYieldBreakdown(
       totalCurrentDebtUsd,
       totalCostUsd,
       byAsset,
-      isLoading: costBasisQuery.isLoading,
-      error: costBasisQuery.error as Error | null,
+      isLoading,
+      error,
     }
-  }, [costBasisQuery.data, costBasisQuery.isLoading, costBasisQuery.error, currentDebts])
+  }, [isMultiWallet, perWalletCostBasisQueries, singleWalletCostBasisQuery.data, singleWalletCostBasisQuery.isLoading, singleWalletCostBasisQuery.error, currentDebts, addressArray, perWalletBorrowAmounts])
 
   return borrowBreakdowns
 }

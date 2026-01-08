@@ -1,37 +1,109 @@
 /**
- * Demo Wallet Configuration
+ * Demo Wallet Configuration (Client-Side)
  *
- * Helper functions for managing demo wallet addresses from environment variables.
+ * Functions for fetching demo wallet info from the API.
+ * Real addresses are never exposed to the client - only aliases.
  */
+
+export interface DemoWalletInfo {
+  id: string
+  name: string
+}
+
+interface DemoWalletsApiResponse {
+  wallets: DemoWalletInfo[]
+  randomAlias: string | null
+  enabled: boolean
+}
+
+// Cache for demo wallet data
+let cachedDemoWallets: DemoWalletsApiResponse | null = null
+let fetchPromise: Promise<DemoWalletsApiResponse> | null = null
 
 /**
- * Get demo wallet addresses from environment
- * @returns Array of valid Stellar public keys, or empty array if none configured
+ * Fetch demo wallets from the API
+ * Results are cached to avoid repeated API calls
  */
-export function getDemoWalletAddresses(): string[] {
-  const addresses = process.env.NEXT_PUBLIC_DEMO_WALLET_ADDRESSES
-  if (!addresses) return []
+export async function fetchDemoWallets(): Promise<DemoWalletsApiResponse> {
+  // Return cached data if available
+  if (cachedDemoWallets) {
+    return cachedDemoWallets
+  }
 
-  return addresses
-    .split(',')
-    .map(addr => addr.trim())
-    .filter(addr => addr.length > 0 && addr.startsWith('G'))
+  // If a fetch is already in progress, wait for it
+  if (fetchPromise) {
+    return fetchPromise
+  }
+
+  // Start a new fetch
+  fetchPromise = fetch('/api/demo-wallets')
+    .then(async (res) => {
+      if (!res.ok) {
+        throw new Error('Failed to fetch demo wallets')
+      }
+      const data = await res.json() as DemoWalletsApiResponse
+      cachedDemoWallets = data
+      return data
+    })
+    .catch((error) => {
+      console.error('Error fetching demo wallets:', error)
+      // Return empty response on error
+      return { wallets: [], randomAlias: null, enabled: false }
+    })
+    .finally(() => {
+      fetchPromise = null
+    })
+
+  return fetchPromise
+}
+
+/**
+ * Get a random demo wallet alias
+ * Must be called after fetchDemoWallets() has resolved
+ */
+export async function getRandomDemoWalletAlias(): Promise<string | null> {
+  const data = await fetchDemoWallets()
+  return data.randomAlias
 }
 
 /**
  * Check if demo wallet feature is enabled
+ * Must be called after fetchDemoWallets() has resolved
  */
-export function isDemoWalletEnabled(): boolean {
-  return getDemoWalletAddresses().length > 0
+export async function isDemoWalletEnabled(): Promise<boolean> {
+  const data = await fetchDemoWallets()
+  return data.enabled
 }
 
 /**
- * Get a random demo wallet address
+ * Get list of available demo wallets (aliases and names only)
  */
-export function getRandomDemoWallet(): string | null {
-  const addresses = getDemoWalletAddresses()
-  if (addresses.length === 0) return null
+export async function getDemoWalletList(): Promise<DemoWalletInfo[]> {
+  const data = await fetchDemoWallets()
+  return data.wallets
+}
 
-  const randomIndex = Math.floor(Math.random() * addresses.length)
-  return addresses[randomIndex]
+/**
+ * Check if cached demo wallet data indicates feature is enabled
+ * This is synchronous and only works if data has been fetched
+ * Returns false if data hasn't been fetched yet
+ */
+export function isDemoWalletEnabledSync(): boolean {
+  return cachedDemoWallets?.enabled ?? false
+}
+
+/**
+ * Get cached random demo wallet alias (synchronous)
+ * Only works if fetchDemoWallets has been called
+ */
+export function getRandomDemoWalletAliasSync(): string | null {
+  return cachedDemoWallets?.randomAlias ?? null
+}
+
+/**
+ * Clear the demo wallet cache (useful for testing)
+ */
+export function clearDemoWalletCache(): void {
+  cachedDemoWallets = null
+  fetchPromise = null
 }

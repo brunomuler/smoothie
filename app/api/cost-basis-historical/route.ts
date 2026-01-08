@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
 import { calculateHistoricalYieldBreakdown, HistoricalYieldBreakdown } from '@/lib/balance-history-utils'
+import { resolveWalletAddress } from '@/lib/api'
 
 export interface AssetYieldBreakdown extends HistoricalYieldBreakdown {
   assetAddress: string
@@ -20,9 +21,11 @@ export interface CostBasisHistoricalResponse {
  * GET /api/cost-basis-historical
  *
  * Returns yield breakdown with historical prices for all user positions.
+ * Supports multi-wallet aggregation.
  *
  * Query params:
- * - userAddress: The user's wallet address
+ * - userAddress: Single user's wallet address (for backward compatibility)
+ * - userAddresses: Comma-separated list of wallet addresses (for multi-wallet aggregation)
  * - sdkPrices: JSON object mapping asset addresses to current SDK prices (for current value calculation)
  *
  * Returns cost basis calculated using deposit-time prices from daily_token_prices.
@@ -30,14 +33,27 @@ export interface CostBasisHistoricalResponse {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const userAddress = searchParams.get('userAddress')
+  const userAddressesParam = searchParams.get('userAddresses')
   const sdkPricesParam = searchParams.get('sdkPrices')
+  const activeWalletsParam = searchParams.get('activeWalletsPerPoolAsset')
 
-  if (!userAddress) {
+  // Support both single address and multiple addresses
+  let userAddresses: string[] = []
+  if (userAddressesParam) {
+    userAddresses = userAddressesParam.split(',').map(a => a.trim()).filter(a => a.length > 0)
+  } else if (userAddress) {
+    userAddresses = [userAddress]
+  }
+
+  if (userAddresses.length === 0) {
     return NextResponse.json(
-      { error: 'Missing required parameter: userAddress' },
+      { error: 'Missing required parameter: userAddress or userAddresses' },
       { status: 400 }
     )
   }
+
+  // Resolve demo wallet aliases to real addresses
+  userAddresses = userAddresses.map(addr => resolveWalletAddress(addr))
 
   // Parse SDK prices (current prices from SDK for calculating current value)
   let sdkPrices: Record<string, number> = {}
@@ -49,17 +65,32 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  try {
-    // Get all unique assets the user has interacted with
-    const userActions = await eventsRepository.getUserActions(userAddress, {
-      actionTypes: ['supply', 'supply_collateral', 'withdraw', 'withdraw_collateral'],
-      limit: 1000,
-    })
+  // Parse active wallets filter (for multi-wallet: only include cost basis from wallets with active positions)
+  // Format: { "poolId-assetId": ["walletAddr1", "walletAddr2"], ... }
+  let activeWalletsPerPoolAsset: Record<string, string[]> | null = null
+  if (activeWalletsParam) {
+    try {
+      activeWalletsPerPoolAsset = JSON.parse(activeWalletsParam)
+    } catch {
+      console.warn('[Cost Basis Historical API] Failed to parse activeWalletsPerPoolAsset')
+    }
+  }
 
-    // Group actions by pool-asset
+  try {
+    // Get all unique assets for ALL addresses
+    const allUserActionsPromises = userAddresses.map(addr =>
+      eventsRepository.getUserActions(addr, {
+        actionTypes: ['supply', 'supply_collateral', 'withdraw', 'withdraw_collateral'],
+        limit: 1000,
+      })
+    )
+    const allUserActionsArrays = await Promise.all(allUserActionsPromises)
+    const allUserActions = allUserActionsArrays.flat()
+
+    // Group actions by pool-asset (across all wallets)
     const poolAssetPairs: Array<{ poolId: string; assetAddress: string }> = []
     const seenKeys = new Set<string>()
-    for (const action of userActions) {
+    for (const action of allUserActions) {
       if (!action.pool_id || !action.asset_address) continue
       const compositeKey = `${action.pool_id}-${action.asset_address}`
       if (!seenKeys.has(compositeKey)) {
@@ -77,12 +108,46 @@ export async function GET(request: NextRequest) {
     let totalPriceChangeUsd = 0
     let totalEarnedUsd = 0
 
-    // Fetch all deposit/withdrawal events in a single batch query (optimization: eliminates N+1)
-    const eventsMap = await eventsRepository.getDepositEventsWithPricesBatch(
-      userAddress,
-      poolAssetPairs,
-      sdkPrices
+    // Fetch all deposit/withdrawal events for ALL addresses and combine
+    const allEventsMaps = await Promise.all(
+      userAddresses.map(addr =>
+        eventsRepository.getDepositEventsWithPricesBatch(addr, poolAssetPairs, sdkPrices)
+      )
     )
+
+    // Combine events from all wallets into a single map
+    const eventsMap = new Map<string, {
+      deposits: Array<{ date: string; tokens: number; priceAtDeposit: number; usdValue: number }>
+      withdrawals: Array<{ date: string; tokens: number; priceAtWithdrawal: number; usdValue: number }>
+    }>()
+
+    for (let walletIdx = 0; walletIdx < allEventsMaps.length; walletIdx++) {
+      const walletEventsMap = allEventsMaps[walletIdx]
+      const walletAddress = userAddresses[walletIdx]
+
+      for (const [compositeKey, events] of walletEventsMap) {
+        // MULTI-WALLET FIX: Skip events from wallets that don't have active positions
+        // This prevents including cost basis from closed positions (where wallet withdrew everything)
+        if (activeWalletsPerPoolAsset) {
+          const activeWallets = activeWalletsPerPoolAsset[compositeKey]
+          if (activeWallets && !activeWallets.includes(walletAddress)) {
+            // This wallet doesn't have an active position for this pool-asset, skip its events
+            continue
+          }
+        }
+
+        const existing = eventsMap.get(compositeKey)
+        if (existing) {
+          existing.deposits.push(...events.deposits)
+          existing.withdrawals.push(...events.withdrawals)
+        } else {
+          eventsMap.set(compositeKey, {
+            deposits: [...events.deposits],
+            withdrawals: [...events.withdrawals],
+          })
+        }
+      }
+    }
 
     // Get today's date in YYYY-MM-DD format to filter same-day deposits
     const today = new Date().toISOString().split('T')[0]

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { eventsRepository } from '@/lib/db/events-repository'
 import { LP_TOKEN_ADDRESS, BLND_TOKEN_ADDRESS } from '@/lib/constants'
 import { getAllDatesBetween, getToday, getFirstDateFromMap, getFirstDateFromSet } from '@/lib/date-utils'
+import { resolveWalletAddress } from '@/lib/api/resolve-wallet'
 
 export interface RealizedYieldTransaction {
   date: string
@@ -92,11 +93,12 @@ export interface RealizedYieldResponse {
 /**
  * GET /api/realized-yield
  *
- * Returns realized yield data for a user.
+ * Returns realized yield data for a user or multiple users (aggregated).
  * Realized yield = Total withdrawn (at historical prices) - Total deposited (at historical prices)
  *
  * Query params:
- * - userAddress: The user's wallet address (required)
+ * - userAddress: Single user's wallet address (for backward compatibility)
+ * - userAddresses: Comma-separated list of wallet addresses (for multi-wallet aggregation)
  * - sdkBlndPrice: Current BLND price from SDK (optional fallback)
  * - sdkLpPrice: Current LP token price from SDK (optional fallback)
  * - sdkPrices: JSON object of token address -> price (optional fallback)
@@ -104,16 +106,28 @@ export interface RealizedYieldResponse {
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const userAddress = searchParams.get('userAddress')
+  const userAddressesParam = searchParams.get('userAddresses')
   const sdkBlndPrice = parseFloat(searchParams.get('sdkBlndPrice') || '0') || 0
   const sdkLpPrice = parseFloat(searchParams.get('sdkLpPrice') || '0') || 0
   const sdkPricesJson = searchParams.get('sdkPrices')
 
-  if (!userAddress) {
+  // Support both single address and multiple addresses
+  let userAddressParams: string[] = []
+  if (userAddressesParam) {
+    userAddressParams = userAddressesParam.split(',').map(a => a.trim()).filter(a => a.length > 0)
+  } else if (userAddress) {
+    userAddressParams = [userAddress]
+  }
+
+  if (userAddressParams.length === 0) {
     return NextResponse.json(
-      { error: 'Missing required parameter: userAddress' },
+      { error: 'Missing required parameter: userAddress or userAddresses' },
       { status: 400 }
     )
   }
+
+  // Resolve demo wallet aliases to real addresses
+  const userAddresses = userAddressParams.map(addr => resolveWalletAddress(addr))
 
   try {
     // Build SDK prices map
@@ -140,7 +154,45 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const data = await eventsRepository.getRealizedYieldData(userAddress, sdkPrices)
+    // Fetch data for all addresses in parallel
+    const allDataPromises = userAddresses.map(addr =>
+      eventsRepository.getRealizedYieldData(addr, sdkPrices)
+    )
+    const allData = await Promise.all(allDataPromises)
+
+    // Aggregate data from all wallets
+    const data = {
+      totalDepositedUsd: allData.reduce((sum, d) => sum + d.totalDepositedUsd, 0),
+      totalWithdrawnUsd: allData.reduce((sum, d) => sum + d.totalWithdrawnUsd, 0),
+      realizedPnl: allData.reduce((sum, d) => sum + d.realizedPnl, 0),
+      pools: {
+        deposited: allData.reduce((sum, d) => sum + d.pools.deposited, 0),
+        withdrawn: allData.reduce((sum, d) => sum + d.pools.withdrawn, 0),
+        realized: allData.reduce((sum, d) => sum + d.pools.realized, 0),
+      },
+      backstop: {
+        deposited: allData.reduce((sum, d) => sum + d.backstop.deposited, 0),
+        withdrawn: allData.reduce((sum, d) => sum + d.backstop.withdrawn, 0),
+        realized: allData.reduce((sum, d) => sum + d.backstop.realized, 0),
+      },
+      emissions: {
+        blndClaimed: allData.reduce((sum, d) => sum + d.emissions.blndClaimed, 0),
+        lpClaimed: allData.reduce((sum, d) => sum + d.emissions.lpClaimed, 0),
+        usdValue: allData.reduce((sum, d) => sum + d.emissions.usdValue, 0),
+      },
+      // Use earliest first activity date and latest last activity date
+      firstActivityDate: allData
+        .map(d => d.firstActivityDate)
+        .filter((d): d is string => d !== null)
+        .sort()[0] ?? null,
+      lastActivityDate: allData
+        .map(d => d.lastActivityDate)
+        .filter((d): d is string => d !== null)
+        .sort()
+        .reverse()[0] ?? null,
+      // Combine all transactions
+      transactions: allData.flatMap(d => d.transactions),
+    }
 
     // Group transactions by date and calculate running totals
     const dateMap = new Map<string, { deposited: number; withdrawn: number; realizedPnl: number }>()
