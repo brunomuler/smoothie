@@ -14,6 +14,8 @@ if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com",
     person_profiles: "always",
     capture_pageview: true,
+    autocapture: false, // Disable automatic event capture (clicks, inputs, etc.)
+    disable_session_recording: true, // Disable session recording and heatmaps
     loaded: (posthog) => {
       if (process.env.NODE_ENV === "development") posthog.debug()
     },
