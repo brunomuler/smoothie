@@ -14,6 +14,7 @@ export {
   STORAGE_KEYS,
   WALLETS_STORAGE_KEY,
   ACTIVE_WALLET_STORAGE_KEY,
+  WALLET_CUSTOM_NAMES_KEY,
 } from './blockchain'
 
 // Pool configuration

@@ -28,8 +28,10 @@ export const STROOPS_PER_UNIT = 1e7
 export const STORAGE_KEYS = {
   TRACKED_WALLETS: 'stellar-wallet-tracked-addresses',
   ACTIVE_WALLET: 'stellar-wallet-active-id',
+  WALLET_CUSTOM_NAMES: 'stellar-wallet-custom-names',
 } as const
 
 // Backwards compatibility exports
 export const WALLETS_STORAGE_KEY = STORAGE_KEYS.TRACKED_WALLETS
 export const ACTIVE_WALLET_STORAGE_KEY = STORAGE_KEYS.ACTIVE_WALLET
+export const WALLET_CUSTOM_NAMES_KEY = STORAGE_KEYS.WALLET_CUSTOM_NAMES

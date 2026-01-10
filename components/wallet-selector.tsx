@@ -15,8 +15,10 @@ import {
 import { WalletConnectionModal } from "@/components/wallet-connection-modal"
 import { FollowAddressModal } from "@/components/follow-address-modal"
 import { WalletAvatar } from "@/components/wallet-avatar"
+import { WalletNameEditor } from "@/components/wallet-name-editor"
 import { useStellarWalletKit, type SupportedWallet } from "@/hooks/use-stellar-wallet-kit"
 import { useAnalytics, hashWalletAddress } from "@/hooks/use-analytics"
+import { useWalletCustomNames } from "@/hooks/use-wallet-custom-names"
 import type { Wallet as WalletType } from "@/types/wallet"
 import { cn } from "@/lib/utils"
 import { shortenAddress } from "@/lib/wallet-utils"
@@ -50,8 +52,10 @@ export function WalletSelector({
   const [isOpen, setIsOpen] = React.useState(false)
   const [supportedWallets, setSupportedWallets] = React.useState<SupportedWallet[]>([])
   const [isLoadingWallets, setIsLoadingWallets] = React.useState(false)
+  const [isEditingName, setIsEditingName] = React.useState(false)
   const { disconnect: disconnectWallet, getSupportedWallets, connectWallet } = useStellarWalletKit()
   const { capture } = useAnalytics()
+  const { getDisplayName, setCustomName } = useWalletCustomNames()
 
   // Fetch wallets when modal opens
   React.useEffect(() => {
@@ -295,8 +299,8 @@ export function WalletSelector({
                         }}
                         className={cn(
                           "flex items-center gap-3 p-2 cursor-pointer rounded-lg",
-                          "focus:bg-zinc-800/80",
-                          !isActive && "hover:bg-zinc-800/30"
+                          isActive && "!bg-transparent hover:!bg-transparent focus:!bg-transparent",
+                          !isActive && "hover:bg-zinc-800/30 focus:bg-zinc-800/80"
                         )}
                       >
                         <div className="relative">
@@ -313,17 +317,18 @@ export function WalletSelector({
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          {wallet.name && (
-                            <p className="font-medium text-sm truncate">
-                              {watched ? "Watch" : wallet.name}
-                            </p>
-                          )}
+                          <WalletNameEditor
+                            name={watched ? "Watch" : getDisplayName(wallet)}
+                            isEditable={isActive}
+                            onSave={(name) => setCustomName(wallet.id, name)}
+                            onEditingChange={isActive ? setIsEditingName : undefined}
+                          />
                           <p className="text-xs text-muted-foreground font-mono truncate">
                             {formatWalletAddress(wallet, 6)}
                           </p>
                         </div>
 
-                        {isActive && (
+                        {isActive && !isEditingName && (
                           <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center shrink-0">
                             <Check className="h-3 w-3 text-primary-foreground" />
                           </div>
