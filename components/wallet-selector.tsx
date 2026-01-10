@@ -57,7 +57,7 @@ export function WalletSelector({
   const [focusNameOnOpen, setFocusNameOnOpen] = React.useState(false)
   const { disconnect: disconnectWallet, getSupportedWallets, connectWallet } = useStellarWalletKit()
   const { capture } = useAnalytics()
-  const { getDisplayName, setCustomName } = useWalletCustomNames()
+  const { getDisplayName, setCustomName, customNames } = useWalletCustomNames()
   const { getCustomization, setCustomization, clearCustomization } = useWalletAvatarCustomization()
 
   // Fetch wallets when modal opens
@@ -276,7 +276,8 @@ export function WalletSelector({
                 {wallets.map((wallet) => {
                   const isActive = wallet.isActive
                   const watched = isWatched(wallet)
-                  const displayName = watched ? "Watch" : getDisplayName(wallet)
+                  const hasCustomName = wallet.id in customNames
+                  const displayName = hasCustomName ? getDisplayName(wallet) : (watched ? "Watch" : getDisplayName(wallet))
 
                   return (
                     <div

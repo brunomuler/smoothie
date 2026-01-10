@@ -18,8 +18,8 @@ export const AVATAR_GRADIENTS = [
   { id: "peach", colors: ["#FD79A8", "#FDCB6E"], name: "Peach" },
   { id: "sky", colors: ["#74B9FF", "#A29BFE"], name: "Sky" },
   { id: "fire", colors: ["#FF7675", "#FD79A8"], name: "Fire" },
-  { id: "forest", colors: ["#2D5016", "#7CB342"], name: "Forest" },
-  { id: "midnight", colors: ["#1A1A2E", "#6C63FF"], name: "Midnight" },
+  { id: "forest", colors: ["#11998E", "#38EF7D"], name: "Emerald" },
+  { id: "midnight", colors: ["#FF4757", "#FF6B81"], name: "Cherry" },
 ] as const
 
 export type GradientId = typeof AVATAR_GRADIENTS[number]["id"]

@@ -329,6 +329,7 @@ function AvatarCustomizerContent({
   onSave,
   onClear,
   onUndoClear,
+  onSaveName,
   walletName,
   editName,
   setEditName,
@@ -345,6 +346,7 @@ function AvatarCustomizerContent({
   onSave: () => void
   onClear: () => void
   onUndoClear: () => void
+  onSaveName?: (name: string) => void
   walletName?: string
   editName: string
   setEditName: (name: string) => void
@@ -405,6 +407,21 @@ function AvatarCustomizerContent({
             ref={nameInputRef}
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
+            onBlur={(e) => {
+              // Sync DOM value to state on blur to catch mobile keyboard edge cases
+              // where onChange might not fire (e.g., autocomplete, predictive text)
+              if (e.target.value !== editName) {
+                setEditName(e.target.value)
+              }
+            }}
+            onKeyDown={(e) => {
+              // Stop propagation to prevent parent DropdownMenuItem from closing on space/enter
+              e.stopPropagation()
+              if (e.key === "Enter") {
+                e.preventDefault()
+                e.currentTarget.blur()
+              }
+            }}
             placeholder="Wallet name"
             className="h-8 px-2 text-sm font-medium text-center bg-zinc-900 border-0 focus-visible:ring-0 focus-visible:ring-offset-0"
             maxLength={40}
@@ -447,7 +464,15 @@ function AvatarCustomizerContent({
           size="sm"
           variant="default"
           className="flex-1 h-8"
-          onClick={onSave}
+          onClick={() => {
+            // Try DOM value first, fall back to React state
+            const domValue = nameInputRef.current?.value
+            const nameValue = domValue ?? editName
+            if (onSaveName && nameValue.trim()) {
+              onSaveName(nameValue.trim())
+            }
+            onSave()
+          }}
         >
           Save
         </Button>
@@ -482,16 +507,18 @@ export function AvatarCustomizer({
   const [willClear, setWillClear] = React.useState(false)
   const nameInputRef = React.useRef<HTMLInputElement>(null)
   const shouldFocusName = React.useRef(false)
+  const prevOpen = React.useRef(false)
   const isMobile = useIsMobile()
 
-  // Reset selection when opening
+  // Reset selection only when transitioning from closed to open
   React.useEffect(() => {
-    if (open) {
+    if (open && !prevOpen.current) {
       setSelectedEmoji(currentCustomization?.emoji || EMOJI_LIST[0])
       setSelectedGradient(currentCustomization?.gradientId as GradientId || AVATAR_GRADIENTS[0].id)
       setEditName(walletName || "")
       setWillClear(false)
     }
+    prevOpen.current = open
   }, [open, currentCustomization, walletName])
 
   // Focus name input after open if flagged
@@ -539,9 +566,8 @@ export function AvatarCustomizer({
     } else {
       onSave({ emoji: selectedEmoji, gradientId: selectedGradient })
     }
-    if (onSaveName && editName.trim()) {
-      onSaveName(editName.trim())
-    }
+    // Name saving is now handled directly in AvatarCustomizerContent
+    // where editName is definitely current
     setOpen(false)
   }
 
@@ -570,6 +596,7 @@ export function AvatarCustomizer({
     onSave: handleSave,
     onClear: handleClear,
     onUndoClear: handleUndoClear,
+    onSaveName,
     walletName,
     editName,
     setEditName,

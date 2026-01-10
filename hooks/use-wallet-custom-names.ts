@@ -63,7 +63,6 @@ export function useWalletCustomNames(): UseWalletCustomNamesReturn {
     const trimmed = name.trim()
     setCustomNames((prev) => {
       if (!trimmed) {
-        // Remove the custom name if empty
         const { [walletId]: _, ...rest } = prev
         return rest
       }
