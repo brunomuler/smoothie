@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { WalletAvatar } from "@/components/wallet-avatar"
+import { useWalletAvatarCustomization } from "@/hooks/use-wallet-avatar-customization"
 import type { Wallet } from "@/types/wallet"
 
 interface WalletAggregationSelectorProps {
@@ -25,6 +26,7 @@ export function WalletAggregationSelector({
 }: WalletAggregationSelectorProps) {
   const [open, setOpen] = React.useState(false)
   const [pendingSelection, setPendingSelection] = React.useState<string[]>(selectedWalletIds)
+  const { getCustomization } = useWalletAvatarCustomization()
 
   // Reset pending selection when popover opens
   React.useEffect(() => {
@@ -120,6 +122,7 @@ export function WalletAggregationSelector({
                   address={wallet.publicKey}
                   name={wallet.name}
                   size="sm"
+                  customization={getCustomization(wallet.id)}
                 />
               </div>
             ))}
@@ -155,6 +158,7 @@ export function WalletAggregationSelector({
                       address={wallet.publicKey}
                       name={wallet.name}
                       size="sm"
+                      customization={getCustomization(wallet.id)}
                     />
                     <Label
                       htmlFor={`wallet-${wallet.id}`}
@@ -192,6 +196,7 @@ export function WalletAggregationSelector({
                       address={wallet.publicKey}
                       name={wallet.name}
                       size="sm"
+                      customization={getCustomization(wallet.id)}
                     />
                     <Label
                       htmlFor={`wallet-${wallet.id}`}

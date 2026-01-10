@@ -5,12 +5,14 @@ import Image from "next/image"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { getWalletInitials } from "@/lib/wallet-utils"
 import { cn } from "@/lib/utils"
+import { AVATAR_GRADIENTS, type AvatarCustomization } from "@/hooks/use-wallet-avatar-customization"
 
 interface WalletAvatarProps {
   address: string
   name?: string
   size?: "sm" | "md" | "lg"
   className?: string
+  customization?: AvatarCustomization | null
 }
 
 const sizeClasses = {
@@ -23,6 +25,12 @@ const imageSizes = {
   sm: 24,
   md: 32,
   lg: 40,
+}
+
+const emojiSizes = {
+  sm: "text-base",
+  md: "text-xl",
+  lg: "text-2xl",
 }
 
 /**
@@ -38,9 +46,31 @@ export function WalletAvatar({
   name,
   size = "md",
   className,
+  customization,
 }: WalletAvatarProps) {
   const initials = getWalletInitials(name, address)
   const identiconUrl = getIdenticonUrl(address)
+
+  // If there's a customization, show emoji with gradient
+  if (customization) {
+    const gradient = AVATAR_GRADIENTS.find((g) => g.id === customization.gradientId) || AVATAR_GRADIENTS[0]
+
+    return (
+      <div
+        className={cn(
+          sizeClasses[size],
+          "rounded-lg flex items-center justify-center",
+          emojiSizes[size],
+          className
+        )}
+        style={{
+          background: `linear-gradient(135deg, ${gradient.colors[0]}, ${gradient.colors[1]})`,
+        }}
+      >
+        {customization.emoji}
+      </div>
+    )
+  }
 
   return (
     <Avatar className={cn(sizeClasses[size], "bg-black rounded-lg", className)}>

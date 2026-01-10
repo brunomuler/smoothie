@@ -29,9 +29,11 @@ export const STORAGE_KEYS = {
   TRACKED_WALLETS: 'stellar-wallet-tracked-addresses',
   ACTIVE_WALLET: 'stellar-wallet-active-id',
   WALLET_CUSTOM_NAMES: 'stellar-wallet-custom-names',
+  WALLET_AVATAR_CUSTOMIZATIONS: 'stellar-wallet-avatar-customizations',
 } as const
 
 // Backwards compatibility exports
 export const WALLETS_STORAGE_KEY = STORAGE_KEYS.TRACKED_WALLETS
 export const ACTIVE_WALLET_STORAGE_KEY = STORAGE_KEYS.ACTIVE_WALLET
 export const WALLET_CUSTOM_NAMES_KEY = STORAGE_KEYS.WALLET_CUSTOM_NAMES
+export const WALLET_AVATAR_CUSTOMIZATIONS_KEY = STORAGE_KEYS.WALLET_AVATAR_CUSTOMIZATIONS

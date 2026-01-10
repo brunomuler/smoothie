@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Wallet, Check, Plus, LogOut, Copy, ChevronDown, Eye } from "lucide-react"
+import { Wallet, Check, Plus, LogOut, Copy, ChevronDown, Eye, Smile } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -16,9 +16,11 @@ import { WalletConnectionModal } from "@/components/wallet-connection-modal"
 import { FollowAddressModal } from "@/components/follow-address-modal"
 import { WalletAvatar } from "@/components/wallet-avatar"
 import { WalletNameEditor } from "@/components/wallet-name-editor"
+import { AvatarCustomizer } from "@/components/avatar-customizer"
 import { useStellarWalletKit, type SupportedWallet } from "@/hooks/use-stellar-wallet-kit"
 import { useAnalytics, hashWalletAddress } from "@/hooks/use-analytics"
 import { useWalletCustomNames } from "@/hooks/use-wallet-custom-names"
+import { useWalletAvatarCustomization } from "@/hooks/use-wallet-avatar-customization"
 import type { Wallet as WalletType } from "@/types/wallet"
 import { cn } from "@/lib/utils"
 import { shortenAddress } from "@/lib/wallet-utils"
@@ -56,6 +58,7 @@ export function WalletSelector({
   const { disconnect: disconnectWallet, getSupportedWallets, connectWallet } = useStellarWalletKit()
   const { capture } = useAnalytics()
   const { getDisplayName, setCustomName } = useWalletCustomNames()
+  const { getCustomization, setCustomization, clearCustomization } = useWalletAvatarCustomization()
 
   // Fetch wallets when modal opens
   React.useEffect(() => {
@@ -236,6 +239,7 @@ export function WalletSelector({
                 address={activeWallet.publicKey}
                 name={activeWallet.name}
                 size="sm"
+                customization={getCustomization(activeWallet.id)}
               />
               <span className="font-medium text-sm truncate max-w-[100px]">
                 {formatWalletAddress(activeWallet)}
@@ -302,13 +306,43 @@ export function WalletSelector({
                           isActive && "!bg-transparent hover:!bg-transparent focus:!bg-transparent",
                           !isActive && "hover:bg-zinc-800/30 focus:bg-zinc-800/80"
                         )}
+                        data-wallet-menu-item={isActive ? "active" : undefined}
                       >
                         <div className="relative">
-                          <WalletAvatar
-                            address={wallet.publicKey}
-                            name={wallet.name}
-                            size="lg"
-                          />
+                          {isActive ? (
+                            <AvatarCustomizer
+                              currentCustomization={getCustomization(wallet.id)}
+                              onSave={(customization) => setCustomization(wallet.id, customization)}
+                              onClear={() => clearCustomization(wallet.id)}
+                            >
+                              <button
+                                type="button"
+                                className="relative group"
+                                data-avatar-customizer
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <WalletAvatar
+                                  address={wallet.publicKey}
+                                  name={wallet.name}
+                                  size="lg"
+                                  customization={getCustomization(wallet.id)}
+                                />
+                                <div className={cn(
+                                  "absolute inset-0 rounded-lg bg-black/50 flex items-center justify-center transition-opacity",
+                                  isEditingName ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                                )}>
+                                  <Smile className="size-3.5 text-white" />
+                                </div>
+                              </button>
+                            </AvatarCustomizer>
+                          ) : (
+                            <WalletAvatar
+                              address={wallet.publicKey}
+                              name={wallet.name}
+                              size="lg"
+                              customization={getCustomization(wallet.id)}
+                            />
+                          )}
                           {watched && (
                             <div className="absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5">
                               <Eye className="h-3 w-3 text-muted-foreground" />
