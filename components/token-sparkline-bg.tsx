@@ -107,7 +107,7 @@ export function TokenSparkline({
     return null
   }
 
-  const strokeColor = trend === "up" ? "#22c55e" : trend === "down" ? "#f87171" : "rgba(255, 255, 255, 0.25)" // green-500, red-400, white with low opacity
+  const strokeColor = trend === "up" ? "#22c55e" : trend === "down" ? "#f87171" : "rgba(255, 255, 255, 0.12)" // green-500, red-400, white with low opacity
 
   return (
     <div className={`h-6 w-full max-w-48 ${className}`}>
