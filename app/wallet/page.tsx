@@ -22,6 +22,7 @@ export default function WalletPage() {
       queryClient.invalidateQueries({ queryKey: ["horizonBalances", activeWallet.publicKey] }),
       queryClient.invalidateQueries({ queryKey: ["tokenBalance"] }),
       queryClient.invalidateQueries({ queryKey: ["blend-wallet-snapshot", activeWallet.publicKey] }),
+      queryClient.invalidateQueries({ queryKey: ["token-sparkline"] }), // Refresh sparklines
     ])
   }, [activeWallet?.publicKey, queryClient, capture])
 

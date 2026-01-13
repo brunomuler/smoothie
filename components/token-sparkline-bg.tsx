@@ -12,15 +12,25 @@ interface PriceDataPoint {
   price: number
 }
 
+type SparklinePeriod = "24h" | "7d" | "1mo"
+
 interface TokenSparklineProps {
   tokenAddress: string
+  currentPrice?: number // Latest oracle price to use for the most recent data point
+  period?: SparklinePeriod
   className?: string
 }
 
-async function fetchTokenPriceHistory(tokenAddress: string): Promise<PriceDataPoint[]> {
+async function fetchTokenPriceHistory(tokenAddress: string, period: SparklinePeriod = "1mo"): Promise<PriceDataPoint[]> {
+  const daysMap = {
+    "24h": "1",
+    "7d": "7",
+    "1mo": "30",
+  }
+
   const params = new URLSearchParams({
     token: tokenAddress,
-    days: "30",
+    days: daysMap[period],
   })
 
   const response = await fetchWithTimeout(`/api/token-price-history?${params}`)
@@ -45,7 +55,9 @@ function formatPrice(price: number): string {
 
 // Format date for tooltip
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
+  // Parse date as local time to avoid timezone shift
+  const [year, month, day] = dateStr.split('-').map(Number)
+  const date = new Date(year, month - 1, day)
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
@@ -64,8 +76,8 @@ function SparklineTooltip({ active, payload }: { active?: boolean; payload?: Arr
   )
 }
 
-// Calculate 30d change percentage
-function calculate30dChange(priceHistory: PriceDataPoint[]): { percentage: number; trend: "up" | "down" | "unchanged" } {
+// Calculate price change percentage for given period
+function calculatePriceChange(priceHistory: PriceDataPoint[]): { percentage: number; trend: "up" | "down" | "unchanged" } {
   if (!priceHistory?.length || priceHistory.length < 2) {
     return { percentage: 0, trend: "unchanged" }
   }
@@ -92,18 +104,52 @@ function calculate30dChange(priceHistory: PriceDataPoint[]): { percentage: numbe
 // Inline sparkline component
 export function TokenSparkline({
   tokenAddress,
+  currentPrice,
+  period = "1mo",
   className = "",
 }: TokenSparklineProps) {
+  // Don't show sparkline for 24h period
+  if (period === "24h") {
+    return null
+  }
+
   const { data: priceHistory } = useQuery({
-    queryKey: ["token-sparkline", tokenAddress],
-    queryFn: () => fetchTokenPriceHistory(tokenAddress),
-    staleTime: 60 * 60 * 1000, // 1 hour
+    queryKey: ["token-sparkline", tokenAddress, period],
+    queryFn: () => fetchTokenPriceHistory(tokenAddress, period),
+    staleTime: 5 * 60 * 1000, // 5 minutes - match oracle refresh rate
     refetchInterval: false,
   })
 
-  const { trend } = useMemo(() => calculate30dChange(priceHistory || []), [priceHistory])
+  // Add current oracle price if provided
+  const chartData = useMemo(() => {
+    if (!priceHistory?.length) return []
+    if (currentPrice === undefined) return priceHistory
 
-  if (!priceHistory?.length) {
+    const data = [...priceHistory]
+    const lastPoint = data[data.length - 1]
+
+    // For daily periods (7d, 1mo), add/update today's date
+    const today = new Date()
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+    if (lastPoint.date === todayStr) {
+      data[data.length - 1] = {
+        ...lastPoint,
+        price: currentPrice,
+      }
+    } else {
+      data.push({
+        date: todayStr,
+        price: currentPrice,
+      })
+    }
+
+    return data
+  }, [priceHistory, currentPrice, tokenAddress, period])
+
+  const { trend } = useMemo(() => calculatePriceChange(chartData), [chartData])
+
+  if (!chartData?.length) {
     return null
   }
 
@@ -113,7 +159,7 @@ export function TokenSparkline({
     <div className={`h-6 w-full max-w-48 ${className}`}>
       <ResponsiveContainer width="100%" height="100%">
         <LineChart
-          data={priceHistory}
+          data={chartData}
           margin={{ top: 2, right: 2, bottom: 2, left: 2 }}
         >
           <YAxis domain={["dataMin", "dataMax"]} hide />
@@ -136,27 +182,61 @@ export function TokenSparkline({
   )
 }
 
-// 30d change indicator component
+// Price change indicator component
 export function Token30dChange({
   tokenAddress,
+  currentPrice,
+  period = "1mo",
 }: {
   tokenAddress: string
+  currentPrice?: number // Latest oracle price to use for the most recent data point
+  period?: SparklinePeriod
 }) {
   const { data: priceHistory } = useQuery({
-    queryKey: ["token-sparkline", tokenAddress],
-    queryFn: () => fetchTokenPriceHistory(tokenAddress),
-    staleTime: 60 * 60 * 1000, // 1 hour
+    queryKey: ["token-sparkline", tokenAddress, period],
+    queryFn: () => fetchTokenPriceHistory(tokenAddress, period),
+    staleTime: 5 * 60 * 1000, // 5 minutes - match oracle refresh rate
     refetchInterval: false,
   })
 
-  const { percentage, trend } = useMemo(() => calculate30dChange(priceHistory || []), [priceHistory])
+  // Add current oracle price if provided
+  const chartData = useMemo(() => {
+    if (!priceHistory?.length) return []
+    if (currentPrice === undefined) return priceHistory
 
-  if (!priceHistory?.length) {
+    const data = [...priceHistory]
+    const lastPoint = data[data.length - 1]
+
+    // Add/update today's date with current oracle price
+    const today = new Date()
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+    if (lastPoint.date === todayStr) {
+      data[data.length - 1] = {
+        ...lastPoint,
+        price: currentPrice,
+      }
+    } else {
+      data.push({
+        date: todayStr,
+        price: currentPrice,
+      })
+    }
+
+    return data
+  }, [priceHistory, currentPrice, tokenAddress, period])
+
+  const { percentage, trend } = useMemo(() => calculatePriceChange(chartData), [chartData])
+
+  if (!chartData?.length) {
     return null
   }
 
   const colorClass = trend === "up" ? "text-green-500" : trend === "down" ? "text-red-400" : "text-white/25"
   const Icon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : null
+
+  // Label based on period
+  const periodLabel = period === "24h" ? "24h" : period === "7d" ? "7d" : "30d"
 
   return (
     <Tooltip>
@@ -166,7 +246,7 @@ export function Token30dChange({
           <span>{Math.abs(percentage).toFixed(1)}%</span>
         </div>
       </TooltipTrigger>
-      <TooltipContent>30-day price change</TooltipContent>
+      <TooltipContent>{periodLabel} price change</TooltipContent>
     </Tooltip>
   )
 }

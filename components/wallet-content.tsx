@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useMemo } from "react"
+import { memo, useMemo, useState } from "react"
 import { useWalletState } from "@/hooks/use-wallet-state"
 import { useHorizonBalances, type TokenBalance } from "@/hooks/use-horizon-balances"
 import { useTokenBalance } from "@/hooks/use-token-balance"
@@ -15,6 +15,9 @@ import { WalletTokensSkeleton } from "@/components/wallet-tokens/skeleton"
 
 // LP Token contract ID to check
 const LP_TOKEN_CONTRACT_ID = "CAS3FL6TLZKDGGSISDBWGGPXT3NRR4DYTZD7YOD3HMYO6LTJUVGRVEAM"
+
+// Period type for sparkline display
+type SparklinePeriod = "24h" | "7d" | "1mo"
 
 // Format balance - only show extra decimals if value is non-zero but small
 function formatBalance(value: number): string {
@@ -80,9 +83,11 @@ function getStellarExpertUrl(token: TokenBalance): string {
 interface TokenItemProps {
   token: TokenBalance
   formatCurrency: (amountUsd: number) => string
+  currentPrice?: number // Current oracle price for live data
+  period: SparklinePeriod
 }
 
-const TokenItem = memo(function TokenItem({ token, formatCurrency }: TokenItemProps) {
+const TokenItem = memo(function TokenItem({ token, formatCurrency, currentPrice, period }: TokenItemProps) {
   const logoUrl = getTokenIconUrl(token.assetCode, token.assetIssuer, token.assetType)
   const balance = parseFloat(token.balance)
   const isLpShare = token.assetType === "liquidity_pool_shares"
@@ -128,7 +133,7 @@ const TokenItem = memo(function TokenItem({ token, formatCurrency }: TokenItemPr
       {/* Middle: Sparkline - centered */}
       <div className="flex-1 flex justify-center">
         {token.tokenAddress && (
-          <TokenSparkline tokenAddress={token.tokenAddress} />
+          <TokenSparkline tokenAddress={token.tokenAddress} currentPrice={currentPrice} period={period} />
         )}
       </div>
 
@@ -142,7 +147,7 @@ const TokenItem = memo(function TokenItem({ token, formatCurrency }: TokenItemPr
           <p className="text-sm sm:text-base font-medium text-muted-foreground">—</p>
         )}
         {token.tokenAddress ? (
-          <Token30dChange tokenAddress={token.tokenAddress} />
+          <Token30dChange tokenAddress={token.tokenAddress} currentPrice={currentPrice} period={period} />
         ) : (
           <p className="text-xs text-muted-foreground">—</p>
         )}
@@ -157,9 +162,11 @@ interface LpTokenItemProps {
   usdValue?: number
   isLoading: boolean
   formatCurrency: (amountUsd: number) => string
+  currentPrice?: number // Current LP token price
+  period: SparklinePeriod
 }
 
-const LpTokenItem = memo(function LpTokenItem({ balance, usdValue, isLoading, formatCurrency }: LpTokenItemProps) {
+const LpTokenItem = memo(function LpTokenItem({ balance, usdValue, isLoading, formatCurrency, currentPrice, period }: LpTokenItemProps) {
   const balanceNum = parseFloat(balance) / 1e7 // Soroban tokens have 7 decimals
 
   if (isLoading) {
@@ -215,7 +222,7 @@ const LpTokenItem = memo(function LpTokenItem({ balance, usdValue, isLoading, fo
 
       {/* Middle: Sparkline - centered */}
       <div className="flex-1 flex justify-center">
-        <TokenSparkline tokenAddress={LP_TOKEN_CONTRACT_ID} />
+        <TokenSparkline tokenAddress={LP_TOKEN_CONTRACT_ID} currentPrice={currentPrice} period={period} />
       </div>
 
       {/* Right: Value, 30d change */}
@@ -225,7 +232,7 @@ const LpTokenItem = memo(function LpTokenItem({ balance, usdValue, isLoading, fo
         ) : (
           <p className="text-sm sm:text-base font-medium text-muted-foreground">—</p>
         )}
-        <Token30dChange tokenAddress={LP_TOKEN_CONTRACT_ID} />
+        <Token30dChange tokenAddress={LP_TOKEN_CONTRACT_ID} currentPrice={currentPrice} period={period} />
       </div>
     </div>
   )
@@ -236,6 +243,7 @@ export function WalletContent() {
   const { activeWallet, isHydrated } = useWalletState()
   const publicKey = activeWallet?.publicKey
   const { format: formatCurrency } = useCurrencyPreference()
+  const [selectedPeriod, setSelectedPeriod] = useState<SparklinePeriod>("1mo")
 
   // Fetch all tokens from Horizon (returns balances and price map)
   const {
@@ -252,8 +260,9 @@ export function WalletContent() {
   // Get LP token price from Blend SDK (live price from the protocol)
   const { lpTokenPrice, isLoading: isLoadingBlend } = useBlendPositions(publicKey)
 
-  // Extract balances from horizon data
+  // Extract balances and priceMap from horizon data
   const horizonBalances = horizonData?.balances
+  const priceMap = horizonData?.priceMap
 
   // Calculate total USD value (must be before early return to follow Rules of Hooks)
   const totalUsdValue = useMemo(() => {
@@ -298,14 +307,50 @@ export function WalletContent() {
 
   return (
     <div className="flex flex-col gap-4 pb-4">
-      {/* Total Portfolio Value */}
-      <div className="mb-2">
-        <p className="text-sm text-muted-foreground mb-1">Total Balance</p>
-        {isLoadingTotalValue ? (
-          <div className="h-9 w-40 bg-muted rounded animate-pulse" />
-        ) : (
-          <p className="text-3xl font-bold">{formatCurrency(totalUsdValue)}</p>
-        )}
+      {/* Total Portfolio Value and Period Selector */}
+      <div className="flex items-end justify-between gap-4 mb-2">
+        <div>
+          <p className="text-sm text-muted-foreground mb-1">Total Balance</p>
+          {isLoadingTotalValue ? (
+            <div className="h-9 w-40 bg-muted rounded animate-pulse" />
+          ) : (
+            <p className="text-3xl font-bold">{formatCurrency(totalUsdValue)}</p>
+          )}
+        </div>
+
+        {/* Period selector */}
+        <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+          <button
+            onClick={() => setSelectedPeriod("24h")}
+            className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+              selectedPeriod === "24h"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            24h
+          </button>
+          <button
+            onClick={() => setSelectedPeriod("7d")}
+            className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+              selectedPeriod === "7d"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            7d
+          </button>
+          <button
+            onClick={() => setSelectedPeriod("1mo")}
+            className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+              selectedPeriod === "1mo"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            1mo
+          </button>
+        </div>
       </div>
 
       <Card className="py-2 gap-0">
@@ -316,13 +361,19 @@ export function WalletContent() {
             </div>
           ) : (
             <div className="space-y-3">
-              {sortedBalances.map((token, index) => (
-                <TokenItem
-                  key={`${token.assetCode}-${token.assetIssuer || "native"}-${index}`}
-                  token={token}
-                  formatCurrency={formatCurrency}
-                />
-              ))}
+              {sortedBalances.map((token, index) => {
+                // Get current oracle price for this token
+                const currentPrice = priceMap?.get(token.assetCode)?.price
+                return (
+                  <TokenItem
+                    key={`${token.assetCode}-${token.assetIssuer || "native"}-${index}`}
+                    token={token}
+                    formatCurrency={formatCurrency}
+                    currentPrice={currentPrice}
+                    period={selectedPeriod}
+                  />
+                )
+              })}
 
               {/* LP Token from RPC - only show if balance > 0 or still loading */}
               {(isLoadingLpToken || (lpTokenBalance && parseFloat(lpTokenBalance) > 0)) && (
@@ -331,6 +382,8 @@ export function WalletContent() {
                   usdValue={lpTokenPrice && lpTokenBalance ? (parseFloat(lpTokenBalance) / 1e7) * lpTokenPrice : undefined}
                   isLoading={isLoadingLpToken}
                   formatCurrency={formatCurrency}
+                  currentPrice={lpTokenPrice || undefined}
+                  period={selectedPeriod}
                 />
               )}
             </div>
