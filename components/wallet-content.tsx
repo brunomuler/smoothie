@@ -321,14 +321,14 @@ export function WalletContent() {
 
         {/* Period selector */}
         <Tabs value={selectedPeriod} onValueChange={(value) => setSelectedPeriod(value as SparklinePeriod)}>
-          <TabsList className="grid w-full grid-cols-3 h-10 sm:h-11 bg-transparent border border-gray-500/20 rounded-lg">
-            <TabsTrigger value="24h" className="text-xs sm:text-sm">
+          <TabsList className="h-8">
+            <TabsTrigger value="24h" className="text-xs px-2 sm:text-sm sm:px-3">
               24h
             </TabsTrigger>
-            <TabsTrigger value="7d" className="text-xs sm:text-sm">
+            <TabsTrigger value="7d" className="text-xs px-2 sm:text-sm sm:px-3">
               7d
             </TabsTrigger>
-            <TabsTrigger value="1mo" className="text-xs sm:text-sm">
+            <TabsTrigger value="1mo" className="text-xs px-2 sm:text-sm sm:px-3">
               1mo
             </TabsTrigger>
           </TabsList>
