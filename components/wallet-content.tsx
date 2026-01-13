@@ -10,6 +10,7 @@ import { TokenLogo } from "@/components/token-logo"
 import { TokenSparkline, Token30dChange } from "@/components/token-sparkline-bg"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Droplets } from "lucide-react"
 import { WalletTokensSkeleton } from "@/components/wallet-tokens/skeleton"
 
@@ -319,38 +320,19 @@ export function WalletContent() {
         </div>
 
         {/* Period selector */}
-        <div className="inline-flex rounded-lg border border-border bg-muted p-1">
-          <button
-            onClick={() => setSelectedPeriod("24h")}
-            className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-              selectedPeriod === "24h"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            24h
-          </button>
-          <button
-            onClick={() => setSelectedPeriod("7d")}
-            className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-              selectedPeriod === "7d"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            7d
-          </button>
-          <button
-            onClick={() => setSelectedPeriod("1mo")}
-            className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-              selectedPeriod === "1mo"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            1mo
-          </button>
-        </div>
+        <Tabs value={selectedPeriod} onValueChange={(value) => setSelectedPeriod(value as SparklinePeriod)}>
+          <TabsList className="grid w-full grid-cols-3 h-10 sm:h-11 bg-transparent border border-gray-500/20 rounded-lg">
+            <TabsTrigger value="24h" className="text-xs sm:text-sm">
+              24h
+            </TabsTrigger>
+            <TabsTrigger value="7d" className="text-xs sm:text-sm">
+              7d
+            </TabsTrigger>
+            <TabsTrigger value="1mo" className="text-xs sm:text-sm">
+              1mo
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       <Card className="py-2 gap-0">
