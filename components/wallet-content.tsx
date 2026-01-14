@@ -342,7 +342,7 @@ export function WalletContent() {
   }
 
   return (
-    <div className="flex flex-col gap-4 pb-4 pt-8 @container/card">
+    <div className="flex flex-col gap-4 pb-4 @container/card">
       {/* Total Portfolio Value and Period Selector */}
       <div className="flex items-end justify-between gap-4 mb-2">
         <div>

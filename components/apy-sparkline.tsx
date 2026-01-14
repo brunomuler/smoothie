@@ -153,10 +153,10 @@ export function ApySparkline({
               type="monotone"
               dataKey="apy"
               stroke="#34d399"
-              strokeWidth={1.5}
+              strokeWidth={1}
               dot={false}
               activeDot={{
-                r: 3,
+                r: 2,
                 fill: "#34d399",
                 stroke: "#34d399",
               }}

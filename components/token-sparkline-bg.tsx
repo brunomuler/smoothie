@@ -171,9 +171,9 @@ export function TokenSparkline({
             type="monotone"
             dataKey="price"
             stroke={strokeColor}
-            strokeWidth={1.5}
+            strokeWidth={1}
             dot={false}
-            activeDot={{ r: 3, fill: strokeColor }}
+            activeDot={{ r: 2, fill: strokeColor }}
             isAnimationActive={false}
           />
         </LineChart>

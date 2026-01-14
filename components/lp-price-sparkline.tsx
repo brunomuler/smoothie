@@ -147,10 +147,10 @@ export function LpPriceSparkline({
               type="monotone"
               dataKey="price"
               stroke="#c084fc"
-              strokeWidth={1.5}
+              strokeWidth={1}
               dot={false}
               activeDot={{
-                r: 3,
+                r: 2,
                 fill: "#c084fc",
                 stroke: "#c084fc",
               }}

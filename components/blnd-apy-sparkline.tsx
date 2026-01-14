@@ -162,10 +162,10 @@ export function BlndApySparkline({
               type="monotone"
               dataKey="apy"
               stroke="#a855f7"
-              strokeWidth={1.5}
+              strokeWidth={1}
               dot={false}
               activeDot={{
-                r: 3,
+                r: 2,
                 fill: "#a855f7",
                 stroke: "#a855f7",
               }}

@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export function WalletTokensSkeleton() {
   return (
-    <div className="flex flex-col gap-4 pb-4 pt-8 @container/card">
+    <div className="flex flex-col gap-4 pb-4 @container/card">
       {/* Total Balance and Period Selector skeleton */}
       <div className="flex items-end justify-between gap-4 mb-2">
         <div>

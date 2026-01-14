@@ -158,10 +158,10 @@ export function TokenPriceSparkline({
               type="monotone"
               dataKey="price"
               stroke="#3b82f6"
-              strokeWidth={1.5}
+              strokeWidth={1}
               dot={false}
               activeDot={{
-                r: 3,
+                r: 2,
                 fill: "#3b82f6",
                 stroke: "#3b82f6",
               }}
