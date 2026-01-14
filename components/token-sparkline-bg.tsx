@@ -153,7 +153,7 @@ export function TokenSparkline({
     return null
   }
 
-  const strokeColor = trend === "up" ? "#22c55e" : trend === "down" ? "#f87171" : "rgba(255, 255, 255, 0.12)" // green-500, red-400, white with low opacity
+  const strokeColor = trend === "up" ? "#22c55e" : trend === "down" ? "#ff3b30" : "rgba(255, 255, 255, 0.25)" // green-500, vibrant red
 
   return (
     <div className={`h-6 w-full max-w-48 ${className}`}>
@@ -187,10 +187,14 @@ export function Token30dChange({
   tokenAddress,
   currentPrice,
   period = "1mo",
+  showPrice = false,
+  onToggle,
 }: {
   tokenAddress: string
   currentPrice?: number // Latest oracle price to use for the most recent data point
   period?: SparklinePeriod
+  showPrice?: boolean // Toggle to show current price instead of percentage
+  onToggle?: () => void // Callback when tapped to toggle display mode
 }) {
   const { data: priceHistory } = useQuery({
     queryKey: ["token-sparkline", tokenAddress, period],
@@ -232,21 +236,33 @@ export function Token30dChange({
     return null
   }
 
-  const colorClass = trend === "up" ? "text-green-500" : trend === "down" ? "text-red-400" : "text-white/25"
+  const colorClass = trend === "up" ? "text-green-500" : trend === "down" ? "text-[#ff3b30]" : "text-white/25"
   const Icon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : null
 
   // Label based on period
   const periodLabel = period === "24h" ? "24h" : period === "7d" ? "7d" : "30d"
 
+  // Get the display price (use currentPrice if available, otherwise last price from history)
+  const displayPrice = currentPrice ?? chartData[chartData.length - 1]?.price
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <div className={`flex items-center gap-0.5 text-xs ${colorClass} cursor-default`}>
-          {Icon && <Icon className="h-3 w-3" />}
-          <span>{Math.abs(percentage).toFixed(1)}%</span>
+        <div
+          className={`flex items-center gap-0.5 text-xs ${colorClass} ${onToggle ? "cursor-pointer active:opacity-70" : "cursor-default"}`}
+          onClick={onToggle}
+        >
+          {showPrice ? (
+            <span>{formatPrice(displayPrice)}</span>
+          ) : (
+            <>
+              {Icon && <Icon className="h-3 w-3" />}
+              <span>{Math.abs(percentage).toFixed(1)}%</span>
+            </>
+          )}
         </div>
       </TooltipTrigger>
-      <TooltipContent>{periodLabel} price change</TooltipContent>
+      <TooltipContent>{showPrice ? "Current price" : `${periodLabel} price change`}</TooltipContent>
     </Tooltip>
   )
 }

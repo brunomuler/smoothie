@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Separator } from "@/components/ui/separator"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { useRealizedYield } from "@/hooks/use-realized-yield"
 import { useRealizedYieldMulti } from "@/hooks/use-realized-yield-multi"
 import { useBlendPositions } from "@/hooks/use-blend-positions"
@@ -881,9 +881,23 @@ function RealizedYieldContent() {
                             {totalPnlPositive ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
                           </p>
                           {data.totalDepositedUsd > 0 && (
-                            <Badge variant="outline" className={totalPnlPositive ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}>
-                              {totalPnlPositive ? "+" : ""}{((displayPnl.totalPnl / data.totalDepositedUsd) * 100).toFixed(1)}%
-                            </Badge>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge variant="outline" className={`cursor-help ${totalPnlPositive ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
+                                  {totalPnlPositive ? "+" : ""}{((displayPnl.totalPnl / data.totalDepositedUsd) * 100).toFixed(1)}%
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {data.daysActive && data.daysActive > 0 ? (
+                                  <>
+                                    {((Math.pow(1 + displayPnl.totalPnl / data.totalDepositedUsd, 365 / data.daysActive) - 1) * 100).toFixed(1)}% APY
+                                    <span className="text-muted-foreground ml-1">({data.daysActive}d)</span>
+                                  </>
+                                ) : (
+                                  "Total return on deposited amount"
+                                )}
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                         </div>
                       </div>

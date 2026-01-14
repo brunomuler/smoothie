@@ -86,9 +86,11 @@ interface TokenItemProps {
   formatCurrency: (amountUsd: number) => string
   currentPrice?: number // Current oracle price for live data
   period: SparklinePeriod
+  showPrice: boolean // Show current price instead of percentage change
+  onPriceToggle: () => void // Callback to toggle price/percentage display
 }
 
-const TokenItem = memo(function TokenItem({ token, formatCurrency, currentPrice, period }: TokenItemProps) {
+const TokenItem = memo(function TokenItem({ token, formatCurrency, currentPrice, period, showPrice, onPriceToggle }: TokenItemProps) {
   const logoUrl = getTokenIconUrl(token.assetCode, token.assetIssuer, token.assetType)
   const balance = parseFloat(token.balance)
   const isLpShare = token.assetType === "liquidity_pool_shares"
@@ -148,7 +150,7 @@ const TokenItem = memo(function TokenItem({ token, formatCurrency, currentPrice,
           <p className="text-sm sm:text-base font-medium text-muted-foreground">—</p>
         )}
         {token.tokenAddress ? (
-          <Token30dChange tokenAddress={token.tokenAddress} currentPrice={currentPrice} period={period} />
+          <Token30dChange tokenAddress={token.tokenAddress} currentPrice={currentPrice} period={period} showPrice={showPrice} onToggle={onPriceToggle} />
         ) : (
           <p className="text-xs text-muted-foreground">—</p>
         )}
@@ -165,9 +167,11 @@ interface LpTokenItemProps {
   formatCurrency: (amountUsd: number) => string
   currentPrice?: number // Current LP token price
   period: SparklinePeriod
+  showPrice: boolean // Show current price instead of percentage change
+  onPriceToggle: () => void // Callback to toggle price/percentage display
 }
 
-const LpTokenItem = memo(function LpTokenItem({ balance, usdValue, isLoading, formatCurrency, currentPrice, period }: LpTokenItemProps) {
+const LpTokenItem = memo(function LpTokenItem({ balance, usdValue, isLoading, formatCurrency, currentPrice, period, showPrice, onPriceToggle }: LpTokenItemProps) {
   const balanceNum = parseFloat(balance) / 1e7 // Soroban tokens have 7 decimals
 
   if (isLoading) {
@@ -233,7 +237,7 @@ const LpTokenItem = memo(function LpTokenItem({ balance, usdValue, isLoading, fo
         ) : (
           <p className="text-sm sm:text-base font-medium text-muted-foreground">—</p>
         )}
-        <Token30dChange tokenAddress={LP_TOKEN_CONTRACT_ID} currentPrice={currentPrice} period={period} />
+        <Token30dChange tokenAddress={LP_TOKEN_CONTRACT_ID} currentPrice={currentPrice} period={period} showPrice={showPrice} onToggle={onPriceToggle} />
       </div>
     </div>
   )
@@ -245,6 +249,10 @@ export function WalletContent() {
   const publicKey = activeWallet?.publicKey
   const { format: formatCurrency } = useCurrencyPreference()
   const [selectedPeriod, setSelectedPeriod] = useState<SparklinePeriod>("1mo")
+  const [showPrice, setShowPrice] = useState(false)
+
+  // Toggle between showing price and percentage for all items
+  const handlePriceToggle = () => setShowPrice((prev) => !prev)
 
   // Fetch all tokens from Horizon (returns balances and price map)
   const {
@@ -307,7 +315,7 @@ export function WalletContent() {
   }
 
   return (
-    <div className="flex flex-col gap-4 pb-4">
+    <div className="flex flex-col gap-4 pb-4 pt-8">
       {/* Total Portfolio Value and Period Selector */}
       <div className="flex items-end justify-between gap-4 mb-2">
         <div>
@@ -315,7 +323,7 @@ export function WalletContent() {
           {isLoadingTotalValue ? (
             <div className="h-9 w-40 bg-muted rounded animate-pulse" />
           ) : (
-            <p className="text-3xl font-bold">{formatCurrency(totalUsdValue)}</p>
+            <p className="text-3xl font-semibold tabular-nums">{formatCurrency(totalUsdValue)}</p>
           )}
         </div>
 
@@ -353,6 +361,8 @@ export function WalletContent() {
                     formatCurrency={formatCurrency}
                     currentPrice={currentPrice}
                     period={selectedPeriod}
+                    showPrice={showPrice}
+                    onPriceToggle={handlePriceToggle}
                   />
                 )
               })}
@@ -366,6 +376,8 @@ export function WalletContent() {
                   formatCurrency={formatCurrency}
                   currentPrice={lpTokenPrice || undefined}
                   period={selectedPeriod}
+                  showPrice={showPrice}
+                  onPriceToggle={handlePriceToggle}
                 />
               )}
             </div>
