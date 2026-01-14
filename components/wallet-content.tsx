@@ -348,7 +348,7 @@ export function WalletContent() {
         <div>
           <p className="text-sm text-muted-foreground mb-1">Total Balance</p>
           {isLoadingTotalValue ? (
-            <div className="h-9 w-40 bg-muted rounded animate-pulse" />
+            <div className="h-10 w-40 bg-accent rounded-md animate-pulse" />
           ) : (
             <p className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl @[400px]/card:text-4xl">{formatCurrency(totalUsdValue)}</p>
           )}

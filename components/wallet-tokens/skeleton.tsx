@@ -5,11 +5,15 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export function WalletTokensSkeleton() {
   return (
-    <div className="flex flex-col gap-4 pb-4">
-      {/* Total Balance skeleton */}
-      <div className="mb-2">
-        <p className="text-sm text-muted-foreground mb-1">Total Balance</p>
-        <Skeleton className="h-9 w-40" />
+    <div className="flex flex-col gap-4 pb-4 pt-8 @container/card">
+      {/* Total Balance and Period Selector skeleton */}
+      <div className="flex items-end justify-between gap-4 mb-2">
+        <div>
+          <p className="text-sm text-muted-foreground mb-1">Total Balance</p>
+          <Skeleton className="h-10 w-40" />
+        </div>
+        {/* Period selector skeleton */}
+        <Skeleton className="h-8 w-32 rounded-lg" />
       </div>
 
       <Card className="py-2 gap-0">
