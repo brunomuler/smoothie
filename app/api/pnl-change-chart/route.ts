@@ -746,8 +746,8 @@ export async function GET(request: NextRequest) {
         if (tokensAtStart <= 0 && tokensAtEnd <= 0) continue
 
         // Get prices
-        // For live bar, use today's price (most recent DB price via forward-fill if today's doesn't exist)
-        const priceAtStart = getPriceAtDate(assetAddress, isLive ? boundary.start : dayBeforeStr)
+        // Use day before period start for consistent period-over-period comparison (both live and historical)
+        const priceAtStart = getPriceAtDate(assetAddress, dayBeforeStr)
         const priceAtEnd = isLive
           ? (sdkPrices[assetAddress] || priceAtStart)
           : getPriceAtDate(assetAddress, boundary.end)
@@ -895,8 +895,8 @@ export async function GET(request: NextRequest) {
         if (sharesAtStart <= 0 && sharesAtEnd <= 0) continue
 
         // Get LP prices
-        // For live bar, use today's price (most recent DB price via forward-fill if today's doesn't exist)
-        const lpPriceAtStart = getPriceAtDate(LP_TOKEN_ADDRESS, isLive ? boundary.start : dayBeforeStr)
+        // Use day before period start for consistent period-over-period comparison (both live and historical)
+        const lpPriceAtStart = getPriceAtDate(LP_TOKEN_ADDRESS, dayBeforeStr)
         const lpPriceAtEnd = isLive && sdkLpPrice > 0
           ? sdkLpPrice
           : getPriceAtDate(LP_TOKEN_ADDRESS, boundary.end)
@@ -1033,8 +1033,8 @@ export async function GET(request: NextRequest) {
         if (debtAtStart <= 0 && debtAtEnd <= 0) continue
 
         // Get prices
-        // For live bar, use today's price (most recent DB price via forward-fill if today's doesn't exist)
-        const priceAtStart = getPriceAtDate(assetAddress, isLive ? boundary.start : dayBeforeStr)
+        // Use day before period start for consistent period-over-period comparison (both live and historical)
+        const priceAtStart = getPriceAtDate(assetAddress, dayBeforeStr)
         const priceAtEnd = isLive
           ? (sdkPrices[assetAddress] || priceAtStart)
           : getPriceAtDate(assetAddress, boundary.end)

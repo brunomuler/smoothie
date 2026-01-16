@@ -543,8 +543,9 @@ export function WalletContent({
   return (
     <div className="flex flex-col gap-4 pb-4 @container/card">
       {/* Total Portfolio Value and Period Selector */}
-      <div className="flex items-end justify-between gap-4 mb-2">
-        <div>
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2 mb-2">
+        {/* Balance - takes available space */}
+        <div className="min-w-0 flex-1">
           <p className="text-sm text-muted-foreground mb-1">Total Balance</p>
           {isLoadingTotalValue ? (
             <div className="h-10 w-40 bg-accent rounded-md animate-pulse" />
@@ -553,9 +554,15 @@ export function WalletContent({
           )}
         </div>
 
-        {/* Period selector and wallet selector */}
-        <div className="flex items-center gap-2">
-          <Tabs value={selectedPeriod} onValueChange={(value) => setSelectedPeriod(value as SparklinePeriod)}>
+        {/* Wallet selector - stays on first row */}
+        {walletSelector}
+
+        {/* Period tabs - wraps to second row on small mobile, right-aligned */}
+        <div className="max-[400px]:order-last max-[400px]:w-full max-[400px]:flex max-[400px]:justify-end">
+          <Tabs
+            value={selectedPeriod}
+            onValueChange={(value) => setSelectedPeriod(value as SparklinePeriod)}
+          >
             <TabsList className="h-8">
               <TabsTrigger value="24h" className="text-xs px-2 sm:text-sm sm:px-3">
                 24h
@@ -568,7 +575,6 @@ export function WalletContent({
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          {walletSelector}
         </div>
       </div>
 
