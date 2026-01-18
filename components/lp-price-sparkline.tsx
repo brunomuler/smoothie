@@ -11,14 +11,38 @@ interface PriceDataPoint {
   price: number
 }
 
+interface PriceDataPointInput {
+  date: string
+  price: number
+}
+
 interface LpPriceSparklineProps {
   currentPrice?: number // SDK price to use for latest day
+  priceHistory?: PriceDataPointInput[] // Pre-fetched price history (avoids multiple API calls)
   className?: string
 }
 
-async function fetchLpPriceHistory(): Promise<PriceDataPoint[]> {
+// Get user's timezone
+function getUserTimezone(): string {
+  if (typeof window === 'undefined') return 'UTC'
+  return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
+// Get today's date in user's timezone as YYYY-MM-DD
+function getTodayInTimezone(): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: getUserTimezone(),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return formatter.format(new Date())
+}
+
+async function fetchLpPriceHistory(timezone: string): Promise<PriceDataPoint[]> {
   const params = new URLSearchParams({
     days: "180", // 6 months
+    timezone,
   })
 
   const response = await fetchWithTimeout(`/api/lp-price-history?${params}`)
@@ -65,23 +89,50 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
 
 export function LpPriceSparkline({
   currentPrice,
+  priceHistory: providedHistory,
   className = "",
 }: LpPriceSparklineProps) {
-  const { data: priceHistory, isLoading } = useQuery({
-    queryKey: ["lp-price-history"],
-    queryFn: () => fetchLpPriceHistory(),
+  // Get user's timezone for consistent date handling
+  const timezone = useMemo(() => getUserTimezone(), [])
+
+  // Only fetch if no priceHistory was provided
+  const { data: fetchedHistory, isLoading: isFetching } = useQuery({
+    queryKey: ["lp-price-history", timezone],
+    queryFn: () => fetchLpPriceHistory(timezone),
     staleTime: 60 * 60 * 1000, // 1 hour
     refetchInterval: false,
+    enabled: !providedHistory, // Skip fetch if history is provided
   })
 
-  // Replace the latest day's price with the SDK price if provided
+  // Use provided history or fetched history
+  const priceHistory = providedHistory ?? fetchedHistory
+  const isLoading = !providedHistory && isFetching
+
+  // Filter out future dates and replace today's price with the SDK price
   const chartData = useMemo(() => {
     if (!priceHistory?.length) return []
-    if (currentPrice === undefined) return priceHistory
 
-    // Replace the last data point with current SDK price
-    const data = [...priceHistory]
-    if (data.length > 0) {
+    const today = getTodayInTimezone()
+
+    // Filter out any dates that are "in the future" from user's timezone perspective
+    // This handles the case where server (UTC) is ahead of the user's timezone
+    const filteredData = priceHistory.filter(d => d.date <= today)
+
+    if (!filteredData.length) return []
+    if (currentPrice === undefined) return filteredData
+
+    const data = [...filteredData]
+
+    // Find today's entry and replace with SDK price
+    const todayIndex = data.findIndex(d => d.date === today)
+    if (todayIndex !== -1) {
+      data[todayIndex] = {
+        ...data[todayIndex],
+        price: currentPrice,
+      }
+    } else if (data.length > 0) {
+      // If today isn't in the data yet, replace the last entry
+      // (this shouldn't happen with timezone-aware API, but fallback just in case)
       data[data.length - 1] = {
         ...data[data.length - 1],
         price: currentPrice,

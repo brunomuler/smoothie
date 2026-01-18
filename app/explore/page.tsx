@@ -27,7 +27,7 @@ function ExploreContent() {
     sortBy: "total",
   })
 
-  const { isLoading, supplyItems, backstopItems, poolItems } = useExplore(filters)
+  const { isLoading, supplyItems, backstopItems, poolItems, lpTokenPrice, lpPriceHistory } = useExplore(filters)
 
   // Track page view
   useEffect(() => {
@@ -75,7 +75,7 @@ function ExploreContent() {
           <TabsContent value="backstops" className="space-y-6">
             <ExploreFilters filters={filters} onFiltersChange={setFilters} />
             <BackstopChart items={backstopItems} isLoading={isLoading} />
-            <BackstopResults items={backstopItems} isLoading={isLoading} sortBy={filters.sortBy} />
+            <BackstopResults items={backstopItems} isLoading={isLoading} sortBy={filters.sortBy} lpTokenPrice={lpTokenPrice} lpPriceHistory={lpPriceHistory} />
           </TabsContent>
 
           <TabsContent value="pools" className="space-y-6">

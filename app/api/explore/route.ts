@@ -22,6 +22,7 @@ import {
 import { metadataRepository } from '@/lib/db/repositories/metadata-repository'
 import { ratesRepository } from '@/lib/db/repositories/rates-repository'
 import { eventsRepository } from '@/lib/db/events-repository'
+import { pool as dbPool } from '@/lib/db/config'
 import { getBlendNetwork } from '@/lib/blend/network'
 import { toTrackedPools } from '@/lib/blend/pools'
 import {
@@ -30,12 +31,14 @@ import {
   CACHE_CONFIGS,
 } from '@/lib/api'
 import { cacheKey, todayDate, CACHE_TTL } from '@/lib/redis'
+import { LP_TOKEN_ADDRESS } from '@/lib/constants'
 import type {
   ApyPeriod,
   SupplyExploreItem,
   BackstopExploreItem,
   ExploreData,
   Pool24hChange,
+  LpPriceDataPoint,
 } from '@/types/explore'
 
 const PERIOD_DAYS: Record<ApyPeriod, number> = {
@@ -311,6 +314,65 @@ function buildBackstopItems(snapshots: PoolSnapshot[]): BackstopExploreItem[] {
   return items
 }
 
+/**
+ * Fetch LP token price history for sparkline chart
+ * Uses UTC dates since this is server-side and timezone conversion happens client-side
+ */
+async function fetchLpPriceHistory(): Promise<LpPriceDataPoint[]> {
+  if (!dbPool) return []
+
+  try {
+    const result = await dbPool.query(
+      `
+      WITH date_range AS (
+        SELECT generate_series(
+          CURRENT_DATE - 180,
+          CURRENT_DATE,
+          '1 day'::interval
+        )::date AS date
+      ),
+      available_prices AS (
+        SELECT
+          price_date,
+          usd_price
+        FROM daily_token_prices
+        WHERE token_address = $1
+          AND price_date >= CURRENT_DATE - 180
+        ORDER BY price_date DESC
+      )
+      SELECT
+        d.date::text as price_date,
+        COALESCE(
+          ap.usd_price,
+          (
+            SELECT usd_price
+            FROM daily_token_prices
+            WHERE token_address = $1
+              AND price_date <= d.date
+            ORDER BY price_date DESC
+            LIMIT 1
+          )
+        ) as price
+      FROM date_range d
+      LEFT JOIN available_prices ap ON ap.price_date = d.date
+      WHERE d.date <= CURRENT_DATE
+      ORDER BY d.date ASC
+      `,
+      [LP_TOKEN_ADDRESS]
+    )
+
+    return result.rows
+      .filter((row) => row.price !== null)
+      .map((row) => ({
+        date: row.price_date,
+        price: parseFloat(row.price) || 0,
+      }))
+  } catch (error) {
+    console.error('[Explore API] Failed to fetch LP price history:', error)
+    return []
+  }
+}
+
 export const GET = createApiHandler<ExploreData>({
   logPrefix: '[Explore API]',
   cache: CACHE_CONFIGS.MEDIUM,
@@ -332,11 +394,12 @@ export const GET = createApiHandler<ExploreData>({
     // Load all pool data
     const snapshots = await loadPoolSnapshots()
 
-    // Build supply, backstop items, and 24h changes in parallel
-    const [supplyItems, backstopItems, pool24hChangesRaw] = await Promise.all([
+    // Build supply, backstop items, 24h changes, and LP price history in parallel
+    const [supplyItems, backstopItems, pool24hChangesRaw, lpPriceHistory] = await Promise.all([
       buildSupplyItems(snapshots, period),
       Promise.resolve(buildBackstopItems(snapshots)),
       eventsRepository.get24hPoolChanges(),
+      fetchLpPriceHistory(),
     ])
 
     // Map to Pool24hChange type
@@ -346,11 +409,22 @@ export const GET = createApiHandler<ExploreData>({
       borrowChange: item.borrowChange,
     }))
 
+    // Extract LP token price from the first snapshot with backstop data
+    let lpTokenPrice: number | null = null
+    for (const snapshot of snapshots) {
+      if (snapshot.backstop?.backstopToken?.lpTokenPrice) {
+        lpTokenPrice = snapshot.backstop.backstopToken.lpTokenPrice
+        break
+      }
+    }
+
     return {
       period,
       supplyItems,
       backstopItems,
       pool24hChanges,
+      lpTokenPrice,
+      lpPriceHistory,
     }
   },
 })

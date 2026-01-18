@@ -17,6 +17,18 @@ interface BackstopApySparklineProps {
   className?: string
 }
 
+// Get today's date in user's timezone as YYYY-MM-DD
+function getTodayInTimezone(): string {
+  if (typeof window === 'undefined') return new Date().toISOString().split('T')[0]
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return formatter.format(new Date())
+}
+
 async function fetchBackstopApyHistory(poolId: string): Promise<ApyDataPoint[]> {
   const params = new URLSearchParams({
     pool: poolId,
@@ -72,18 +84,34 @@ export function BackstopApySparkline({
     refetchInterval: false,
   })
 
-  // Replace the latest day's APY with the SDK APY if provided
+  // Filter out future dates and replace today's APY with the SDK APY
   const chartData = useMemo(() => {
     if (!apyHistory?.length) return []
-    if (currentApy === undefined) return apyHistory
 
-    // Replace the last data point with current SDK APY
-    const data = [...apyHistory]
-    if (data.length > 0) {
-      data[data.length - 1] = {
-        ...data[data.length - 1],
+    const today = getTodayInTimezone()
+
+    // Filter out any dates that are "in the future" from user's timezone perspective
+    // This handles the case where server (UTC) is ahead of the user's timezone
+    const filteredHistory = apyHistory.filter(d => d.date <= today)
+
+    if (!filteredHistory.length) return []
+    if (currentApy === undefined) return filteredHistory
+
+    const data = [...filteredHistory]
+
+    // Find today's entry and replace with SDK APY
+    const todayIndex = data.findIndex(d => d.date === today)
+    if (todayIndex !== -1) {
+      data[todayIndex] = {
+        ...data[todayIndex],
         apy: currentApy,
       }
+    } else if (data.length > 0) {
+      // If today isn't in the data yet, add it with SDK APY
+      data.push({
+        date: today,
+        apy: currentApy,
+      })
     }
     return data
   }, [apyHistory, currentApy])

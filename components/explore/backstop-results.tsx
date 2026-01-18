@@ -9,12 +9,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { BackstopApySparkline } from "@/components/backstop-apy-sparkline"
 import { BlndApySparkline } from "@/components/blnd-apy-sparkline"
 import { LpPriceSparkline } from "@/components/lp-price-sparkline"
-import type { BackstopExploreItem, SortBy } from "@/types/explore"
+import type { BackstopExploreItem, SortBy, LpPriceDataPoint } from "@/types/explore"
 
 interface BackstopResultsProps {
   items: BackstopExploreItem[]
   isLoading: boolean
   sortBy: SortBy
+  lpTokenPrice: number | null
+  lpPriceHistory: LpPriceDataPoint[]
 }
 
 function formatApy(value: number): string {
@@ -59,7 +61,7 @@ function sortItems(items: BackstopExploreItem[], sortBy: SortBy): BackstopExplor
   })
 }
 
-function BackstopRowCharts({ item }: { item: BackstopExploreItem }) {
+function BackstopRowCharts({ item, lpTokenPrice, lpPriceHistory }: { item: BackstopExploreItem; lpTokenPrice: number | null; lpPriceHistory: LpPriceDataPoint[] }) {
   return (
     <div className="border-t border-border/30 bg-muted/10 px-4 py-4">
       <div className="space-y-3">
@@ -96,7 +98,7 @@ function BackstopRowCharts({ item }: { item: BackstopExploreItem }) {
             <TrendingUp className="h-3 w-3 text-purple-400" />
             <span className="text-xs font-medium text-muted-foreground">LP Token Price</span>
           </div>
-          <LpPriceSparkline className="h-12 w-full" />
+          <LpPriceSparkline currentPrice={lpTokenPrice ?? undefined} priceHistory={lpPriceHistory} className="h-12 w-full" />
         </div>
 
         {/* Link to Blend */}
@@ -114,7 +116,7 @@ function BackstopRowCharts({ item }: { item: BackstopExploreItem }) {
   )
 }
 
-function BackstopRow({ item, sortBy }: { item: BackstopExploreItem; sortBy: SortBy }) {
+function BackstopRow({ item, sortBy, lpTokenPrice, lpPriceHistory }: { item: BackstopExploreItem; sortBy: SortBy; lpTokenPrice: number | null; lpPriceHistory: LpPriceDataPoint[] }) {
   const [isExpanded, setIsExpanded] = useState(false)
 
   return (
@@ -224,7 +226,7 @@ function BackstopRow({ item, sortBy }: { item: BackstopExploreItem; sortBy: Sort
       </button>
 
       {/* Expanded charts section */}
-      {isExpanded && <BackstopRowCharts item={item} />}
+      {isExpanded && <BackstopRowCharts item={item} lpTokenPrice={lpTokenPrice} lpPriceHistory={lpPriceHistory} />}
     </div>
   )
 }
@@ -252,7 +254,7 @@ function BackstopRowSkeleton() {
   )
 }
 
-export function BackstopResults({ items, isLoading, sortBy }: BackstopResultsProps) {
+export function BackstopResults({ items, isLoading, sortBy, lpTokenPrice, lpPriceHistory }: BackstopResultsProps) {
   if (isLoading) {
     return (
       <div>
@@ -287,7 +289,7 @@ export function BackstopResults({ items, isLoading, sortBy }: BackstopResultsPro
       <Card className="py-0">
         <CardContent className="p-0">
           {sortedItems.map((item) => (
-            <BackstopRow key={item.poolId} item={item} sortBy={sortBy} />
+            <BackstopRow key={item.poolId} item={item} sortBy={sortBy} lpTokenPrice={lpTokenPrice} lpPriceHistory={lpPriceHistory} />
           ))}
         </CardContent>
       </Card>

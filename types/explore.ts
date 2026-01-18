@@ -64,9 +64,16 @@ export interface ExploreFilters {
   sortBy: SortBy
 }
 
+export interface LpPriceDataPoint {
+  date: string
+  price: number
+}
+
 export interface ExploreData {
   period: ApyPeriod
   supplyItems: SupplyExploreItem[]
   backstopItems: BackstopExploreItem[]
   pool24hChanges: Pool24hChange[]
+  lpTokenPrice: number | null // SDK LP token price for sparkline chart
+  lpPriceHistory: LpPriceDataPoint[] // Historical LP prices for sparkline
 }

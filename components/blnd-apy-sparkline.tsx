@@ -25,6 +25,18 @@ interface BlndApySparklineProps {
   className?: string
 }
 
+// Get today's date in user's timezone as YYYY-MM-DD
+function getTodayInTimezone(): string {
+  if (typeof window === 'undefined') return new Date().toISOString().split('T')[0]
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return formatter.format(new Date())
+}
+
 async function fetchEmissionApyHistory(
   poolId: string,
   type: 'backstop' | 'lending_supply',
@@ -94,18 +106,34 @@ export function BlndApySparkline({
     enabled: type === 'backstop' || !!assetAddress,
   })
 
-  // Replace the latest day's APY with the SDK APY if provided
+  // Filter out future dates and replace today's APY with the SDK APY
   const chartData = useMemo(() => {
     if (!data?.history?.length) return []
-    if (currentApy === undefined) return data.history
 
-    // Replace the last data point with current SDK APY
-    const history = [...data.history]
-    if (history.length > 0) {
-      history[history.length - 1] = {
-        ...history[history.length - 1],
+    const today = getTodayInTimezone()
+
+    // Filter out any dates that are "in the future" from user's timezone perspective
+    // This handles the case where server (UTC) is ahead of the user's timezone
+    const filteredHistory = data.history.filter(d => d.date <= today)
+
+    if (!filteredHistory.length) return []
+    if (currentApy === undefined) return filteredHistory
+
+    const history = [...filteredHistory]
+
+    // Find today's entry and replace with SDK APY
+    const todayIndex = history.findIndex(d => d.date === today)
+    if (todayIndex !== -1) {
+      history[todayIndex] = {
+        ...history[todayIndex],
         apy: currentApy,
       }
+    } else if (history.length > 0) {
+      // If today isn't in the data yet, add it with SDK APY
+      history.push({
+        date: today,
+        apy: currentApy,
+      })
     }
     return history
   }, [data?.history, currentApy])

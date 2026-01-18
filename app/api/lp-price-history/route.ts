@@ -33,24 +33,30 @@ export const GET = createApiHandler<LpPriceHistoryResponse>({
     ttl: CACHE_TTL.VERY_LONG, // 1 hour - historical data only changes once per day
     getKey: (request) => {
       const params = request.nextUrl.searchParams
-      return cacheKey('lp-price-history', params.get('days') || '180', todayDate())
+      const timezone = params.get('timezone') || 'UTC'
+      return cacheKey('lp-price-history', params.get('days') || '180', timezone, todayDate())
     },
   },
 
   async handler(_request: NextRequest, { searchParams }) {
     const days = optionalInt(searchParams, 'days', 180, { min: 1 })
+    const timezone = searchParams.get('timezone') || 'UTC'
 
     if (!pool) {
       throw new Error('Database not configured')
     }
 
     // Query daily LP token prices with forward-fill for missing dates
+    // Uses user's timezone to determine "today" correctly
     const result = await pool.query(
       `
-      WITH date_range AS (
+      WITH today_in_tz AS (
+        SELECT (CURRENT_TIMESTAMP AT TIME ZONE $3)::date AS today
+      ),
+      date_range AS (
         SELECT generate_series(
-          CURRENT_DATE - $1::integer,
-          CURRENT_DATE,
+          (SELECT today FROM today_in_tz) - $1::integer,
+          (SELECT today FROM today_in_tz),
           '1 day'::interval
         )::date AS date
       ),
@@ -60,7 +66,7 @@ export const GET = createApiHandler<LpPriceHistoryResponse>({
           usd_price
         FROM daily_token_prices
         WHERE token_address = $2
-          AND price_date >= CURRENT_DATE - $1::integer
+          AND price_date >= (SELECT today FROM today_in_tz) - $1::integer
         ORDER BY price_date DESC
       )
       SELECT
@@ -79,10 +85,10 @@ export const GET = createApiHandler<LpPriceHistoryResponse>({
         ) as price
       FROM date_range d
       LEFT JOIN available_prices ap ON ap.price_date = d.date
-      WHERE d.date <= CURRENT_DATE
+      WHERE d.date <= (SELECT today FROM today_in_tz)
       ORDER BY d.date ASC
       `,
-      [days, LP_TOKEN_ADDRESS]
+      [days, LP_TOKEN_ADDRESS, timezone]
     )
 
     const history: LpPriceDataPoint[] = result.rows

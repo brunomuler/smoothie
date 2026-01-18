@@ -113,6 +113,8 @@ export function useExplore(filters: ExploreFilters) {
     supplyItems: filteredSupplyItems,
     backstopItems: query.data?.backstopItems ?? [],
     poolItems,
+    lpTokenPrice: query.data?.lpTokenPrice ?? null,
+    lpPriceHistory: query.data?.lpPriceHistory ?? [],
     refetch: query.refetch,
   }
 }
