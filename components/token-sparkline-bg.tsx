@@ -12,6 +12,23 @@ interface PriceDataPoint {
   price: number
 }
 
+// Get user's timezone
+function getUserTimezone(): string {
+  if (typeof window === 'undefined') return 'UTC'
+  return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
+// Get today's date in user's timezone as YYYY-MM-DD
+function getTodayInTimezone(): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: getUserTimezone(),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+  return formatter.format(new Date())
+}
+
 type SparklinePeriod = "24h" | "7d" | "1mo"
 
 interface TokenSparklineProps {
@@ -120,28 +137,34 @@ export function TokenSparkline({
     refetchInterval: false,
   })
 
-  // Add current oracle price if provided
+  // Add current oracle price if provided, filtering out future dates
   const chartData = useMemo(() => {
     if (!priceHistory?.length) return []
-    if (currentPrice === undefined) return priceHistory
 
-    const data = [...priceHistory]
-    const lastPoint = data[data.length - 1]
+    const today = getTodayInTimezone()
 
-    // For daily periods (7d, 1mo), add/update today's date
-    const today = new Date()
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    // Filter out any dates that are "in the future" from user's timezone perspective
+    // This handles the case where server (UTC) is ahead of the user's timezone
+    const filteredData = priceHistory.filter(d => d.date <= today)
 
-    if (lastPoint.date === todayStr) {
-      data[data.length - 1] = {
-        ...lastPoint,
+    if (!filteredData.length) return []
+    if (currentPrice === undefined) return filteredData
+
+    const data = [...filteredData]
+
+    // Find today's entry and replace with SDK price
+    const todayIndex = data.findIndex(d => d.date === today)
+    if (todayIndex !== -1) {
+      data[todayIndex] = {
+        ...data[todayIndex],
         price: currentPrice,
       }
-    } else {
-      data.push({
-        date: todayStr,
+    } else if (data.length > 0) {
+      // If today isn't in the data yet, replace the last entry with SDK price
+      data[data.length - 1] = {
+        ...data[data.length - 1],
         price: currentPrice,
-      })
+      }
     }
 
     return data
@@ -205,28 +228,34 @@ export function Token30dChange({
     refetchInterval: false,
   })
 
-  // Add current oracle price if provided
+  // Add current oracle price if provided, filtering out future dates
   const chartData = useMemo(() => {
     if (!priceHistory?.length) return []
-    if (currentPrice === undefined) return priceHistory
 
-    const data = [...priceHistory]
-    const lastPoint = data[data.length - 1]
+    const today = getTodayInTimezone()
 
-    // Add/update today's date with current oracle price
-    const today = new Date()
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    // Filter out any dates that are "in the future" from user's timezone perspective
+    // This handles the case where server (UTC) is ahead of the user's timezone
+    const filteredData = priceHistory.filter(d => d.date <= today)
 
-    if (lastPoint.date === todayStr) {
-      data[data.length - 1] = {
-        ...lastPoint,
+    if (!filteredData.length) return []
+    if (currentPrice === undefined) return filteredData
+
+    const data = [...filteredData]
+
+    // Find today's entry and replace with SDK price
+    const todayIndex = data.findIndex(d => d.date === today)
+    if (todayIndex !== -1) {
+      data[todayIndex] = {
+        ...data[todayIndex],
         price: currentPrice,
       }
-    } else {
-      data.push({
-        date: todayStr,
+    } else if (data.length > 0) {
+      // If today isn't in the data yet, replace the last entry with SDK price
+      data[data.length - 1] = {
+        ...data[data.length - 1],
         price: currentPrice,
-      })
+      }
     }
 
     return data
