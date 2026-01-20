@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { TrendingUp, Flame, ArrowUpRight, ArrowDownLeft, ChevronDown, ChevronUp } from "lucide-react"
+import { TrendingUp, Flame, ArrowUpRight, ArrowDownLeft, ChevronDown, ChevronUp, Calculator } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,6 +10,7 @@ import { TokenLogo } from "@/components/token-logo"
 import { ApySparkline } from "@/components/apy-sparkline"
 import { BlndApySparkline } from "@/components/blnd-apy-sparkline"
 import { TokenPriceSparkline } from "@/components/token-price-sparkline"
+import { ApySimulatorContainer } from "@/components/apy-simulator"
 import { DollarSign } from "lucide-react"
 import type { SupplyExploreItem, SortBy } from "@/types/explore"
 
@@ -89,6 +90,8 @@ function sortItems(items: SupplyExploreItem[], sortBy: SortBy): SupplyExploreIte
 }
 
 function SupplyRowCharts({ item }: { item: SupplyExploreItem }) {
+  const [simulatorOpen, setSimulatorOpen] = useState(false)
+
   return (
     <div className="border-t border-border/30 bg-muted/10 px-4 py-4">
       <div className="space-y-3">
@@ -136,17 +139,43 @@ function SupplyRowCharts({ item }: { item: SupplyExploreItem }) {
           />
         </div>
 
-        {/* Link to Blend */}
-        <a
-          href={`https://mainnet.blend.capital/supply/?poolId=${item.poolId}&assetId=${item.assetAddress}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-        >
-          Supply on Blend Capital
-          <ArrowUpRight className="h-3 w-3" />
-        </a>
+        {/* Action Links */}
+        <div className="flex items-center gap-4">
+          <a
+            href={`https://mainnet.blend.capital/supply/?poolId=${item.poolId}&assetId=${item.assetAddress}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+          >
+            Supply on Blend Capital
+            <ArrowUpRight className="h-3 w-3" />
+          </a>
+
+          <button
+            onClick={() => setSimulatorOpen(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Calculator className="h-3 w-3" />
+            Simulate APY
+          </button>
+        </div>
       </div>
+
+      {/* APY Simulator Modal/Drawer */}
+      <ApySimulatorContainer
+        open={simulatorOpen}
+        onOpenChange={setSimulatorOpen}
+        poolId={item.poolId}
+        poolName={item.poolName}
+        assetId={item.assetAddress}
+        tokenSymbol={item.tokenSymbol}
+        initialData={{
+          totalSupply: item.totalSupplied ?? 0,
+          totalBorrow: item.totalBorrowed ?? 0,
+          supplyApy: item.supplyApy ?? 0,
+          blndApy: item.blndApy ?? 0,
+        }}
+      />
     </div>
   )
 }

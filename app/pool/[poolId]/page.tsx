@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { useParams } from "next/navigation"
 import Link from "next/link"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Flame, Shield, Clock } from "lucide-react"
+import { ArrowLeft, TrendingUp, TrendingDown, AlertTriangle, ExternalLink, Flame, Shield, Clock, Calculator } from "lucide-react"
 import { ApySparkline } from "@/components/apy-sparkline"
 import { BackstopApySparkline } from "@/components/backstop-apy-sparkline"
 import { BlndApySparkline } from "@/components/blnd-apy-sparkline"
@@ -26,6 +26,7 @@ import { useCurrencyPreference } from "@/hooks/use-currency-preference"
 import { useWalletState } from "@/hooks/use-wallet-state"
 import { useAnalytics } from "@/hooks/use-analytics"
 import { AuthenticatedPage } from "@/components/authenticated-page"
+import { ApySimulatorContainer } from "@/components/apy-simulator"
 
 // Extended position type with yield data
 interface PositionWithYield extends BlendReservePosition {
@@ -168,6 +169,7 @@ function AssetRow({ position, blndPrice, formatUsd, formatYield }: {
   formatUsd: (value: number, decimals?: number) => string
   formatYield: (value: number) => string
 }) {
+  const [simulatorOpen, setSimulatorOpen] = useState(false)
   const hasCollateral = position.collateralAmount > 0
   const hasNonCollateral = position.nonCollateralAmount > 0
   const hasBorrow = position.borrowAmount > 0
@@ -321,7 +323,34 @@ function AssetRow({ position, blndPrice, formatUsd, formatYield }: {
             />
           </div>
         )}
+
+        {/* Action Links */}
+        <div className="flex items-center gap-4 pt-2">
+          <button
+            onClick={() => setSimulatorOpen(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Calculator className="h-3 w-3" />
+            Simulate APY
+          </button>
+        </div>
       </div>
+
+      {/* APY Simulator Modal/Drawer */}
+      <ApySimulatorContainer
+        open={simulatorOpen}
+        onOpenChange={setSimulatorOpen}
+        poolId={position.poolId}
+        poolName={position.poolName}
+        assetId={position.assetId}
+        tokenSymbol={position.symbol}
+        initialData={{
+          totalSupply: 0,
+          totalBorrow: 0,
+          supplyApy: position.supplyApy,
+          blndApy: position.blndApy,
+        }}
+      />
     </div>
   )
 }
@@ -333,6 +362,7 @@ function MobileAssetCard({ position, blndPrice, formatUsd, formatYield }: {
   formatUsd: (value: number, decimals?: number) => string
   formatYield: (value: number) => string
 }) {
+  const [simulatorOpen, setSimulatorOpen] = useState(false)
   const hasCollateral = position.collateralAmount > 0
   const hasNonCollateral = position.nonCollateralAmount > 0
   const hasBorrow = position.borrowAmount > 0
@@ -490,7 +520,34 @@ function MobileAssetCard({ position, blndPrice, formatUsd, formatYield }: {
             />
           </div>
         )}
+
+        {/* Action Links */}
+        <div className="flex items-center gap-4 pt-2">
+          <button
+            onClick={() => setSimulatorOpen(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Calculator className="h-3 w-3" />
+            Simulate APY
+          </button>
+        </div>
       </div>
+
+      {/* APY Simulator Modal/Drawer */}
+      <ApySimulatorContainer
+        open={simulatorOpen}
+        onOpenChange={setSimulatorOpen}
+        poolId={position.poolId}
+        poolName={position.poolName}
+        assetId={position.assetId}
+        tokenSymbol={position.symbol}
+        initialData={{
+          totalSupply: 0,
+          totalBorrow: 0,
+          supplyApy: position.supplyApy,
+          blndApy: position.blndApy,
+        }}
+      />
     </div>
   )
 }
