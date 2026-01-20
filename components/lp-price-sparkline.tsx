@@ -123,21 +123,20 @@ export function LpPriceSparkline({
 
     const data = [...filteredData]
 
-    // Find today's entry and replace with SDK price
+    // Use SDK price for today's data point
     const todayIndex = data.findIndex(d => d.date === today)
     if (todayIndex !== -1) {
       data[todayIndex] = {
         ...data[todayIndex],
         price: currentPrice,
       }
-    } else if (data.length > 0) {
-      // If today isn't in the data yet, replace the last entry
-      // (this shouldn't happen with timezone-aware API, but fallback just in case)
-      data[data.length - 1] = {
-        ...data[data.length - 1],
+    } else {
+      data.push({
+        date: today,
         price: currentPrice,
-      }
+      })
     }
+
     return data
   }, [priceHistory, currentPrice])
 

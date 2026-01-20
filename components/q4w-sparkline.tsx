@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { LineChart, Line, Tooltip, ResponsiveContainer, YAxis } from "recharts"
 import { format } from "date-fns"
@@ -17,22 +17,20 @@ interface Q4wSparklineProps {
   className?: string
 }
 
-// Get user's timezone
+// Get user's timezone for API calls
 function getUserTimezone(): string {
   if (typeof window === 'undefined') return 'UTC'
   return Intl.DateTimeFormat().resolvedOptions().timeZone
 }
 
-// Get today's date in user's timezone as YYYY-MM-DD
-function getTodayInTimezone(): string {
-  if (typeof window === 'undefined') return new Date().toISOString().split('T')[0]
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: getUserTimezone(),
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  return formatter.format(new Date())
+// Get today's date in user's local timezone as YYYY-MM-DD
+// Uses the browser's local date (getFullYear/getMonth/getDate use local time)
+function getLocalToday(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 async function fetchQ4wHistory(poolId: string): Promise<Q4wDataPoint[]> {
@@ -69,10 +67,14 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
   const date = data.payload.date
   const q4w = data.value
 
+  // Parse date as local time by adding T12:00:00 to avoid timezone issues
+  // new Date("2026-01-20") parses as UTC midnight, which shows as previous day in timezones behind UTC
+  const localDate = new Date(date + "T12:00:00")
+
   return (
     <div className="bg-black text-white border border-zinc-800 rounded-md px-2 py-1.5 shadow-md text-[11px] whitespace-nowrap">
       <p className="text-zinc-400">
-        {format(new Date(date), "MMM d, yyyy")}
+        {format(localDate, "MMM d, yyyy")}
       </p>
       <p className="font-medium text-amber-400">{formatPercent(q4w)} Q4W</p>
     </div>
@@ -84,6 +86,13 @@ export function Q4wSparkline({
   currentQ4w,
   className = "",
 }: Q4wSparklineProps) {
+  // Track if component has mounted (client-side)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const { data: q4wHistory, isLoading } = useQuery({
     queryKey: ["backstop-q4w-history", poolId],
     queryFn: () => fetchQ4wHistory(poolId),
@@ -91,14 +100,18 @@ export function Q4wSparkline({
     refetchInterval: false,
   })
 
-  // Filter out future dates and replace today's Q4W with the SDK value
+  // Compute today's date only on the client (after mount)
+  // This ensures we use the user's actual local date, not the server's date
+  const today = mounted ? getLocalToday() : null
+
+  // Filter out future dates and use SDK value for today
   const chartData = useMemo(() => {
     if (!q4wHistory?.length) return []
 
-    const today = getTodayInTimezone()
+    // During SSR (today is null), just return the raw history
+    if (!today) return q4wHistory
 
     // Filter out any dates that are "in the future" from user's timezone perspective
-    // This handles the case where server (UTC) is ahead of the user's timezone
     const filteredHistory = q4wHistory.filter(d => d.date <= today)
 
     if (!filteredHistory.length) return []
@@ -106,22 +119,24 @@ export function Q4wSparkline({
 
     const data = [...filteredHistory]
 
-    // Find today's entry and replace with SDK Q4W
+    // Use SDK Q4W for today's data point
     const todayIndex = data.findIndex(d => d.date === today)
     if (todayIndex !== -1) {
+      // Replace today's value with SDK
       data[todayIndex] = {
         ...data[todayIndex],
         q4wPercent: currentQ4w,
       }
-    } else if (data.length > 0) {
-      // If today isn't in the data yet, add it with SDK Q4W
+    } else {
+      // Add today with SDK value
       data.push({
         date: today,
         q4wPercent: currentQ4w,
       })
     }
+
     return data
-  }, [q4wHistory, currentQ4w])
+  }, [q4wHistory, currentQ4w, today])
 
   // Calculate 6mo average
   const { avgQ4w } = useMemo(() => {

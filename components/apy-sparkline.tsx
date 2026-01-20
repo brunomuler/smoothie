@@ -18,16 +18,13 @@ interface ApySparklineProps {
   className?: string
 }
 
-// Get today's date in user's timezone as YYYY-MM-DD
+// Get today's date in user's local timezone as YYYY-MM-DD
 function getTodayInTimezone(): string {
-  if (typeof window === 'undefined') return new Date().toISOString().split('T')[0]
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  return formatter.format(new Date())
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 async function fetchApyHistory(
@@ -67,10 +64,14 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
   const date = data.payload.date
   const apy = data.value
 
+  // Parse date as local time by adding T12:00:00 to avoid timezone issues
+  // new Date("2026-01-20") parses as UTC midnight, which shows as previous day in timezones behind UTC
+  const localDate = new Date(date + "T12:00:00")
+
   return (
     <div className="bg-black text-white border border-zinc-800 rounded-md px-2 py-1.5 shadow-md text-[11px] whitespace-nowrap">
       <p className="text-zinc-400">
-        {format(new Date(date), "MMM d, yyyy")}
+        {format(localDate, "MMM d, yyyy")}
       </p>
       <p className="font-medium text-emerald-400">{formatPercent(apy)} APY</p>
     </div>
@@ -90,11 +91,12 @@ export function ApySparkline({
     refetchInterval: false,
   })
 
+  // Compute today outside useMemo so it's fresh on every render
+  const today = getTodayInTimezone()
+
   // Filter out future dates and replace today's APY with the SDK APY
   const chartData = useMemo(() => {
     if (!apyHistory?.length) return []
-
-    const today = getTodayInTimezone()
 
     // Filter out any dates that are "in the future" from user's timezone perspective
     // This handles the case where server (UTC) is ahead of the user's timezone
@@ -105,22 +107,22 @@ export function ApySparkline({
 
     const data = [...filteredHistory]
 
-    // Find today's entry and replace with SDK APY
+    // Use SDK APY for today's data point
     const todayIndex = data.findIndex(d => d.date === today)
     if (todayIndex !== -1) {
       data[todayIndex] = {
         ...data[todayIndex],
         apy: currentApy,
       }
-    } else if (data.length > 0) {
-      // If today isn't in the data yet, add it with SDK APY
+    } else {
       data.push({
         date: today,
         apy: currentApy,
       })
     }
+
     return data
-  }, [apyHistory, currentApy])
+  }, [apyHistory, currentApy, today])
 
   // Calculate min/max for better visualization and 6mo average
   const { minApy, maxApy, avgApy } = useMemo(() => {
