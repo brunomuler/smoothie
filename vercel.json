@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/send-emails",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/send-digest",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}
