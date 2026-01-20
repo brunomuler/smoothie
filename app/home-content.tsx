@@ -366,7 +366,6 @@ export function HomeContent() {
               pendingEmissions={totalEmissions}
               pendingSupplyEmissions={blendSnapshot?.totalSupplyEmissions}
               pendingBorrowEmissions={blendSnapshot?.totalBorrowEmissions}
-              backstopClaimableBlnd={backstopPositions.reduce((sum, bp) => sum + (bp.claimableBlnd || 0), 0)}
               blndPrice={blndPrice}
               lpTokenPrice={lpTokenPrice}
               blndPerLpToken={backstopPositions[0]?.blndAmount && backstopPositions[0]?.lpTokens
@@ -382,6 +381,7 @@ export function HomeContent() {
                 poolId: bp.poolId,
                 poolName: bp.poolName,
                 claimableBlnd: bp.claimableBlnd,
+                simulatedEmissionsLp: bp.simulatedEmissionsLp,
               }))}
               poolNames={blendSnapshot?.positions?.reduce((acc, pos) => {
                 if (pos.poolId && pos.poolName) {

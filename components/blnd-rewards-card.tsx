@@ -22,6 +22,7 @@ interface BackstopPositionData {
   poolId: string
   poolName: string
   claimableBlnd?: number
+  simulatedEmissionsLp?: number | null // LP tokens claimable from emissions (via on-chain simulation)
 }
 
 interface BlndRewardsCardProps {
@@ -57,7 +58,6 @@ export function BlndRewardsCard({
   pendingEmissions,
   pendingSupplyEmissions = 0,
   pendingBorrowEmissions = 0,
-  backstopClaimableBlnd = 0,
   blndPrice,
   lpTokenPrice,
   blndPerLpToken = 0,
@@ -140,18 +140,16 @@ export function BlndRewardsCard({
     return poolClaimedBlnd * (blndPrice || 0)
   }, [displayPreferences.useHistoricalBlndPrices, poolClaimedUsdHistorical, poolClaimedBlnd, blndPrice])
 
-  // Calculate total claimed BLND from backstop emissions (LP tokens → BLND)
-  const backstopClaimedBlnd = useMemo(() => {
-    if (!backstopClaimsData?.backstop_claims || !blndPerLpToken) {
+  // Calculate total claimed LP from backstop emissions
+  const totalClaimedLp = useMemo(() => {
+    if (!backstopClaimsData?.backstop_claims) {
       return 0
     }
-    // Sum all backstop LP tokens claimed and convert to BLND
-    const totalLpClaimed = backstopClaimsData.backstop_claims.reduce(
+    return backstopClaimsData.backstop_claims.reduce(
       (total: number, claim: { total_claimed_lp: number }) => total + (claim.total_claimed_lp || 0),
       0
     )
-    return totalLpClaimed * blndPerLpToken
-  }, [backstopClaimsData, blndPerLpToken])
+  }, [backstopClaimsData])
 
   // Calculate backstop claimed USD based on preference (historical vs current price)
   const backstopClaimedUsdDisplay = useMemo(() => {
@@ -159,19 +157,28 @@ export function BlndRewardsCard({
       // Use historical LP token prices from API
       return backstopClaimedUsdHistorical
     }
-    // Use current price: convert LP to BLND equivalent, then use current BLND price
-    return backstopClaimedBlnd * (blndPrice || 0)
-  }, [displayPreferences.useHistoricalBlndPrices, backstopClaimedUsdHistorical, backstopClaimedBlnd, blndPrice])
+    // Use current LP price
+    return totalClaimedLp * (lpTokenPrice || 0)
+  }, [displayPreferences.useHistoricalBlndPrices, backstopClaimedUsdHistorical, totalClaimedLp, lpTokenPrice])
 
-  // Backstop pending emissions
-  // Note: SDK doesn't provide backstop emissions estimate, so we only use what's passed in
-  // (which is usually 0). Backstop emissions auto-compound as LP tokens when claimed,
-  // so showing a pending BLND amount would be misleading anyway.
-  const effectiveBackstopPending = backstopClaimableBlnd > 0 ? backstopClaimableBlnd : 0
+  // Calculate total pending LP from backstop emissions
+  const totalPendingLp = useMemo(() => {
+    // Sum simulatedEmissionsLp from backstop positions, fallback to claimableBlnd converted
+    return backstopPositions.reduce((sum, bp) => {
+      if (bp.simulatedEmissionsLp != null && bp.simulatedEmissionsLp > 0) {
+        return sum + bp.simulatedEmissionsLp
+      }
+      // Fallback: rough conversion if simulation unavailable
+      if (bp.claimableBlnd && blndPerLpToken > 0) {
+        return sum + (bp.claimableBlnd / blndPerLpToken)
+      }
+      return sum
+    }, 0)
+  }, [backstopPositions, blndPerLpToken])
 
-  // Combined totals
-  const totalClaimedBlnd = poolClaimedBlnd + backstopClaimedBlnd
-  const totalPendingBlnd = pendingEmissions + effectiveBackstopPending
+  // BLND totals (pool emissions only)
+  const totalClaimedBlnd = poolClaimedBlnd
+  const totalPendingBlnd = pendingEmissions
 
   // Build table rows for per-pool breakdown
   type EmissionType = 'deposit' | 'borrow' | 'backstop'
@@ -181,6 +188,7 @@ export function BlndRewardsCard({
     claimable: number
     claimed: number
     type: EmissionType
+    tokenUnit: 'BLND' | 'LP'
   }
 
   const tableRows = useMemo(() => {
@@ -198,11 +206,8 @@ export function BlndRewardsCard({
 
     if (backstopClaimsData?.backstop_claims) {
       for (const claim of backstopClaimsData.backstop_claims) {
-        // Convert LP to BLND if we have the ratio, otherwise store LP directly
-        const claimedValue = blndPerLpToken > 0
-          ? (claim.total_claimed_lp || 0) * blndPerLpToken
-          : (claim.total_claimed_lp || 0) // Show LP if can't convert
-        backstopClaimsMap.set(claim.pool_address, claimedValue)
+        // Keep LP value directly (don't convert to BLND)
+        backstopClaimsMap.set(claim.pool_address, claim.total_claimed_lp || 0)
       }
     }
 
@@ -241,6 +246,7 @@ export function BlndRewardsCard({
           claimable: depositClaimable,
           claimed: depositClaimed, // Show all pool claims on deposit row
           type: 'deposit',
+          tokenUnit: 'BLND',
         })
       }
 
@@ -253,6 +259,7 @@ export function BlndRewardsCard({
           claimable: borrowClaimable,
           claimed: 0, // Claims are combined, already shown on deposit row
           type: 'borrow',
+          tokenUnit: 'BLND',
         })
       }
 
@@ -263,20 +270,26 @@ export function BlndRewardsCard({
           claimable: 0,
           claimed: depositClaimed,
           type: 'deposit',
+          tokenUnit: 'BLND',
         })
       }
 
-      // Backstop row
+      // Backstop row - show LP tokens (not BLND)
       const backstopPos = backstopPositions.find(bp => bp.poolId === poolId)
-      const backstopClaimable = backstopPos?.claimableBlnd || 0
-      const backstopClaimed = backstopClaimsMap.get(poolId) || 0
+      // Use simulatedEmissionsLp if available, otherwise convert claimableBlnd to LP
+      const backstopClaimableLp = backstopPos?.simulatedEmissionsLp ??
+        (backstopPos?.claimableBlnd && blndPerLpToken > 0
+          ? backstopPos.claimableBlnd / blndPerLpToken
+          : 0)
+      const backstopClaimedLp = backstopClaimsMap.get(poolId) || 0 // Already in LP
 
-      if (backstopClaimable > 0 || backstopClaimed > 0) {
+      if (backstopClaimableLp > 0 || backstopClaimedLp > 0) {
         rows.push({
           name: `${poolName} Backstop`,
-          claimable: backstopClaimable,
-          claimed: backstopClaimed,
+          claimable: backstopClaimableLp,
+          claimed: backstopClaimedLp,
           type: 'backstop',
+          tokenUnit: 'LP',
         })
       }
     }
@@ -286,6 +299,8 @@ export function BlndRewardsCard({
 
   const hasPendingEmissions = totalPendingBlnd > 0
   const hasClaimedBlnd = totalClaimedBlnd > 0
+  const hasPendingLp = totalPendingLp > 0
+  const hasClaimedLp = totalClaimedLp > 0
   const hasTableRows = tableRows.length > 0
   const loading = isLoading || actionsLoading || backstopClaimsLoading
 
@@ -309,7 +324,7 @@ export function BlndRewardsCard({
     )
   }
 
-  if (!hasPendingEmissions && !hasClaimedBlnd) {
+  if (!hasPendingEmissions && !hasClaimedBlnd && !hasPendingLp && !hasClaimedLp) {
     return null
   }
 
@@ -322,10 +337,34 @@ export function BlndRewardsCard({
         <div className="flex items-center gap-2">
           <Flame className="h-5 w-5 text-muted-foreground" />
           <div>
-            <div className="text-base font-semibold">{formatNumber(totalPendingBlnd, 2)} BLND</div>
-            {blndPrice && totalPendingBlnd > 0 && (
-              <div className="text-sm text-muted-foreground">{formatUsd(totalPendingBlnd * blndPrice)}</div>
-            )}
+            {(() => {
+              const hasBothRewards = totalPendingBlnd > 0 && totalPendingLp > 0
+              const fontSizeClass = hasBothRewards ? 'text-sm' : 'text-base'
+              const blndUsd = blndPrice ? totalPendingBlnd * blndPrice : 0
+              const lpUsd = lpTokenPrice ? totalPendingLp * lpTokenPrice : 0
+              const combinedUsd = blndUsd + lpUsd
+
+              return (
+                <>
+                  {/* BLND rewards */}
+                  {totalPendingBlnd > 0 && (
+                    <div className={`${fontSizeClass} font-semibold`}>{formatNumber(totalPendingBlnd, 2)} BLND</div>
+                  )}
+                  {/* LP rewards */}
+                  {totalPendingLp > 0 && (
+                    <div className={`${fontSizeClass} font-semibold`}>{formatNumber(totalPendingLp, 2)} LP</div>
+                  )}
+                  {/* Combined USD value */}
+                  {combinedUsd > 0 && (
+                    <div className="text-sm text-muted-foreground">{formatUsd(combinedUsd)}</div>
+                  )}
+                  {/* Show nothing pending but has claimed - show a label */}
+                  {totalPendingBlnd === 0 && totalPendingLp === 0 && (hasClaimedBlnd || hasClaimedLp) && (
+                    <div className="text-base font-semibold text-muted-foreground">Rewards</div>
+                  )}
+                </>
+              )
+            })()}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -424,95 +463,95 @@ export function BlndRewardsCard({
                     </div>
                   </div>
                 )}
-                {(effectiveBackstopPending > 0 || backstopClaimedBlnd > 0) && (
+                {(totalPendingLp > 0 || totalClaimedLp > 0) && (
                   <div className="grid grid-cols-[1fr_auto_auto] gap-2 text-xs py-1">
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <span className="inline-block w-2 h-2 rounded-full flex-shrink-0 bg-purple-500" />
                       <span>Backstop</span>
                     </div>
                     <div className="w-20 text-right tabular-nums font-medium">
-                      {effectiveBackstopPending > 0 ? formatNumber(effectiveBackstopPending, 2) : '-'}
+                      {totalPendingLp > 0 ? `${formatNumber(totalPendingLp, 2)} LP` : '-'}
                     </div>
                     <div className="w-20 text-right tabular-nums text-muted-foreground">
-                      {backstopClaimedBlnd > 0 ? `~${formatNumber(backstopClaimedBlnd, 2)}` : '-'}
+                      {totalClaimedLp > 0 ? `${formatNumber(totalClaimedLp, 2)} LP` : '-'}
                     </div>
                   </div>
                 )}
               </>
             )}
 
-            {/* Total row */}
-            <div className="grid grid-cols-[1fr_auto_auto] gap-2 text-sm pt-2 border-t border-border/50 font-medium">
-              <div>Total</div>
-              <div className="w-20 text-right">
-                <div className="tabular-nums">{formatNumber(totalPendingBlnd, 2)}</div>
-                {blndPrice && totalPendingBlnd > 0 && (
-                  <div className="text-xs text-muted-foreground font-normal">
-                    {formatUsd(totalPendingBlnd * blndPrice)}
-                  </div>
-                )}
-              </div>
-              <div className="w-20 text-right text-muted-foreground">
-                <div className="tabular-nums">{formatNumber(totalClaimedBlnd, 2)}</div>
-                {blndPrice && totalClaimedBlnd > 0 && (
-                  <div className="text-xs font-normal">
-                    {formatUsd(poolClaimedUsdDisplay + backstopClaimedUsdDisplay)}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Total BLND Earned summary */}
-          {(hasPendingEmissions || hasClaimedBlnd) && (
-            <>
-              <Separator className="my-3" />
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Total BLND Earned</span>
-                <div className="text-right">
-                  {blndPrice ? (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger>
-                          <span className="font-semibold tabular-nums border-b border-dotted border-muted-foreground/50">
-                            {formatNumber(totalPendingBlnd + totalClaimedBlnd, 2)} ({formatUsd(
-                              (totalPendingBlnd * blndPrice) + poolClaimedUsdDisplay + backstopClaimedUsdDisplay
-                            )})
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs p-2.5">
-                          <div className="space-y-1.5 text-[11px]">
-                            <div className="flex justify-between gap-4">
-                              <span className="text-zinc-400">Pending ({formatNumber(totalPendingBlnd, 2)} BLND)</span>
-                              <span className="text-zinc-200">{formatUsd(totalPendingBlnd * blndPrice)}</span>
-                            </div>
-                            {poolClaimedBlnd > 0 && (
-                              <div className="flex justify-between gap-4">
-                                <span className="text-zinc-400">Claimed - Pool ({formatNumber(poolClaimedBlnd, 2)} BLND)</span>
-                                <span className="text-zinc-200">{formatUsd(poolClaimedUsdDisplay)}</span>
-                              </div>
-                            )}
-                            {backstopClaimedBlnd > 0 && (
-                              <div className="flex justify-between gap-4">
-                                <span className="text-zinc-400">Claimed - Backstop (~{formatNumber(backstopClaimedBlnd, 2)} BLND)</span>
-                                <span className="text-zinc-200">{formatUsd(backstopClaimedUsdDisplay)}</span>
-                              </div>
-                            )}
-                            <div className="border-t border-zinc-700 pt-1 mt-1 text-[10px] text-zinc-500">
-                              {displayPreferences.useHistoricalBlndPrices
-                                ? "Claims valued at price when claimed"
-                                : "All emissions valued at current price"}
-                            </div>
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  ) : (
-                    <span className="font-semibold tabular-nums">
-                      {formatNumber(totalPendingBlnd + totalClaimedBlnd, 2)}
-                    </span>
+            {/* BLND Total row */}
+            {(totalPendingBlnd > 0 || totalClaimedBlnd > 0) && (
+              <div className="grid grid-cols-[1fr_auto_auto] gap-2 text-sm pt-2 border-t border-border/50 font-medium">
+                <div>BLND Total</div>
+                <div className="w-20 text-right">
+                  <div className="tabular-nums">{formatNumber(totalPendingBlnd, 2)}</div>
+                  {blndPrice && totalPendingBlnd > 0 && (
+                    <div className="text-xs text-muted-foreground font-normal">
+                      {formatUsd(totalPendingBlnd * blndPrice)}
+                    </div>
                   )}
                 </div>
+                <div className="w-20 text-right text-muted-foreground">
+                  <div className="tabular-nums">{formatNumber(totalClaimedBlnd, 2)}</div>
+                  {totalClaimedBlnd > 0 && (
+                    <div className="text-xs font-normal">
+                      {formatUsd(poolClaimedUsdDisplay)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* LP Total row */}
+            {(totalPendingLp > 0 || totalClaimedLp > 0) && (
+              <div className="grid grid-cols-[1fr_auto_auto] gap-2 text-sm pt-2 border-t border-border/50 font-medium">
+                <div>LP Total</div>
+                <div className="w-20 text-right">
+                  <div className="tabular-nums">{formatNumber(totalPendingLp, 2)}</div>
+                  {lpTokenPrice && totalPendingLp > 0 && (
+                    <div className="text-xs text-muted-foreground font-normal">
+                      {formatUsd(totalPendingLp * lpTokenPrice)}
+                    </div>
+                  )}
+                </div>
+                <div className="w-20 text-right text-muted-foreground">
+                  <div className="tabular-nums">{formatNumber(totalClaimedLp, 2)}</div>
+                  {totalClaimedLp > 0 && (
+                    <div className="text-xs font-normal">
+                      {formatUsd(backstopClaimedUsdDisplay)}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Total Earned summary */}
+          {(hasPendingEmissions || hasClaimedBlnd || hasPendingLp || hasClaimedLp) && (
+            <>
+              <Separator className="my-3" />
+              <div className="space-y-2">
+                {/* BLND Earned */}
+                {(hasPendingEmissions || hasClaimedBlnd) && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Total BLND Earned</span>
+                    <span className="font-semibold tabular-nums">
+                      {formatNumber(totalPendingBlnd + totalClaimedBlnd, 2)} BLND
+                      {blndPrice && ` (${formatUsd((totalPendingBlnd * blndPrice) + poolClaimedUsdDisplay)})`}
+                    </span>
+                  </div>
+                )}
+                {/* LP Earned */}
+                {(hasPendingLp || hasClaimedLp) && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Total LP Earned</span>
+                    <span className="font-semibold tabular-nums">
+                      {formatNumber(totalPendingLp + totalClaimedLp, 2)} LP
+                      {lpTokenPrice && ` (${formatUsd((totalPendingLp * lpTokenPrice) + backstopClaimedUsdDisplay)})`}
+                    </span>
+                  </div>
+                )}
               </div>
             </>
           )}
