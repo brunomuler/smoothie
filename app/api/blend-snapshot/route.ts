@@ -86,6 +86,7 @@ export const GET = createApiHandler<SerializableSnapshot>({
         weightedBorrowApy: null,
         netApy: null,
         weightedBlndApy: null,
+        weightedSupplyBorrowBlndApy: null,
         totalEmissions: 0,
         totalSupplyEmissions: 0,
         totalBorrowEmissions: 0,

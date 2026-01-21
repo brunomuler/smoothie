@@ -172,7 +172,8 @@ function buildBalanceData(snapshot: BlendWalletSnapshot | undefined): BalanceDat
     rawInterestEarned: 0,
     annualYield: formatUsd(estimatedAnnualYield),
     growthPercentage: 0, // Will be set when cost basis is available
-    blndApy: snapshot.weightedBlndApy ?? 0,
+    // Use supply/borrow only BLND APY (excludes backstop which earns LP, not BLND)
+    blndApy: snapshot.weightedSupplyBorrowBlndApy ?? 0,
   }
 }
 

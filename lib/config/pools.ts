@@ -16,9 +16,24 @@ export const POOLS: Record<string, PoolConfig> = {
     icon: 'yieldblox',
   },
   'CAJJZSGMMM3PD7N33TAPHGBUGTB43OC73HVIK2L2G6BNGGGYOSSYBXBD': {
-    name: 'Blend Pool',
+    name: 'Fixed',
     color: '#0ea5e9', // Cyan
-    icon: 'blend',
+    icon: 'fixed',
+  },
+  'CAE7QVOMBLZ53CDRGK3UNRRHG5EZ5NQA7HHTFASEMYBWHG6MDFZTYHXC': {
+    name: 'Orbit',
+    color: '#f97316', // Orange
+    icon: 'orbit',
+  },
+  'CDMAVJPFXPADND3YRL4BSM3AKZWCTFMX27GLLXCML3PD62HEQS5FPVAI': {
+    name: 'Etherfuse',
+    color: '#22c55e', // Green
+    icon: 'etherfuse',
+  },
+  'CBYOBT7ZCCLQCBUYYIABZLSEGDPEUWXCUXQTZYOG3YBDR7U357D5ZIRF': {
+    name: 'Forex',
+    color: '#eab308', // Yellow
+    icon: 'forex',
   },
 } as const
 

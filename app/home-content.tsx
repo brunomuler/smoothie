@@ -372,7 +372,7 @@ export function HomeContent() {
                 ? backstopPositions[0].blndAmount / backstopPositions[0].lpTokens
                 : 0}
               blndApy={balanceData.blndApy}
-              totalPositionUsd={(blendSnapshot?.totalSupplyUsd || 0) + (blendSnapshot?.totalBorrowUsd || 0) + (blendSnapshot?.totalBackstopUsd || 0)}
+              totalPositionUsd={(blendSnapshot?.totalSupplyUsd || 0) + (blendSnapshot?.totalBorrowUsd || 0)}
               isLoading={isLoading}
               perPoolEmissions={blendSnapshot?.perPoolEmissions}
               perPoolSupplyEmissions={blendSnapshot?.perPoolSupplyEmissions}
@@ -382,6 +382,8 @@ export function HomeContent() {
                 poolName: bp.poolName,
                 claimableBlnd: bp.claimableBlnd,
                 simulatedEmissionsLp: bp.simulatedEmissionsLp,
+                emissionApy: bp.emissionApy,
+                lpTokensUsd: bp.lpTokensUsd,
               }))}
               poolNames={blendSnapshot?.positions?.reduce((acc, pos) => {
                 if (pos.poolId && pos.poolName) {

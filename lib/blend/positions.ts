@@ -26,6 +26,18 @@ import { getBlendNetwork } from "./network";
 import { type TrackedPool } from "./pools";
 import { simulateCometDeposit } from "./comet";
 import type { PriceQuote } from "@/lib/pricing/types";
+import { getPoolName as getConfigPoolName, POOLS } from "@/lib/config/pools";
+
+// Helper to resolve pool name: use config if available, otherwise SDK metadata
+function resolvePoolName(poolId: string, sdkName: string): string {
+  // If we have a configured name for this pool, use it
+  const configName = POOLS[poolId]?.name;
+  if (configName) {
+    return configName;
+  }
+  // Otherwise use the SDK's metadata name
+  return sdkName;
+}
 
 export interface BlendReservePosition {
   id: string;
@@ -139,6 +151,7 @@ export interface BlendWalletSnapshot {
   weightedBorrowApy: number | null;
   netApy: number | null;
   weightedBlndApy: number | null;
+  weightedSupplyBorrowBlndApy: number | null; // BLND APY from supply/borrow positions only (excludes backstop)
   totalEmissions: number; // Total claimable BLND emissions in tokens
   totalSupplyEmissions: number; // Claimable BLND from deposits
   totalBorrowEmissions: number; // Claimable BLND from borrows
@@ -698,7 +711,7 @@ function buildPosition(
   return {
     id: `${snapshot.tracked.id}-${reserve.assetId}`,
     poolId: snapshot.tracked.id,
-    poolName: snapshot.metadata.name,
+    poolName: resolvePoolName(snapshot.tracked.id, snapshot.metadata.name),
     assetId: reserve.assetId,
     symbol: tokenMetadata?.symbol ?? reserve.assetId.slice(0, 4),
     name: tokenMetadata?.name ?? tokenMetadata?.symbol ?? reserve.assetId,
@@ -814,6 +827,13 @@ function aggregateSnapshot(
       ? (supplyBlndValue + borrowBlndValue + backstopBlndValue) / totalBlndEarningUsd
       : null;
 
+  // Weighted BLND APY for supply/borrow only (excludes backstop which earns LP, not BLND)
+  const totalSupplyBorrowUsd = totalSupplyUsd + totalBorrowUsd;
+  const weightedSupplyBorrowBlndApy =
+    totalSupplyBorrowUsd > 0
+      ? (supplyBlndValue + borrowBlndValue) / totalSupplyBorrowUsd
+      : null;
+
   const computedNetApy =
     weightedSupplyApy !== null && weightedBorrowApy !== null
       ? weightedSupplyApy - weightedBorrowApy
@@ -839,6 +859,7 @@ function aggregateSnapshot(
     weightedBorrowApy,
     netApy,
     weightedBlndApy,
+    weightedSupplyBorrowBlndApy,
     totalEmissions: 0, // Will be set by fetchWalletBlendSnapshot
     totalSupplyEmissions: 0, // Will be set by fetchWalletBlendSnapshot
     totalBorrowEmissions: 0, // Will be set by fetchWalletBlendSnapshot
@@ -880,7 +901,7 @@ function computeNetApyFromEstimates(
       // Build pool estimate
       poolEstimates.push({
         poolId: snapshot.tracked.id,
-        poolName: snapshot.metadata.name,
+        poolName: resolvePoolName(snapshot.tracked.id, snapshot.metadata.name),
         totalBorrowed: estimate.totalBorrowed,
         totalSupplied: estimate.totalSupplied,
         totalEffectiveLiabilities: estimate.totalEffectiveLiabilities,
@@ -933,6 +954,7 @@ export async function fetchWalletBlendSnapshot(
       weightedBorrowApy: null,
       netApy: null,
       weightedBlndApy: null,
+      weightedSupplyBorrowBlndApy: null,
       totalEmissions: 0,
       totalSupplyEmissions: 0,
       totalBorrowEmissions: 0,
@@ -995,6 +1017,7 @@ async function fetchWalletBlendSnapshotInternal(
       weightedBorrowApy: null,
       netApy: null,
       weightedBlndApy: null,
+      weightedSupplyBorrowBlndApy: null,
       totalEmissions: 0,
       totalSupplyEmissions: 0,
       totalBorrowEmissions: 0,
@@ -1359,7 +1382,7 @@ async function fetchWalletBlendSnapshotInternal(
       backstopPositions.push({
         id: `backstop-${poolId}`,
         poolId,
-        poolName: poolSnapshot.metadata.name,
+        poolName: resolvePoolName(poolId, poolSnapshot.metadata.name),
         shares: userShares,
         lpTokens,
         lpTokensUsd,
