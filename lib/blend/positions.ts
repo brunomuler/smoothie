@@ -1363,17 +1363,14 @@ async function fetchWalletBlendSnapshotInternal(
       // Simulate the exact LP tokens from emissions via on-chain RPC
       // This replicates what Blend UI does with cometContract.depositTokenInGetLPOut()
       let simulatedEmissionsLp: number | null = null;
-      console.log(`[blend] Pool ${poolId}: backstopClaimableBlnd=${backstopClaimableBlnd}, hasBackstop=${!!poolSnapshot.backstop}`);
       if (backstopClaimableBlnd > 0 && poolSnapshot.backstop) {
         try {
-          console.log(`[blend] Calling simulateCometDeposit for pool ${poolId}`);
           simulatedEmissionsLp = await simulateCometDeposit(
             poolSnapshot.backstop.backstopToken.id, // comet pool address
             poolSnapshot.backstop.config.blndTkn, // BLND token address
             poolSnapshot.backstop.id, // backstop address (used as "user" in simulation)
             backstopClaimableBlnd // BLND amount to simulate depositing
           );
-          console.log(`[blend] Pool ${poolId}: simulatedEmissionsLp=${simulatedEmissionsLp}`);
         } catch (e) {
           console.warn(`[blend] Failed to simulate comet deposit for pool ${poolId}:`, e);
         }

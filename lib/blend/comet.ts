@@ -101,32 +101,20 @@ export async function simulateCometDeposit(
     const network = getBlendNetwork();
     const stellarRpc = new rpc.Server(network.rpc);
 
-    console.log("[comet] Simulating deposit:", {
-      cometPoolAddress,
-      blndTokenAddress,
-      backstopAddress,
-      blndAmount,
-    });
-
     // Convert BLND amount to 7 decimal fixed-point
     const blndAmountFixed = FixedMath.toFixed(blndAmount, 7);
-    console.log("[comet] BLND amount fixed:", blndAmountFixed.toString());
 
     // Create the comet client and operation
-    console.log("[comet] Creating CometClient...");
     const cometClient = new CometClient(cometPoolAddress);
-    console.log("[comet] Creating operation...");
     const operation = cometClient.depositTokenInGetLPOut({
       depositTokenAddress: blndTokenAddress,
       depositTokenAmount: blndAmountFixed,
       minLPTokenAmount: BigInt(0),
       user: backstopAddress,
     });
-    console.log("[comet] Operation created");
 
     // Build a transaction with the operation for simulation
     // Use a dummy G-address account since we're just simulating (contract addresses don't work)
-    console.log("[comet] Building transaction...");
     const dummyAccount = new Account(SIMULATION_ACCOUNT, "0");
     const transaction = new TransactionBuilder(dummyAccount, {
       networkPassphrase: network.passphrase,
@@ -138,15 +126,9 @@ export async function simulateCometDeposit(
     })
       .addOperation(operation)
       .build();
-    console.log("[comet] Transaction built, simulating...");
 
     // Simulate the transaction
     const simResult = await stellarRpc.simulateTransaction(transaction);
-    console.log("[comet] Simulation completed");
-
-    console.log("[comet] Simulation result:", JSON.stringify(simResult, (_, v) =>
-      typeof v === 'bigint' ? v.toString() : v, 2
-    ).slice(0, 1000));
 
     // Check if simulation was successful
     if (!rpc.Api.isSimulationSuccess(simResult)) {
@@ -157,16 +139,11 @@ export async function simulateCometDeposit(
     // Parse the result
     const lpTokensOut = parseSimulationResult(simResult);
     if (lpTokensOut === null) {
-      console.warn("[comet] Failed to parse simulation result - lpTokensOut is null");
       return null;
     }
 
-    console.log("[comet] LP tokens out (raw):", lpTokensOut.toString());
-
     // Convert from 7 decimal fixed-point to float
-    const result = FixedMath.toFloat(lpTokensOut, 7);
-    console.log("[comet] LP tokens out (float):", result);
-    return result;
+    return FixedMath.toFloat(lpTokensOut, 7);
   } catch (error) {
     console.warn("[comet] Simulation failed:", error);
     return null;
