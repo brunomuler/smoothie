@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query"
 import { LineChart, Line, Tooltip, ResponsiveContainer, YAxis } from "recharts"
 import { format } from "date-fns"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
+import { getUserTimezone, getTodayInUserTimezone } from "@/lib/date-utils"
+import { formatPercent } from "@/lib/format-utils"
 
 interface Q4wDataPoint {
   date: string
@@ -15,22 +17,6 @@ interface Q4wSparklineProps {
   poolId: string
   currentQ4w?: number // SDK Q4W percent to use for latest day
   className?: string
-}
-
-// Get user's timezone for API calls
-function getUserTimezone(): string {
-  if (typeof window === 'undefined') return 'UTC'
-  return Intl.DateTimeFormat().resolvedOptions().timeZone
-}
-
-// Get today's date in user's local timezone as YYYY-MM-DD
-// Uses the browser's local date (getFullYear/getMonth/getDate use local time)
-function getLocalToday(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 async function fetchQ4wHistory(poolId: string): Promise<Q4wDataPoint[]> {
@@ -47,10 +33,6 @@ async function fetchQ4wHistory(poolId: string): Promise<Q4wDataPoint[]> {
 
   const data = await response.json()
   return data.history || []
-}
-
-function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`
 }
 
 interface CustomTooltipProps {
@@ -102,7 +84,7 @@ export function Q4wSparkline({
 
   // Compute today's date only on the client (after mount)
   // This ensures we use the user's actual local date, not the server's date
-  const today = mounted ? getLocalToday() : null
+  const today = mounted ? getTodayInUserTimezone() : null
 
   // Filter out future dates and use SDK value for today
   const chartData = useMemo(() => {

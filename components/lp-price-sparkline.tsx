@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query"
 import { LineChart, Line, Tooltip, ResponsiveContainer, YAxis } from "recharts"
 import { format } from "date-fns"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
+import { getUserTimezone, getTodayInUserTimezone } from "@/lib/date-utils"
 
 interface PriceDataPoint {
   date: string
@@ -20,23 +21,6 @@ interface LpPriceSparklineProps {
   currentPrice?: number // SDK price to use for latest day
   priceHistory?: PriceDataPointInput[] // Pre-fetched price history (avoids multiple API calls)
   className?: string
-}
-
-// Get user's timezone
-function getUserTimezone(): string {
-  if (typeof window === 'undefined') return 'UTC'
-  return Intl.DateTimeFormat().resolvedOptions().timeZone
-}
-
-// Get today's date in user's timezone as YYYY-MM-DD
-function getTodayInTimezone(): string {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: getUserTimezone(),
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  return formatter.format(new Date())
 }
 
 async function fetchLpPriceHistory(timezone: string): Promise<PriceDataPoint[]> {
@@ -112,7 +96,7 @@ export function LpPriceSparkline({
   const chartData = useMemo(() => {
     if (!priceHistory?.length) return []
 
-    const today = getTodayInTimezone()
+    const today = getTodayInUserTimezone()
 
     // Filter out any dates that are "in the future" from user's timezone perspective
     // This handles the case where server (UTC) is ahead of the user's timezone

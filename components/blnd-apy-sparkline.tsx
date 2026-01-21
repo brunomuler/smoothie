@@ -6,6 +6,8 @@ import { LineChart, Line, Tooltip, ResponsiveContainer, YAxis } from "recharts"
 import { format } from "date-fns"
 import { Flame } from "lucide-react"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
+import { getTodayInUserTimezone } from "@/lib/date-utils"
+import { formatPercent } from "@/lib/format-utils"
 
 interface EmissionApyDataPoint {
   date: string
@@ -23,15 +25,6 @@ interface BlndApySparklineProps {
   assetAddress?: string // Required for lending_supply type
   currentApy?: number // SDK APY to use for latest day
   className?: string
-}
-
-// Get today's date in user's local timezone as YYYY-MM-DD
-function getTodayInTimezone(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 async function fetchEmissionApyHistory(
@@ -55,10 +48,6 @@ async function fetchEmissionApyHistory(
   }
 
   return response.json()
-}
-
-function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`
 }
 
 interface CustomTooltipProps {
@@ -108,7 +97,7 @@ export function BlndApySparkline({
   })
 
   // Compute today outside useMemo so it's fresh on every render
-  const today = getTodayInTimezone()
+  const today = getTodayInUserTimezone()
 
   // Filter out future dates and replace today's APY with the SDK APY
   const chartData = useMemo(() => {

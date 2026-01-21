@@ -4,29 +4,13 @@ import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip as RechartsTooltip } from "recharts"
 import { fetchWithTimeout } from "@/lib/fetch-utils"
+import { getTodayInUserTimezone } from "@/lib/date-utils"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 interface PriceDataPoint {
   date: string
   price: number
-}
-
-// Get user's timezone
-function getUserTimezone(): string {
-  if (typeof window === 'undefined') return 'UTC'
-  return Intl.DateTimeFormat().resolvedOptions().timeZone
-}
-
-// Get today's date in user's timezone as YYYY-MM-DD
-function getTodayInTimezone(): string {
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: getUserTimezone(),
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
-  return formatter.format(new Date())
 }
 
 type SparklinePeriod = "24h" | "7d" | "1mo"
@@ -141,7 +125,7 @@ export function TokenSparkline({
   const chartData = useMemo(() => {
     if (!priceHistory?.length) return []
 
-    const today = getTodayInTimezone()
+    const today = getTodayInUserTimezone()
 
     // Filter out any dates that are "in the future" from user's timezone perspective
     // This handles the case where server (UTC) is ahead of the user's timezone
@@ -231,7 +215,7 @@ export function Token30dChange({
   const chartData = useMemo(() => {
     if (!priceHistory?.length) return []
 
-    const today = getTodayInTimezone()
+    const today = getTodayInUserTimezone()
 
     // Filter out any dates that are "in the future" from user's timezone perspective
     // This handles the case where server (UTC) is ahead of the user's timezone

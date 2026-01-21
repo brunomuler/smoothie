@@ -10,6 +10,25 @@
  */
 
 /**
+ * Get the user's local timezone
+ * Falls back to 'UTC' on server-side rendering
+ * @returns IANA timezone string (e.g., 'America/New_York', 'Europe/London')
+ */
+export function getUserTimezone(): string {
+  if (typeof window === 'undefined') return 'UTC'
+  return Intl.DateTimeFormat().resolvedOptions().timeZone
+}
+
+/**
+ * Get today's date in the user's local timezone as YYYY-MM-DD
+ * Useful for client-side date filtering that should respect user's local time
+ * @returns Date string in YYYY-MM-DD format
+ */
+export function getTodayInUserTimezone(): string {
+  return formatDateInTimezone(new Date(), getUserTimezone())
+}
+
+/**
  * Format a date in a specific timezone as YYYY-MM-DD
  * Uses Intl.DateTimeFormat for reliable timezone conversion
  * @param date - Date object to format

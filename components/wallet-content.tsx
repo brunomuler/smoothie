@@ -557,7 +557,7 @@ export function WalletContent({
   return (
     <div className="flex flex-col gap-4 pb-4 @container/card">
       {/* Total Portfolio Value and Period Selector */}
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-2 mb-2">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2 mb-2 pt-4 sm:pt-0">
         {/* Balance - takes available space */}
         <div className="min-w-0 flex-1">
           <p className="text-sm text-muted-foreground mb-1">Total Balance</p>
