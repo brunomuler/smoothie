@@ -34,7 +34,7 @@ const BalanceBarChart = dynamic(
   }
 )
 
-const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, usdcPrice = 1, poolInputs = [], yieldBreakdown, balanceHistoryDataMap, historicalPrices, blendPositions, backstopPositions, lpTokenPrice }: WalletBalanceProps) => {
+const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData, loading, usdcPrice = 1, poolInputs = [], yieldBreakdown, balanceHistoryDataMap, historicalPrices, blendPositions, backstopPositions, lpTokenPrice, totalBorrowUsd }: WalletBalanceProps) => {
   // State for time period selection with localStorage persistence
   const [selectedPeriod, setSelectedPeriod] = useState<TimePeriod>(() => {
     if (typeof window !== 'undefined') {
@@ -132,12 +132,18 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
     })
   }, [historyChartData, chartData, usdcPrice])
 
-  // Calculate current total borrow from the latest chart data
+  // Calculate current total borrow - prefer SDK value (totalBorrowUsd prop) for accuracy
+  // Fall back to latest chart data for historical consistency
   const currentBorrow = useMemo(() => {
+    // Prefer live SDK value if available
+    if (totalBorrowUsd !== undefined && totalBorrowUsd > 0) {
+      return totalBorrowUsd
+    }
+    // Fallback to historical data
     if (displayChartData.length === 0) return 0
     const latestData = displayChartData[displayChartData.length - 1]
     return latestData.borrow || 0
-  }, [displayChartData])
+  }, [totalBorrowUsd, displayChartData])
 
   const { displayBalance, isPaused, togglePause } = useLiveBalance(initialBalance, apyDecimal, null, 0)
 
@@ -708,6 +714,7 @@ const WalletBalanceComponent = ({ data, chartData, publicKey, balanceHistoryData
           userActions={userActions}
           currentBalance={initialBalance}
           currentDeposit={initialBalance - chartProtocolYield}
+          currentBorrow={currentBorrow}
           apy={data.apyPercentage}
           blndApy={data.blndApy}
           firstEventDate={firstEventDate}

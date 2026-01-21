@@ -378,50 +378,58 @@ export class EventsRepository {
 
         -- Liquidation auctions (type 0): fill_auction is when balances change
         -- User loses BOTH collateral (lot) AND debt (bid) when auction is FILLED
+        -- Join with daily_rates to get d_rate for converting dTokens to underlying
         SELECT
-          pool_id,
-          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
-          ledger_closed_at,
-          ledger_sequence,
-          action_type,
+          pe.pool_id,
+          (pe.ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
+          pe.ledger_closed_at,
+          pe.ledger_sequence,
+          pe.action_type,
           NULL AS amount_underlying,
           NULL AS amount_tokens,
-          NULL AS implied_rate,
-          lot_amount,
-          bid_amount,
-          lot_asset,
-          bid_asset,
-          filler_address,
+          dr.d_rate AS implied_rate,  -- d_rate for converting bid dTokens to underlying
+          pe.lot_amount,
+          pe.bid_amount,
+          pe.lot_asset,
+          pe.bid_asset,
+          pe.filler_address,
           'liquidated_fill' AS event_source
-        FROM parsed_events
-        WHERE user_address = $1
-          AND action_type = 'fill_auction'
-          AND auction_type = 0  -- Liquidation auctions
-          AND (lot_asset = $2 OR bid_asset = $2)
+        FROM parsed_events pe
+        LEFT JOIN daily_rates dr ON dr.pool_id = pe.pool_id
+          AND dr.asset_address = pe.bid_asset
+          AND dr.rate_date = (pe.ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
+        WHERE pe.user_address = $1
+          AND pe.action_type = 'fill_auction'
+          AND pe.auction_type = 0  -- Liquidation auctions
+          AND (pe.lot_asset = $2 OR pe.bid_asset = $2)
 
         UNION ALL
 
         -- Auction events where user is LIQUIDATOR (gains collateral and debt at fill time)
+        -- Join with daily_rates to get d_rate for converting dTokens to underlying
         SELECT
-          pool_id,
-          (ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
-          ledger_closed_at,
-          ledger_sequence,
-          action_type,
+          pe.pool_id,
+          (pe.ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date AS event_date,
+          pe.ledger_closed_at,
+          pe.ledger_sequence,
+          pe.action_type,
           NULL AS amount_underlying,
           NULL AS amount_tokens,
-          NULL AS implied_rate,
-          lot_amount,
-          bid_amount,
-          lot_asset,
-          bid_asset,
-          filler_address,
+          dr.d_rate AS implied_rate,  -- d_rate for converting bid dTokens to underlying
+          pe.lot_amount,
+          pe.bid_amount,
+          pe.lot_asset,
+          pe.bid_asset,
+          pe.filler_address,
           'liquidator' AS event_source
-        FROM parsed_events
-        WHERE filler_address = $1
-          AND action_type = 'fill_auction'
-          AND auction_type = 0  -- Liquidation auctions
-          AND (lot_asset = $2 OR bid_asset = $2)
+        FROM parsed_events pe
+        LEFT JOIN daily_rates dr ON dr.pool_id = pe.pool_id
+          AND dr.asset_address = pe.bid_asset
+          AND dr.rate_date = (pe.ledger_closed_at AT TIME ZONE 'UTC' AT TIME ZONE $4)::date
+        WHERE pe.filler_address = $1
+          AND pe.action_type = 'fill_auction'
+          AND pe.auction_type = 0  -- Liquidation auctions
+          AND (pe.lot_asset = $2 OR pe.bid_asset = $2)
 
         ORDER BY ledger_closed_at, ledger_sequence
       ),
@@ -490,17 +498,17 @@ export class EventsRepository {
           -- Cumulative borrows (for interest tracking) - convert from stroops (7 decimals)
           SUM(CASE
             WHEN action_type = 'borrow' THEN amount_underlying / 10000000.0
-            -- Liquidator gaining debt: add bid as "borrow" for interest tracking
+            -- Liquidator gaining debt: convert bid (dTokens) to underlying using d_rate
             WHEN event_source = 'liquidator' AND bid_asset = $2
-              THEN bid_amount / 10000000.0
+              THEN (bid_amount / 10000000.0) * COALESCE(implied_rate, 1.0)
             ELSE 0
           END) OVER (PARTITION BY pool_id ORDER BY ledger_closed_at, ledger_sequence) AS total_borrows,
           -- Cumulative repays - convert from stroops (7 decimals)
           SUM(CASE
             WHEN action_type = 'repay' THEN amount_underlying / 10000000.0
-            -- Liquidated user losing debt: add bid as "repay" for interest tracking at fill_auction
+            -- Liquidated user losing debt: convert bid (dTokens) to underlying using d_rate
             WHEN event_source = 'liquidated_fill' AND bid_asset = $2
-              THEN bid_amount / 10000000.0
+              THEN (bid_amount / 10000000.0) * COALESCE(implied_rate, 1.0)
             ELSE 0
           END) OVER (PARTITION BY pool_id ORDER BY ledger_closed_at, ledger_sequence) AS total_repays
         FROM user_events

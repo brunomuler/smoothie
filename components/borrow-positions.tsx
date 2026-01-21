@@ -49,18 +49,21 @@ const BorrowPositionItem = memo(function BorrowPositionItem({
   const usdPrice = position.price?.usdPrice || 1
   const borrowCostBasisUsd = borrowCostBasisTokens * usdPrice
   const currentDebtUsd = position.borrowUsdValue
-  const interestAccrued = currentDebtUsd - borrowCostBasisUsd
-  const interestPercentage = borrowCostBasisUsd > 0
+
+  // Only calculate interest if we have valid cost basis data
+  // Without cost basis, we can't determine how much is original principal vs interest
+  const hasCostBasisData = borrowCostBasisTokens > 0
+  const interestAccrued = hasCostBasisData ? currentDebtUsd - borrowCostBasisUsd : 0
+  const interestPercentage = hasCostBasisData && borrowCostBasisUsd > 0
     ? (interestAccrued / borrowCostBasisUsd) * 100
     : 0
 
   const currentDebtTokens = position.borrowAmount
-  const interestTokens = currentDebtTokens - borrowCostBasisTokens
+  const interestTokens = hasCostBasisData ? currentDebtTokens - borrowCostBasisTokens : 0
 
   const formattedInterest = formatInterestValue(interestAccrued)
-  const hasSignificantInterest = Math.abs(interestAccrued) >= 0.01
+  const hasSignificantInterest = hasCostBasisData && Math.abs(interestAccrued) >= 0.01
   const formattedInterestPercentage = interestPercentage !== 0 ? ` (${interestPercentage >= 0 ? '+' : ''}${interestPercentage.toFixed(2)}%)` : ''
-  const hasCostBasisData = borrowCostBasisTokens > 0
 
   return (
     <div className="flex items-center justify-between py-2 gap-3">

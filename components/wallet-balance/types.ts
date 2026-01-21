@@ -60,4 +60,5 @@ export interface WalletBalanceProps {
   blendPositions?: BlendPosition[]
   backstopPositions?: BackstopPosition[]
   lpTokenPrice?: number | null
+  totalBorrowUsd?: number // Current borrow amount from SDK (for accurate current month display)
 }

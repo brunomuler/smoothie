@@ -358,6 +358,7 @@ export function HomeContent() {
             blendPositions={blendSnapshot?.positions}
             backstopPositions={backstopPositions}
             lpTokenPrice={lpTokenPrice}
+            totalBorrowUsd={blendSnapshot?.totalBorrowUsd}
           />
 
           {(isLoading || totalEmissions > 0 || backstopPositions.some(bp => bp.lpTokens > 0)) && (

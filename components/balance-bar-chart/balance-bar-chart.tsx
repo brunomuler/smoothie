@@ -55,6 +55,7 @@ interface BalanceBarChartProps {
   userActions: UserAction[]
   currentBalance: number
   currentDeposit?: number // Total cost basis (SDK balance - this = yield) to fix latest bar calculation
+  currentBorrow?: number // Current borrow from SDK (for accurate current month display)
   apy: number
   blndApy?: number // BLND APY for projection calculations
   firstEventDate: string | null
@@ -267,6 +268,7 @@ export const BalanceBarChart = memo(function BalanceBarChart({
   userActions,
   currentBalance,
   currentDeposit,
+  currentBorrow: currentBorrowProp,
   apy,
   blndApy = 0,
   firstEventDate,
@@ -323,12 +325,17 @@ export const BalanceBarChart = memo(function BalanceBarChart({
     }
   }
 
-  // Calculate current borrow from history data
+  // Calculate current borrow - prefer SDK prop for accuracy, fall back to history data
   const currentBorrow = useMemo(() => {
+    // Prefer live SDK value if provided
+    if (currentBorrowProp !== undefined && currentBorrowProp > 0) {
+      return currentBorrowProp
+    }
+    // Fallback to historical data
     if (historyData.length === 0) return 0
     const latestData = historyData[historyData.length - 1]
     return latestData.borrow || 0
-  }, [historyData])
+  }, [currentBorrowProp, historyData])
 
   // Aggregate data based on selected period with error handling
   // Note: We explicitly include projectionSettings properties in deps to ensure React detects changes
@@ -597,7 +604,7 @@ export const BalanceBarChart = memo(function BalanceBarChart({
               {selectedPeriod !== "Projection" && hasBorrowData && (
                 <Bar
                   dataKey="borrow"
-                  radius={[0, 0, 4, 4]}
+                  radius={4}
                   maxBarSize={selectedPeriod === "1M" ? 40 : selectedPeriod === "1W" ? 60 : 80}
                   activeBar={{ fill: "hsl(25 98% 68%)" }}
                   isAnimationActive={false}
