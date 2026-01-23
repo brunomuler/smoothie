@@ -170,10 +170,11 @@ async function buildSupplyItems(
         }
       }
 
-      // Get APY
+      // Get APY - always compute current SDK APY for sparkline
+      const currentSupplyApy = reserve.estSupplyApy * 100
       let supplyApy: number | null = null
       if (period === 'current') {
-        supplyApy = reserve.estSupplyApy * 100
+        supplyApy = currentSupplyApy
       } else {
         const key = `${snapshot.poolId}:${assetId}`
         supplyApy = historicalApy.get(key) ?? null
@@ -226,6 +227,7 @@ async function buildSupplyItems(
         tokenName,
         iconUrl,
         supplyApy,
+        currentSupplyApy,
         blndApy,
         totalSupplied,
         totalBorrowed,
@@ -241,8 +243,21 @@ async function buildSupplyItems(
   return items
 }
 
-function buildBackstopItems(snapshots: PoolSnapshot[]): BackstopExploreItem[] {
+async function buildBackstopItems(
+  snapshots: PoolSnapshot[],
+  period: ApyPeriod
+): Promise<BackstopExploreItem[]> {
   const items: BackstopExploreItem[] = []
+
+  // Get historical APY if needed (calculated from share_rate changes)
+  let historicalApy: Map<string, number | null> = new Map()
+  if (period !== 'current') {
+    const days = PERIOD_DAYS[period]
+    const rates = await eventsRepository.getPeriodBackstopApyAll(days)
+    for (const r of rates) {
+      historicalApy.set(r.pool_id, r.apy)
+    }
+  }
 
   for (const snapshot of snapshots) {
     if (!snapshot.backstop || !snapshot.backstopPool || !snapshot.oracle) {
@@ -253,7 +268,7 @@ function buildBackstopItems(snapshots: PoolSnapshot[]): BackstopExploreItem[] {
       const blndPrice = computeBlndPrice(snapshot.backstop)
       const lpTokenPrice = snapshot.backstop.backstopToken?.lpTokenPrice ?? 0
 
-      // Calculate emission APY
+      // Calculate emission APY (always use current since we don't have historical emission data)
       const blndEmissionsPerLpToken = snapshot.backstopPool.emissionPerYearPerBackstopToken()
       let emissionApy = 0
       if (blndPrice && lpTokenPrice > 0) {
@@ -272,22 +287,30 @@ function buildBackstopItems(snapshots: PoolSnapshot[]): BackstopExploreItem[] {
       const q4wPercent = backstopPoolEst.q4wPercentage * 100 // Convert to percentage
       const totalQ4w = backstopPoolEst.totalSpotValue * backstopPoolEst.q4wPercentage
 
-      // Calculate interest APR
+      // Get interest APR - use historical if period is not current
       let interestApr = 0
-      try {
-        const poolEst = PoolEstimate.build(snapshot.pool.reserves, snapshot.oracle)
+      if (period === 'current') {
+        // Calculate from current SDK data
+        try {
+          const poolEst = PoolEstimate.build(snapshot.pool.reserves, snapshot.oracle)
+          const backstopRateFloat = FixedMath.toFloat(BigInt(snapshot.metadata.backstopRate), 7)
 
-        // backstopRate from pool metadata (stored as fixed-point with 7 decimals)
-        const backstopRateFloat = FixedMath.toFloat(BigInt(snapshot.metadata.backstopRate), 7)
-
-        if (backstopPoolEst.totalSpotValue > 0) {
-          interestApr =
-            ((backstopRateFloat * poolEst.avgBorrowApy * poolEst.totalBorrowed) /
-              backstopPoolEst.totalSpotValue) *
-            100
+          if (backstopPoolEst.totalSpotValue > 0) {
+            interestApr =
+              ((backstopRateFloat * poolEst.avgBorrowApy * poolEst.totalBorrowed) /
+                backstopPoolEst.totalSpotValue) *
+              100
+          }
+        } catch {
+          // Interest APR calculation failed
         }
-      } catch {
-        // Interest APR calculation failed
+      } else {
+        // Use historical APY from share_rate changes
+        // The historical APY represents the actual yield (interest APR portion)
+        const historicalValue = historicalApy.get(snapshot.poolId)
+        if (historicalValue !== null && historicalValue !== undefined) {
+          interestApr = historicalValue
+        }
       }
 
       const totalApy = interestApr + emissionApy
@@ -397,7 +420,7 @@ export const GET = createApiHandler<ExploreData>({
     // Build supply, backstop items, 24h changes, and LP price history in parallel
     const [supplyItems, backstopItems, pool24hChangesRaw, lpPriceHistory] = await Promise.all([
       buildSupplyItems(snapshots, period),
-      Promise.resolve(buildBackstopItems(snapshots)),
+      buildBackstopItems(snapshots, period),
       eventsRepository.get24hPoolChanges(),
       fetchLpPriceHistory(),
     ])

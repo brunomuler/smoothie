@@ -856,7 +856,7 @@ export class EventsRepository {
       throw new Error('Database pool not initialized')
     }
 
-    let whereClause = 'WHERE asset_address = $1 AND rate_date >= CURRENT_DATE - $2::integer'
+    let whereClause = 'WHERE asset_address = $1 AND rate_date >= CURRENT_DATE - $2::integer AND rate_date < CURRENT_DATE'
     const params: (string | number)[] = [assetAddress, days]
 
     if (poolId) {
@@ -1049,6 +1049,109 @@ export class EventsRepository {
         rate_date: row.rate_date,
         share_rate: parseFloat(row.share_rate) || 0,
       }))
+  }
+
+  /**
+   * Get period APY for all backstop pools.
+   * Calculates APY from share_rate changes over the specified period.
+   * APY = ((end_rate / start_rate) ^ (365 / days) - 1) * 100
+   */
+  async getPeriodBackstopApyAll(
+    days: number
+  ): Promise<Array<{ pool_id: string; apy: number | null }>> {
+    if (!pool) {
+      throw new Error('Database pool not initialized')
+    }
+
+    // This query:
+    // 1. Gets all unique pool addresses from backstop_events
+    // 2. For each pool, calculates cumulative LP tokens and shares over time
+    // 3. Computes share_rate = total_lp_tokens / total_shares at period start and end
+    // 4. Calculates APY from the rate change
+    const result = await pool.query(
+      `
+      WITH pools AS (
+        SELECT DISTINCT pool_address
+        FROM backstop_events
+      ),
+      pool_cumulative AS (
+        SELECT
+          pool_address,
+          ledger_closed_at::date AS event_date,
+          SUM(CASE
+            WHEN action_type IN ('deposit', 'donate') THEN lp_tokens::numeric
+            WHEN action_type IN ('withdraw', 'draw') THEN -COALESCE(lp_tokens::numeric, 0)
+            ELSE 0
+          END) OVER (PARTITION BY pool_address ORDER BY ledger_closed_at::date) / 1e7 as cumulative_lp_tokens,
+          SUM(CASE
+            WHEN action_type = 'deposit' THEN shares::numeric
+            WHEN action_type = 'withdraw' THEN -shares::numeric
+            ELSE 0
+          END) OVER (PARTITION BY pool_address ORDER BY ledger_closed_at::date) / 1e7 as cumulative_shares
+        FROM backstop_events
+      ),
+      daily_state AS (
+        SELECT DISTINCT ON (pool_address, event_date)
+          pool_address,
+          event_date,
+          cumulative_lp_tokens,
+          cumulative_shares,
+          CASE
+            WHEN cumulative_shares > 0 THEN cumulative_lp_tokens / cumulative_shares
+            ELSE NULL
+          END as share_rate
+        FROM pool_cumulative
+        ORDER BY pool_address, event_date DESC, cumulative_lp_tokens DESC
+      ),
+      period_bounds AS (
+        SELECT
+          pool_address,
+          (
+            SELECT share_rate FROM daily_state ds
+            WHERE ds.pool_address = p.pool_address
+              AND ds.event_date <= CURRENT_DATE - $1::integer
+            ORDER BY event_date DESC
+            LIMIT 1
+          ) as start_rate,
+          (
+            SELECT event_date FROM daily_state ds
+            WHERE ds.pool_address = p.pool_address
+              AND ds.event_date <= CURRENT_DATE - $1::integer
+            ORDER BY event_date DESC
+            LIMIT 1
+          ) as start_date,
+          (
+            SELECT share_rate FROM daily_state ds
+            WHERE ds.pool_address = p.pool_address
+              AND ds.event_date < CURRENT_DATE  -- Exclude incomplete current day
+            ORDER BY event_date DESC
+            LIMIT 1
+          ) as end_rate,
+          (
+            SELECT event_date FROM daily_state ds
+            WHERE ds.pool_address = p.pool_address
+              AND ds.event_date < CURRENT_DATE  -- Exclude incomplete current day
+            ORDER BY event_date DESC
+            LIMIT 1
+          ) as end_date
+        FROM pools p
+      )
+      SELECT
+        pool_address as pool_id,
+        CASE
+          WHEN start_rate > 0 AND end_rate > 0 AND end_date > start_date
+          THEN (POWER(end_rate / start_rate, 365.0 / (end_date - start_date)) - 1) * 100
+          ELSE NULL
+        END as apy
+      FROM period_bounds
+      `,
+      [days]
+    )
+
+    return result.rows.map((row) => ({
+      pool_id: row.pool_id,
+      apy: row.apy ? parseFloat(row.apy) : null,
+    }))
   }
 
   /**

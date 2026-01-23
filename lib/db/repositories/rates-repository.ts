@@ -93,17 +93,26 @@ export class RatesRepository extends BaseRepository {
             ORDER BY rate_date ASC
             ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
           ) as end_rate,
-          COUNT(*) OVER (PARTITION BY pool_id, asset_address) as day_count
+          FIRST_VALUE(rate_date) OVER (
+            PARTITION BY pool_id, asset_address
+            ORDER BY rate_date ASC
+          ) as start_date,
+          LAST_VALUE(rate_date) OVER (
+            PARTITION BY pool_id, asset_address
+            ORDER BY rate_date ASC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+          ) as end_date
         FROM daily_rates
         WHERE rate_date >= CURRENT_DATE - $1::integer
+          AND rate_date < CURRENT_DATE  -- Exclude incomplete current day
           AND b_rate IS NOT NULL
       )
       SELECT DISTINCT
         pool_id,
         asset_address,
         CASE
-          WHEN start_rate > 0 AND end_rate > 0 AND day_count > 1
-          THEN (POWER(end_rate / start_rate, 365.0 / day_count) - 1) * 100
+          WHEN start_rate > 0 AND end_rate > 0 AND end_date > start_date
+          THEN (POWER(end_rate / start_rate, 365.0 / (end_date - start_date)) - 1) * 100
           ELSE NULL
         END as apy
       FROM period_bounds

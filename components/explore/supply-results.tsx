@@ -104,7 +104,7 @@ function SupplyRowCharts({ item }: { item: SupplyExploreItem }) {
           <ApySparkline
             poolId={item.poolId}
             assetAddress={item.assetAddress}
-            currentApy={item.supplyApy ?? undefined}
+            currentApy={item.currentSupplyApy ?? undefined}
             className="h-12 w-full"
           />
         </div>

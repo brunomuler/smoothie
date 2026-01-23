@@ -11,7 +11,8 @@ export interface SupplyExploreItem {
   tokenSymbol: string
   tokenName: string | null
   iconUrl: string | null
-  supplyApy: number | null
+  supplyApy: number | null // Period-filtered APY (or current if period='current')
+  currentSupplyApy: number | null // Always the current SDK APY for sparkline today value
   blndApy: number | null
   totalSupplied: number | null
   totalBorrowed: number | null
