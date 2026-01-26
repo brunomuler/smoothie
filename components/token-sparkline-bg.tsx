@@ -158,14 +158,8 @@ export function TokenSparkline({
     return data
   }, [priceHistory, currentPrice, tokenAddress, period])
 
-  // For 24h, compare only the last 2 data points (yesterday vs today)
-  // For longer periods, compare first vs last to show full period change
-  const { trend } = useMemo(() => {
-    if (period === "24h" && chartData.length > 2) {
-      return calculatePriceChange(chartData.slice(-2))
-    }
-    return calculatePriceChange(chartData)
-  }, [chartData, period])
+  // TokenSparkline is not rendered for 24h (returns null above), so always compare first vs last
+  const { trend } = useMemo(() => calculatePriceChange(chartData), [chartData])
 
   if (!chartData?.length) {
     return null
