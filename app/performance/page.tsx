@@ -28,6 +28,9 @@ import { PnlChangeChart } from "@/components/pnl-change-chart"
 import { usePnlChangeChart, type PnlPeriodType } from "@/hooks/use-pnl-change-chart"
 import { usePnlChangeChartMulti } from "@/hooks/use-pnl-change-chart-multi"
 
+const YIELDBLOX_POOL_ID = "CCCCIQSDILITHMM7PBSLVDT5MISSY7R26MNZXCX4H7J5JQ5FPIYOGYFS"
+const YIELDBLOX_INCIDENT_LINK = "https://x.com/script3official/status/2025403423840141450"
+
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
   return date.toLocaleDateString("en-US", {
@@ -651,7 +654,30 @@ function RealizedYieldContent() {
 
   // Determine display state based on whether user has current positions
   const hasCurrentPositions = unrealizedData.totalCurrentUsd > 0
-  const totalPnlPositive = displayPnl.totalPnl >= 0
+  const cashflowTotalPnl = useMemo(() => {
+    if (!data) return 0
+    return unrealizedData.totalCurrentUsd + data.totalWithdrawnUsd - data.totalDepositedUsd
+  }, [data, unrealizedData.totalCurrentUsd])
+  const displayTotalPnl = hasBorrows ? displayPnl.totalPnl : cashflowTotalPnl
+  const totalPnlPositive = displayTotalPnl >= 0
+  const hasOrHadYieldBloxExposure = useMemo(() => {
+    const isYieldBloxName = (name?: string | null) =>
+      typeof name === "string" && name.toLowerCase().replace(/\s+/g, "").includes("yieldblox")
+
+    if (blendSnapshot?.positions?.some(pos => pos.poolId === YIELDBLOX_POOL_ID || isYieldBloxName(pos.poolName))) {
+      return true
+    }
+
+    if (backstopPositions?.some(pos => pos.poolId === YIELDBLOX_POOL_ID || isYieldBloxName(pos.poolName))) {
+      return true
+    }
+
+    if (data?.transactions?.some(tx => tx.poolId === YIELDBLOX_POOL_ID || isYieldBloxName(tx.poolName))) {
+      return true
+    }
+
+    return false
+  }, [blendSnapshot?.positions, backstopPositions, data?.transactions])
 
   const handleRefresh = useCallback(async () => {
     capture('pull_to_refresh', { page: 'performance' })
@@ -673,6 +699,23 @@ function RealizedYieldContent() {
         <PageTitle badge="Beta">Performance</PageTitle>
 
         <div className="space-y-4 sm:space-y-6">
+        {hasOrHadYieldBloxExposure && (
+          <Card className="border-amber-500/40 bg-amber-500/5 py-2 gap-0">
+            <CardContent className="py-0 text-sm text-amber-700 dark:text-amber-300">
+              Some pool events related to the recent incident with  the Yieldblox pool may be missing from this page&apos;s
+              calculations, so performance figures may be inaccurate.{" "}
+              <a
+                href={YIELDBLOX_INCIDENT_LINK}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-4 hover:opacity-80"
+              >
+                Learn more
+              </a>
+              .
+            </CardContent>
+          </Card>
+        )}
         {(isLoading || !sdkReady) ? (
           <div className="space-y-4 sm:space-y-6">
             {/* Hero Summary Card Skeleton */}
@@ -884,19 +927,19 @@ function RealizedYieldContent() {
                         </p>
                         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
                           <p className={`text-2xl sm:text-3xl font-bold tabular-nums ${totalPnlPositive ? "text-emerald-400" : "text-red-400"}`}>
-                            {totalPnlPositive ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
+                            {totalPnlPositive ? "+" : ""}{formatUsd(displayTotalPnl)}
                           </p>
                           {data.totalDepositedUsd > 0 && (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Badge variant="outline" className={`cursor-help ${totalPnlPositive ? "text-emerald-400 border-emerald-400/30" : "text-red-400 border-red-400/30"}`}>
-                                  {totalPnlPositive ? "+" : ""}{((displayPnl.totalPnl / data.totalDepositedUsd) * 100).toFixed(1)}%
+                                  {totalPnlPositive ? "+" : ""}{((displayTotalPnl / data.totalDepositedUsd) * 100).toFixed(1)}%
                                 </Badge>
                               </TooltipTrigger>
                               <TooltipContent>
                                 {data.daysActive && data.daysActive > 0 ? (
                                   <>
-                                    {((Math.pow(1 + displayPnl.totalPnl / data.totalDepositedUsd, 365 / data.daysActive) - 1) * 100).toFixed(1)}% APY
+                                    {((Math.pow(1 + displayTotalPnl / data.totalDepositedUsd, 365 / data.daysActive) - 1) * 100).toFixed(1)}% APY
                                     <span className="text-muted-foreground ml-1">({data.daysActive}d)</span>
                                   </>
                                 ) : (
@@ -1322,11 +1365,11 @@ function RealizedYieldContent() {
                             label="Total P&L"
                             tooltip={hasBorrows
                               ? "Net profit: Supply Yield + Emissions - Borrow Costs"
-                              : "Total profit: Yield + Emissions"}
+                              : "Total profit: (Current Value + Withdrawn) - Deposited"}
                           />
                         </p>
-                        <p className={`text-lg font-bold tabular-nums ${displayPnl.totalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                          {displayPnl.totalPnl >= 0 ? "+" : ""}{formatUsd(displayPnl.totalPnl)}
+                        <p className={`text-lg font-bold tabular-nums ${displayTotalPnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                          {displayTotalPnl >= 0 ? "+" : ""}{formatUsd(displayTotalPnl)}
                         </p>
                       </div>
                     </>

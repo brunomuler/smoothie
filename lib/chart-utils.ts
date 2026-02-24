@@ -394,14 +394,12 @@ export function generateProjectionData(
     const regularPerBlndPeriod = Math.pow(1 + regularWeeklyRate, REGULAR_COMPOUND_FREQUENCY / blndCompoundFrequency) - 1
 
     for (let month = 1; month <= totalMonths; month++) {
-      // Regular APY compounds weekly (for the "regular only" comparison)
-      // Apply ~4.33 weeks of compounding per month
-      for (let i = 0; i < weeksPerMonth; i++) {
-        regularOnlyBalance = regularOnlyBalance * (1 + regularWeeklyRate)
-        // Update per-pool trackers
-        for (const tracker of poolTrackers) {
-          tracker.regularOnlyBalance = tracker.regularOnlyBalance * (1 + tracker.weeklyRate)
-        }
+      // Regular APY compounds on the same fractional weekly basis used elsewhere.
+      // Using an integer loop here over-compounds (~5x/month) and can explode high-APY projections.
+      regularOnlyBalance = regularOnlyBalance * Math.pow(1 + regularWeeklyRate, weeksPerMonth)
+      // Update per-pool trackers
+      for (const tracker of poolTrackers) {
+        tracker.regularOnlyBalance = tracker.regularOnlyBalance * Math.pow(1 + tracker.weeklyRate, weeksPerMonth)
       }
 
       if (blndReinvest) {

@@ -47,15 +47,6 @@ export function LandingPage({
 
       {/* Content */}
       <div className="relative z-10 min-h-screen flex flex-col p-4 sm:p-6 md:p-8">
-        {/* Informational disclaimer */}
-        <div className="mx-auto w-full max-w-4xl rounded-xl border border-white/20 bg-black/50 px-4 py-3 text-left text-xs sm:text-sm text-white/90 backdrop-blur">
-          <p>
-            Informational use only. Smoothie does not provide financial, investment, legal, or tax advice.
-            Data may be delayed, incomplete, or out of date, and no accuracy or completeness is guaranteed.
-            Verify information independently before taking any on-chain action.
-          </p>
-        </div>
-
         {/* Main Content */}
         <main className="flex-1 flex flex-col items-center justify-center px-4 text-center">
           {/* Circular blur backdrop */}

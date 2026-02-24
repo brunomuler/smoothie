@@ -51,6 +51,9 @@ import { ApySimulatorContainer } from "@/components/apy-simulator";
 import { useHistoricalYieldBreakdown } from "@/hooks/use-historical-yield-breakdown";
 import type { YieldBreakdown } from "@/components/yield-display";
 
+const YIELDBLOX_POOL_ID = "CCCCIQSDILITHMM7PBSLVDT5MISSY7R26MNZXCX4H7J5JQ5FPIYOGYFS";
+const YIELDBLOX_INCIDENT_LINK = "https://x.com/script3official/status/2025403423840141450";
+
 // Extended position type with yield data
 interface PositionWithYield extends BlendReservePosition {
   earnedYield: number;
@@ -1448,6 +1451,24 @@ export default function PoolDetailsPage() {
 
         <main className="container max-w-3xl mx-auto px-4 py-6">
           <div className="space-y-6">
+            {poolId === YIELDBLOX_POOL_ID && (
+              <Card className="border-amber-500/40 bg-amber-500/5 py-2 gap-0">
+                <CardContent className="py-0 text-sm text-amber-700 dark:text-amber-300">
+                  Some pool events related to the recent incident with  the Yieldblox pool may be missing from this page&apos;s
+                  calculations, so performance figures may be inaccurate.{" "}
+                  <a
+                    href={YIELDBLOX_INCIDENT_LINK}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-4 hover:opacity-80"
+                  >
+                    Learn more
+                  </a>
+                  .
+                </CardContent>
+              </Card>
+            )}
+
             {/* Summary Stats */}
             <PoolSummary estimate={poolData.estimate} formatUsd={formatUsd} />
 
